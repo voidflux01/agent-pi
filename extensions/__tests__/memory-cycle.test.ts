@@ -42,7 +42,7 @@ describe("memory-cycle helpers", () => {
 
 	describe("getProjectName", () => {
 		it("extracts basename from path", () => {
-			expect(getProjectName("/Users/ricardo/projects/my-app")).toBe("my-app");
+			expect(getProjectName("/home/user/projects/my-app")).toBe("my-app");
 		});
 
 		it("handles root-level paths", () => {

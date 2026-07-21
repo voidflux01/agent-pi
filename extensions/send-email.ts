@@ -134,8 +134,15 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Last resort: use the MCP client directly
+				const { resolveCommanderServerPath, COMMANDER_SERVER_PATH_ENV } = await import("./lib/commander-server-path.ts");
+				const serverPath = resolveCommanderServerPath();
+				if (!serverPath) {
+					return {
+						content: [{ type: "text" as const, text: `Email sending failed: Commander MCP not configured — set ${COMMANDER_SERVER_PATH_ENV} to the path of commander-mcp's server.js` }],
+						details: { success: false, error: "commander_mcp_not_configured" },
+					};
+				}
 				const McpClientModule = await import("./lib/mcp-client.ts");
-				const serverPath = "/Users/ricardo/Workshop/Github-Work/commander/services/commander-mcp/dist/server.js";
 				const client = new McpClientModule.McpClient(serverPath, {
 					COMMANDER_WS_URL: process.env.COMMANDER_WS_URL || "ws://localhost:9002",
 					AGENTMAIL_API_KEY: process.env.AGENTMAIL_API_KEY || "",

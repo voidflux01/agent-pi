@@ -51,7 +51,7 @@ function thinkingIndicator(level: string | undefined, theme: any): string {
 	return theme.fg("dim", "thinking: ") + theme.fg(color, theme.bold(label));
 }
 
-/** Last two path components: "Github-Work/pi-vs-claude-code" */
+/** Last two path components: "projects/agent-pi" */
 function shortDir(cwd: string): string {
 	const child = basename(cwd);
 	const parent = basename(dirname(cwd));
