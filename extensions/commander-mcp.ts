@@ -5,10 +5,11 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { McpClient } from "./lib/mcp-client.ts";
 import { createReadyGate, resolveGate, resetGate } from "./lib/commander-ready.ts";
+import { resolveCommanderServerPath, COMMANDER_SERVER_PATH_ENV } from "./lib/commander-server-path.ts";
 
 // ── Configuration ───────────────────────────────────────────────────
 
-const SERVER_PATH = "/Users/ricardo/Workshop/Github-Work/commander/services/commander-mcp/dist/server.js";
+const SERVER_PATH = resolveCommanderServerPath();
 const SERVER_ENV: Record<string, string> = {
 	COMMANDER_WS_URL: process.env.COMMANDER_WS_URL || "ws://localhost:9002",
 	JIRA_URL: process.env.JIRA_URL || "",
@@ -459,6 +460,11 @@ export default function (pi: ExtensionAPI) {
 			parameters: TOOL_PARAMS[tool.name] || TaskParams,
 
 			async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+				if (!SERVER_PATH) {
+					return {
+						content: [{ type: "text" as const, text: `Commander MCP not configured — set ${COMMANDER_SERVER_PATH_ENV} to the path of commander-mcp's server.js` }],
+					};
+				}
 				try {
 					await ensureConnected();
 					const isLightweight = tool.name === "commander_mailbox";
@@ -482,6 +488,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	async function probeCommander(ctx: any) {
+		if (!SERVER_PATH) {
+			g.__piCommanderAvailable = false;
+			ctx.ui.setStatus("Commander: not configured", "commander");
+			resolveGate(gate, false);
+			return;
+		}
 		try {
 			await client.connect();
 			// Lightweight probe — 3s timeout

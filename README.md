@@ -220,6 +220,31 @@ A lightweight, zero-dependency text manipulation app bundled in `tex/`. Open it 
 - **No backend, no build step** — single HTML page, works offline
 - **Dark theme** — matches the terminal aesthetic
 
+## Configuration
+
+### Model routing (`models.json`)
+
+Agent-to-model assignments are resolved from the first matching file, in this order:
+
+1. `<project>/.pi/agents/models.json` — per-project override
+2. `~/.pi/agents/models.json` or `~/.pi/agent/agents/models.json` — user-level override
+3. `agents/models.json` in this package — bundled defaults
+
+The bundled defaults reference models across several providers — create a user-level
+`models.json` to route agents to the providers/models available in your setup.
+`toolkit-models.json` follows the same resolution order.
+
+### Commander MCP (optional)
+
+The `commander-mcp` bridge is optional and off by default. To enable it, point
+`COMMANDER_MCP_SERVER_PATH` at your commander-mcp build:
+
+```bash
+export COMMANDER_MCP_SERVER_PATH="/path/to/commander/services/commander-mcp/dist/server.js"
+```
+
+When unset, Commander tools report "not configured" instead of trying to spawn a server.
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -228,6 +253,7 @@ A lightweight, zero-dependency text manipulation app bundled in `tex/`. Open it 
 | No themes available | Same as above — themes are auto-discovered from the package |
 | Shift+Tab not working | Ensure mode-cycler extension loaded — check `pi config` |
 | No chains/pipelines | Agent configs at `agents/` are loaded automatically by extensions |
+| Agents use unexpected models | Add a user-level `models.json` — see [Configuration](#configuration) |
 
 ## Built on Pi
 

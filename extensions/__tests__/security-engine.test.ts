@@ -2,8 +2,9 @@
 // ABOUTME: Covers command scanning, path protection, prompt injection detection, exfiltration patterns, and allowlist logic.
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import {
 	scanCommand,
 	scanFilePath,
@@ -980,13 +981,20 @@ describe("detectSystemPromptLeakage", () => {
 // Bracket & Markdown Injection False Positive Tests
 // ═══════════════════════════════════════════════════════════════════
 
-describe("bracket and markdown injection patterns (loaded policy)", () => {
+// Same search order as loadPolicy in lib/security-engine.ts — skip the suite
+// when no policy file exists on this machine instead of assuming a local layout.
+const POLICY_YAML_CANDIDATES = [
+	join(__dirname, "..", "..", ".pi", "security-policy.yaml"),
+	join(homedir(), ".pi", "agent", ".pi", "security-policy.yaml"),
+];
+const policyYamlPath = POLICY_YAML_CANDIDATES.find((p) => existsSync(p));
+
+describe.skipIf(!policyYamlPath)("bracket and markdown injection patterns (loaded policy)", () => {
 	let policy: SecurityPolicy;
 
 	// Use the real policy from YAML so we test the actual patterns
 	beforeAll(() => {
-		const yamlPath = join(__dirname, "..", "..", "..", ".pi", "security-policy.yaml");
-		const raw = readFileSync(yamlPath, "utf-8");
+		const raw = readFileSync(policyYamlPath!, "utf-8");
 		policy = parseSecurityYaml(raw);
 	});
 

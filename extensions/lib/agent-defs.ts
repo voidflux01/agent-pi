@@ -3,6 +3,7 @@
 
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
+import { homedir } from "os";
 import { isToolkitCliAgent, TOOLKIT_WORKER_MODEL } from "./toolkit-cli.ts";
 
 export interface AgentDef {
@@ -34,8 +35,23 @@ const HARDCODED_DEFAULT: AgentModelEntry = {
 };
 
 /**
+ * User-level config locations inside the Pi home directory, tried after the
+ * project-local config but before the extension package's bundled defaults.
+ * Covers both layouts seen in the wild: ~/.pi/agents/ and ~/.pi/agent/agents/.
+ */
+function userConfigPaths(filename: string): string[] {
+	// Prefer env vars over homedir() — same resolution order, but env vars
+	// stay overridable in worker threads (homedir() ignores mutations there).
+	const home = process.env.HOME || process.env.USERPROFILE || homedir();
+	return [
+		join(home, ".pi", "agents", filename),
+		join(home, ".pi", "agent", "agents", filename),
+	];
+}
+
+/**
  * Load agent model/provider config from .pi/agents/models.json.
- * Searches cwd first, then extProjectDir.
+ * Searches cwd first, then the user's ~/.pi config, then extProjectDir.
  * Returns the parsed config, or a minimal default if not found.
  */
 function loadModelsConfigFromPaths(paths: string[]): AgentModelsConfig {
@@ -56,6 +72,7 @@ function loadModelsConfigFromPaths(paths: string[]): AgentModelsConfig {
 export function loadAgentModelsConfig(cwd: string, extProjectDir?: string): AgentModelsConfig {
 	return loadModelsConfigFromPaths([
 		join(cwd, ".pi", "agents", "models.json"),
+		...userConfigPaths("models.json"),
 		...(extProjectDir ? [join(extProjectDir, ".pi", "agents", "models.json"), join(extProjectDir, "agents", "models.json")] : []),
 	]);
 }
@@ -63,6 +80,7 @@ export function loadAgentModelsConfig(cwd: string, extProjectDir?: string): Agen
 export function loadToolkitModelsConfig(cwd: string, extProjectDir?: string): AgentModelsConfig {
 	return loadModelsConfigFromPaths([
 		join(cwd, ".pi", "agents", "toolkit-models.json"),
+		...userConfigPaths("toolkit-models.json"),
 		...(extProjectDir ? [join(extProjectDir, ".pi", "agents", "toolkit-models.json"), join(extProjectDir, "agents", "toolkit-models.json")] : []),
 	]);
 }

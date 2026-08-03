@@ -10,4 +10,5 @@ export const Type = {
 	Literal: (value: any) => ({ type: "literal", const: value }),
 	Union: (items: any[], options?: any) => ({ type: "union", anyOf: items, ...options }),
 	Enum: (enumObj: any) => ({ type: "enum", enum: Object.values(enumObj) }),
+	Unknown: (options?: any) => ({ type: "unknown", ...options }),
 };

@@ -239,7 +239,7 @@ RST="\\033[0m"
 
 clear
 echo ""
-echo -e " \${ACCENT}opus 4\${RST} \${DIM}|\${RST} \${DIM}42%\${RST} \${DIM}|\${RST} \${DIM}Github-Work/pi-agent\${RST}"
+echo -e " \${ACCENT}opus 4\${RST} \${DIM}|\${RST} \${DIM}42%\${RST} \${DIM}|\${RST} \${DIM}projects/agent-pi\${RST}"
 `;
 
 	const scriptPath = writeHelperScript(captureDir, absCaptureDir, `footer-${ts}`, script);
