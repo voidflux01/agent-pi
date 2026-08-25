@@ -34,6 +34,11 @@ const HARDCODED_DEFAULT: AgentModelEntry = {
 	model: "claude-haiku-4-5-20251001",
 };
 
+const INHERIT_PARENT_DEFAULT: AgentModelEntry = {
+	provider: "",
+	model: "",
+};
+
 /**
  * User-level config locations inside the Pi home directory, tried after the
  * project-local config but before the extension package's bundled defaults.
@@ -54,7 +59,10 @@ function userConfigPaths(filename: string): string[] {
  * Searches cwd first, then the user's ~/.pi config, then extProjectDir.
  * Returns the parsed config, or a minimal default if not found.
  */
-function loadModelsConfigFromPaths(paths: string[]): AgentModelsConfig {
+function loadModelsConfigFromPaths(
+	paths: string[],
+	fallback: AgentModelEntry = HARDCODED_DEFAULT,
+): AgentModelsConfig {
 	for (const p of paths) {
 		if (existsSync(p)) {
 			try {
@@ -66,7 +74,18 @@ function loadModelsConfigFromPaths(paths: string[]): AgentModelsConfig {
 			} catch {}
 		}
 	}
-	return { default: HARDCODED_DEFAULT, agents: {} };
+	return { default: fallback, agents: {} };
+}
+
+/**
+ * Load only model routing the user explicitly supplied for this project or
+ * their Pi home. Package-bundled assignments are deliberately excluded.
+ */
+export function loadExplicitAgentModelsConfig(cwd: string): AgentModelsConfig {
+	return loadModelsConfigFromPaths([
+		join(cwd, ".pi", "agents", "models.json"),
+		...userConfigPaths("models.json"),
+	], INHERIT_PARENT_DEFAULT);
 }
 
 export function loadAgentModelsConfig(cwd: string, extProjectDir?: string): AgentModelsConfig {

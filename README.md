@@ -230,9 +230,11 @@ Agent-to-model assignments are resolved from the first matching file, in this or
 2. `~/.pi/agents/models.json` or `~/.pi/agent/agents/models.json` — user-level override
 3. `agents/models.json` in this package — bundled defaults
 
-The bundled defaults reference models across several providers — create a user-level
-`models.json` to route agents to the providers/models available in your setup.
-`toolkit-models.json` follows the same resolution order.
+The bundled defaults reference models across several providers. Chain execution is
+consent-preserving: ordinary bundled chain roles inherit the provider/model that
+launched the Pi session. A project/user `models.json` entry or an agent's explicit
+`model:` frontmatter may intentionally route a chain step elsewhere.
+`toolkit-models.json` follows the same file resolution order.
 
 ### Commander MCP (optional)
 

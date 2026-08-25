@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { loadAgentModelsConfig } from "../lib/agent-defs.ts";
+import { loadAgentModelsConfig, loadExplicitAgentModelsConfig } from "../lib/agent-defs.ts";
 
 function writeModelsJson(dir: string, defaultModel: string): void {
 	mkdirSync(dir, { recursive: true });
@@ -73,6 +73,23 @@ describe("loadAgentModelsConfig user-level config", () => {
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}
+	});
+
+	it("loads project/user routing without consulting package defaults", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-cwd-"));
+		try {
+			writeModelsJson(join(cwd, ".pi", "agents"), "explicit-project-model");
+			const config = loadExplicitAgentModelsConfig(cwd);
+			expect(config.default.model).toBe("explicit-project-model");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("returns an inheritance marker when no explicit routing exists", () => {
+		const config = loadExplicitAgentModelsConfig("/nonexistent/cwd");
+		expect(config.default).toEqual({ provider: "", model: "" });
+		expect(config.agents).toEqual({});
 	});
 
 	it("skips user-level files that do not match the agents-config schema", () => {

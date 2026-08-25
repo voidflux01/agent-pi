@@ -36,8 +36,8 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
-import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
 
 // ── Types ────────────────────────────────────────
@@ -86,8 +86,8 @@ function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfig): Age
 		let model = "";
 		if (modelsConfig) {
 			const key = frontmatter.name.toLowerCase();
-			const entry = modelsConfig.agents[key];
-			if (entry) {
+			const entry = modelsConfig.agents[key] || modelsConfig.default;
+			if (entry?.model) {
 				model = resolveAgentModelString(frontmatter.name, modelsConfig);
 			}
 		}
@@ -148,6 +148,7 @@ export default function (pi: ExtensionAPI) {
 	let activeChain: ChainDef | null = null;
 	let widgetCtx: any;
 	let sessionDir = "";
+	let launchModel = "";
 	const agentSessions: Map<string, string | null> = new Map();
 
 	// Per-step state for the active chain
@@ -167,8 +168,9 @@ export default function (pi: ExtensionAPI) {
 			mkdirSync(sessionDir, { recursive: true });
 		}
 
-		// Load model config from .pi/agents/models.json, then scan agent .md files
-		const modelsConfig = loadAgentModelsConfig(cwd, extProjectDir);
+		// Only project/user routing is explicit. Do not let this package's bundled
+		// cross-provider assignments silently override the launching Pi model.
+		const modelsConfig = loadExplicitAgentModelsConfig(cwd);
 		allAgents = scanAgentDirs(cwd, extProjectDir, modelsConfig);
 
 		agentSessions.clear();
@@ -292,10 +294,13 @@ export default function (pi: ExtensionAPI) {
 		stepIndex: number,
 		ctx: any,
 	): Promise<{ output: string; exitCode: number; elapsed: number }> {
-		// Use agent's defined model or fall back to default subagent model.
-		// NOTE: We intentionally do NOT inherit the parent model. Each agent
-		// should use its explicitly defined model or the lightweight default.
-		const model = resolveToolkitWorkerModel(agentDef.name, agentDef.model || DEFAULT_SUBAGENT_MODEL);
+		// Explicit project/user/frontmatter routing wins. Otherwise preserve the
+		// provider/model that launched the parent Pi session.
+		const model = resolveInheritedModel(
+			agentDef.model,
+			launchModel || providerModelString(ctx.model),
+			DEFAULT_SUBAGENT_MODEL,
+		);
 
 		const agentKey = agentDef.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `chain-${agentKey}.json`);
@@ -1206,6 +1211,7 @@ ${agentCatalog}
 
 	pi.on("session_start", async (_event, _ctx) => {
 		applyExtensionDefaults(import.meta.url, _ctx);
+		launchModel = providerModelString(_ctx.model);
 		// Clear widget with both old and new ctx — one of them will be valid
 		if (widgetCtx) {
 			widgetCtx.ui.setWidget("agent-chain", undefined);
