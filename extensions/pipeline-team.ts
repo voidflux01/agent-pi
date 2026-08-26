@@ -966,11 +966,11 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── Ctrl+J Shortcut ──────────────────────────
+		// ── /pipeline-grid command ────────────────────
 
-	pi.registerShortcut("ctrl+v", {
+	pi.registerCommand("pipeline-grid", {
 		description: "Open agent grid overlay",
-		handler: async (ctx) => {
+		handler: async (_args, ctx) => {
 			const agents = collectOverlayAgents();
 			if (agents.length === 0) {
 				ctx.ui.notify("No agents to inspect", "info");
@@ -990,6 +990,7 @@ export default function (pi: ExtensionAPI) {
 			});
 		},
 	});
+;
 
 	// ── Alt+P Shortcut ──────────────────────────
 
