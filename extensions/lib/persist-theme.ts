@@ -2,10 +2,12 @@
 // Called by theme-cycler after each successful setTheme() call
 
 import { readFileSync, writeFileSync } from "fs";
-import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import { homedir } from "os";
+import { resolve } from "path";
 
-const DEFAULT_SETTINGS_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../settings.json");
+// Persist to the user's global Pi settings (~/.pi/agent/settings.json),
+// not a path relative to this extension's install location.
+const DEFAULT_SETTINGS_PATH = resolve(homedir(), ".pi", "agent", "settings.json");
 
 /**
  * Write the chosen theme name into settings.json so it survives restarts.

@@ -81,6 +81,15 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 		return true; // Pretend we succeeded, but don't overwrite the primary theme
 	}
 
+	// Respect a user-selected theme: if the current theme is already a real
+	// named theme (not Pi's initial dark/light/auto detection), don't override
+	// it on every session start. This keeps /theme and ctrl+x/q changes
+	// persistent across restarts.
+	const currentTheme = ctx.ui.theme?.name;
+	if (currentTheme && currentTheme !== "dark" && currentTheme !== "light" && currentTheme !== "auto") {
+		return true;
+	}
+
 	let themeName = THEME_MAP[name];
 	
 	if (!themeName) {
