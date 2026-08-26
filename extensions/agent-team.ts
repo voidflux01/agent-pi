@@ -199,6 +199,7 @@ export default function (pi: ExtensionAPI) {
 	let activeTeamName = "";
 	let gridCols = 2;
 	let widgetCtx: any;
+	let sessionEpoch = 0;
 	let sessionDir = "";
 	let contextWindow = 0;
 	let widgetCompact = true;
@@ -206,6 +207,43 @@ export default function (pi: ExtensionAPI) {
 	let taskListState: TaskListState = { selectedIndex: -1, scrollOffset: 0 };
 	let nextWidgetId = 1;
 	const agentWidgetBoxes = new Map<number, { invalidate: () => void }>();
+
+	function isStaleCtxError(err: any): boolean {
+		const msg = String(err?.message ?? err ?? "");
+		return msg.includes("ctx is stale") || msg.includes("stale after session");
+	}
+
+	function safeUi(ctx: any, op: (ui: any) => void): boolean {
+		if (!ctx || ctx.hasUI === false || !ctx.ui) return false;
+		try {
+			op(ctx.ui);
+			return true;
+		} catch (err: any) {
+			if (isStaleCtxError(err)) {
+				if (widgetCtx === ctx) widgetCtx = undefined;
+				return false;
+			}
+			throw err;
+		}
+	}
+
+	function safeNotify(ctx: any, message: string, type?: string): void {
+		safeUi(ctx, (ui) => ui.notify(message, type));
+	}
+
+	function safeSetStatus(ctx: any, key: string, value: string): void {
+		safeUi(ctx, (ui) => ui.setStatus(key, value));
+	}
+
+	function safeSetWidget(ctx: any, key: string, renderer: any, options?: any): boolean {
+		return safeUi(ctx, (ui) => {
+			if (options === undefined) {
+				ui.setWidget(key, renderer);
+			} else {
+				ui.setWidget(key, renderer, options);
+			}
+		});
+	}
 
 	// ── Dark background colors for agent status (matches subagent-widget) ────
 	const STATUS_BG: Record<string, string> = {
@@ -299,10 +337,10 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Per-Agent Widget Rendering (subagent-style) ──────────────────
 
-	function registerAgentWidget(state: AgentState) {
-		if (!widgetCtx) return;
+	function registerAgentWidget(state: AgentState, ctx = widgetCtx) {
+		if (!ctx) return;
 		const key = `agent-${state.widgetId}`;
-		widgetCtx.ui.setWidget(key, (_tui: any, theme: any) => {
+		if (safeSetWidget(ctx, key, (_tui: any, theme: any) => {
 			const bgFn = (text: string): string => {
 				const bg = STATUS_BG[state.status] || STATUS_BG.running;
 				return `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
@@ -340,36 +378,39 @@ export default function (pi: ExtensionAPI) {
 					box.invalidate();
 				},
 			};
-		});
+		})) {
+			widgetCtx = ctx;
+		}
 	}
 
 	function invalidateAgentWidget(state: AgentState) {
 		agentWidgetBoxes.get(state.widgetId)?.invalidate();
 	}
 
-	function removeAgentWidget(state: AgentState) {
-		if (!widgetCtx) return;
-		widgetCtx.ui.setWidget(`agent-${state.widgetId}`, undefined);
+	function removeAgentWidget(state: AgentState, ctx = widgetCtx) {
+		if (!ctx) return;
+		safeSetWidget(ctx, `agent-${state.widgetId}`, undefined);
 		agentWidgetBoxes.delete(state.widgetId);
 	}
 
-	function removeAllAgentWidgets() {
-		if (!widgetCtx) return;
+	function removeAllAgentWidgets(ctx = widgetCtx) {
+		if (!ctx) return;
 		for (const state of agentStates.values()) {
-			widgetCtx.ui.setWidget(`agent-${state.widgetId}`, undefined);
+			safeSetWidget(ctx, `agent-${state.widgetId}`, undefined);
 		}
 		agentWidgetBoxes.clear();
 	}
 
 	// ── Combined Widget (task list only) ──────────────────────────────
 
-	function updateWidget() {
-		if (!widgetCtx) return;
+	function updateWidget(ctx = widgetCtx) {
+		if (!ctx) return;
+		widgetCtx = ctx;
 
 		// Task list widget (above editor)
 		const taskList = (globalThis as any).__piTaskList as TaskListInfo | null;
 		if (taskList && taskList.tasks.length > 0) {
-			widgetCtx.ui.setWidget("agent-team", (_tui: any, theme: any) => {
+			safeSetWidget(ctx, "agent-team", (_tui: any, theme: any) => {
 				const text = new Text("", 0, 0);
 
 				return {
@@ -404,14 +445,18 @@ export default function (pi: ExtensionAPI) {
 			}, { placement: "aboveEditor" });
 		} else {
 			// No task list — remove the combined widget
-			widgetCtx.ui.setWidget("agent-team", undefined);
+			safeSetWidget(ctx, "agent-team", undefined);
 		}
 
 		// Individual agent widgets are managed separately via registerAgentWidget/invalidateAgentWidget
 
 		// Re-pin mode bar as the last aboveEditor widget so it stays directly above the editor input.
 		// Without this, the agent-team widget (tasks) would render between the mode bar and the editor.
-		(globalThis as any).__piRefreshModeBlock?.();
+		try {
+			(globalThis as any).__piRefreshModeBlock?.();
+		} catch (err: any) {
+			if (!isStaleCtxError(err)) throw err;
+		}
 	}
 
 	// ── Dispatch Agent (returns Promise) ─────────
@@ -441,6 +486,10 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 
+		const runEpoch = sessionEpoch;
+		const runCwd = ctx?.cwd || process.cwd();
+		if (ctx?.hasUI) widgetCtx = ctx;
+
 		state.status = "running";
 		state.task = task;
 		state.toolCount = 0;
@@ -450,14 +499,19 @@ export default function (pi: ExtensionAPI) {
 		state.summary = undefined;
 		state.summaryLines = undefined;
 		state.runCount++;
-		registerAgentWidget(state);
-		updateWidget();
+		registerAgentWidget(state, ctx);
+		updateWidget(ctx);
 
 		const startTime = Date.now();
-		state.timer = setInterval(() => {
+		const timer = setInterval(() => {
+			if (runEpoch !== sessionEpoch) {
+				clearInterval(timer);
+				return;
+			}
 			state.elapsed = Date.now() - startTime;
 			invalidateAgentWidget(state);
 		}, 1000);
+		state.timer = timer;
 
 		// Use agent's defined model or fall back to default subagent model.
 		// NOTE: We intentionally do NOT inherit the parent model. Each agent
@@ -555,31 +609,40 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const finish = (code: number | null, stderrBuf: string) => {
-				state.proc = null;
-				clearInterval(state.timer);
-				state.elapsed = Date.now() - startTime;
-				state.status = code === 0 ? "done" : "error";
-
-				if (code === 0) {
-					state.sessionFile = agentSessionFile;
-				}
+				clearInterval(timer);
 
 				let full = textChunks.join("");
 				if ((code !== 0 && code !== null) && stderrBuf.trim()) {
 					if (isContextLossError(stderrBuf)) {
 						full = "Context overflow: agent session broke tool_use/tool_result pairing. Clear session and re-dispatch.";
-						state.sessionFile = null;
 					} else {
 						full = full.trim() ? `${full}\n\n--- stderr ---\n${stderrBuf.trim()}` : stderrBuf.trim();
 					}
 				}
+
+				const elapsed = Date.now() - startTime;
+				if (runEpoch !== sessionEpoch) {
+					resolve({ output: full, exitCode: code ?? 1, elapsed, model });
+					return;
+				}
+
+				state.proc = null;
+				state.elapsed = elapsed;
+				state.status = code === 0 ? "done" : "error";
+
+				if (code === 0) {
+					state.sessionFile = agentSessionFile;
+				} else if (isContextLossError(stderrBuf)) {
+					state.sessionFile = null;
+				}
+
 				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 				state.summary = state.lastWork;
 				state.summaryLines = full.split("\n").map((l: string) => l.trim()).filter(Boolean).slice(-3);
 				invalidateAgentWidget(state);
 
 				setTimeout(() => {
-					if (state.status !== "running") removeAgentWidget(state);
+					if (runEpoch === sessionEpoch && state.status !== "running") removeAgentWidget(state, ctx);
 				}, 30_000);
 
 				if (commanderAvailable && taskId !== undefined) {
@@ -592,7 +655,8 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
-				ctx.ui.notify(
+				safeNotify(
+					ctx,
 					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 					state.status === "done" ? "success" : "error"
 				);
@@ -601,6 +665,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const handleStdoutLine = (line: string) => {
+				if (runEpoch !== sessionEpoch) return;
 				try {
 					const event = JSON.parse(line);
 					if (event.type === "message_update") {
@@ -625,10 +690,10 @@ export default function (pi: ExtensionAPI) {
 							const level = contextBudgetLevel(state.contextPct);
 							if (level === "warn" && !state._warnSent) {
 								state._warnSent = true;
-								ctx.ui.notify(`${displayName(state.def.name)} Context: ${Math.round(state.contextPct)}%`, "info");
+								safeNotify(ctx, `${displayName(state.def.name)} Context: ${Math.round(state.contextPct)}%`, "info");
 							} else if (level === "critical" && !state._criticalWarned) {
 								state._criticalWarned = true;
-								ctx.ui.notify(`${displayName(state.def.name)} Context: ${Math.round(state.contextPct)}% — Agent will Cycle-Memory soon`, "info");
+								safeNotify(ctx, `${displayName(state.def.name)} Context: ${Math.round(state.contextPct)}% — Agent will Cycle-Memory soon`, "info");
 							}
 							invalidateAgentWidget(state);
 						}
@@ -648,7 +713,7 @@ export default function (pi: ExtensionAPI) {
 				spawnToolkitWorker(state.def, {
 					task,
 					sessionFile: agentSessionFile,
-					cwd: ctx.cwd,
+					cwd: runCwd,
 					env: spawnEnv,
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
@@ -659,7 +724,7 @@ export default function (pi: ExtensionAPI) {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
 				env: spawnEnv,
-				cwd: ctx.cwd,
+				cwd: runCwd,
 			});
 			state.proc = proc;
 
@@ -682,7 +747,7 @@ export default function (pi: ExtensionAPI) {
 				finish(code, stderrBuf);
 			});
 			proc.on("error", (err) => finish(1, `Error spawning agent: ${err.message}`));
-			proc.on("exit", () => { clearInterval(state.timer); });
+			proc.on("exit", () => { clearInterval(timer); });
 		});
 	}
 
@@ -796,7 +861,7 @@ export default function (pi: ExtensionAPI) {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
 			if (teamNames.length === 0) {
-				ctx.ui.notify("No teams defined in .pi/agents/teams.yaml", "warning");
+				safeNotify(ctx, "No teams defined in .pi/agents/teams.yaml", "warning");
 				return;
 			}
 
@@ -812,8 +877,8 @@ export default function (pi: ExtensionAPI) {
 			const name = teamNames[idx];
 			activateTeam(name);
 			updateWidget();
-			ctx.ui.setStatus("agent-team", `Team: ${name} (${agentStates.size})`);
-			ctx.ui.notify(`Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
+			safeSetStatus(ctx, "agent-team", `Team: ${name} (${agentStates.size})`);
+			safeNotify(ctx, `Team: ${name} — ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`, "info");
 		},
 	});
 
@@ -827,7 +892,7 @@ export default function (pi: ExtensionAPI) {
 					return `${displayName(s.def.name)} (${s.status}, ${session}, runs: ${s.runCount}): ${s.def.description}`;
 				})
 				.join("\n");
-			_ctx.ui.notify(names || "No agents loaded", "info");
+			safeNotify(_ctx, names || "No agents loaded", "info");
 		},
 	});
 
@@ -846,10 +911,10 @@ export default function (pi: ExtensionAPI) {
 			const n = parseInt(args?.trim() || "", 10);
 			if (n >= 1 && n <= 6) {
 				gridCols = n;
-				_ctx.ui.notify(`Grid set to ${gridCols} columns`, "info");
+				safeNotify(_ctx, `Grid set to ${gridCols} columns`, "info");
 				updateWidget();
 			} else {
-				_ctx.ui.notify("Usage: /agents-grid <1-6>", "error");
+				safeNotify(_ctx, "Usage: /agents-grid <1-6>", "error");
 			}
 		},
 	});
@@ -858,7 +923,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Clear agent team widget from screen",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
-			ctx.ui.setWidget("agent-team", undefined);
+			safeSetWidget(ctx, "agent-team", undefined);
 
 			// Remove all individual agent widgets
 			removeAllAgentWidgets();
@@ -879,7 +944,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			selectedAgentIndex = -1;
 
-			ctx.ui.notify("Agent team widget cleared.", "info");
+			safeNotify(ctx, "Agent team widget cleared.", "info");
 		},
 	});
 
@@ -1272,31 +1337,41 @@ ${agentCatalog}${commanderSection}`,
 		updateWidget();
 	});
 
+	// ── Clear session-bound UI references before replacement/reload ───────────
+
+	pi.on("session_shutdown", async (_event, _ctx) => {
+		sessionEpoch++;
+		for (const state of agentStates.values()) {
+			if (state.timer) clearInterval(state.timer);
+		}
+		safeSetWidget(_ctx, "agent-team", undefined);
+		removeAllAgentWidgets(_ctx);
+		widgetCtx = undefined;
+	});
+
 	// ── Reset agent boxes on /new ─────────────────────────────────────
 
 	pi.on("session_switch", async (_event, _ctx) => {
-		// /new fires session_switch — clear all agent boxes from previous session
-		if (widgetCtx) {
-			widgetCtx.ui.setWidget("agent-team", undefined);
-		}
-		removeAllAgentWidgets();
+		// /new fires session_switch — bind the replacement ctx before touching UI.
+		sessionEpoch++;
 		widgetCtx = _ctx;
+		safeSetWidget(_ctx, "agent-team", undefined);
+		removeAllAgentWidgets(_ctx);
 		for (const state of agentStates.values()) {
 			resetAgentState(state);
 		}
-		updateWidget();
+		updateWidget(_ctx);
 	});
 
 	// ── Session Start ────────────────────────────
 
 	pi.on("session_start", async (_event, _ctx) => {
+		sessionEpoch++;
 		applyExtensionDefaults(import.meta.url, _ctx);
-		// Clear widgets from previous session
-		if (widgetCtx) {
-			widgetCtx.ui.setWidget("agent-team", undefined);
-		}
-		removeAllAgentWidgets();
+		// Clear widgets using the current session ctx only.
 		widgetCtx = _ctx;
+		safeSetWidget(_ctx, "agent-team", undefined);
+		removeAllAgentWidgets(_ctx);
 		contextWindow = _ctx.model?.contextWindow || 0;
 
 		// Wipe old agent session files so subagents start fresh
@@ -1319,8 +1394,8 @@ ${agentCatalog}${commanderSection}`,
 
 		// All tools remain visible — dispatcher can use any registered tool directly
 
-		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
-		updateWidget();
+		safeSetStatus(_ctx, "agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
+		updateWidget(_ctx);
 
 		// ── Expose global hooks for escape-cancel integration ────────────
 		// Team agents also have running subprocesses that should be killed
