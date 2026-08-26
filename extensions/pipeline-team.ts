@@ -968,7 +968,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Ctrl+J Shortcut ──────────────────────────
 
-	pi.registerShortcut("ctrl+j", {
+	pi.registerShortcut("ctrl+k", {
 		description: "Open agent grid overlay",
 		handler: async (ctx) => {
 			const agents = collectOverlayAgents();

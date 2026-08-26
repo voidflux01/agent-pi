@@ -110,14 +110,6 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Shortcuts ---
 
-	pi.registerShortcut("ctrl+x", {
-		description: "Cycle theme forward",
-		handler: async (ctx) => {
-			currentCtx = ctx;
-			cycleTheme(ctx, 1);
-		},
-	});
-
 	pi.registerShortcut("ctrl+q", {
 		description: "Cycle theme backward",
 		handler: async (ctx) => {

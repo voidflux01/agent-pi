@@ -79,54 +79,6 @@ export default function (pi: ExtensionAPI) {
 		updateWidgets(mode, ctx);
 	}
 
-	// ── Shift+Tab: cycle forward ──────────────────
-
-	pi.registerShortcut("shift+tab", {
-		description: "Cycle operational mode",
-		handler: async (ctx) => {
-			setMode(nextMode(currentMode), ctx);
-		},
-	});
-
-	// ── /thinking command ─────────────────────────
-
-	const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
-
-	pi.registerCommand("thinking", {
-		description: "Set thinking level: /thinking or /thinking <LEVEL>",
-		handler: async (args, ctx) => {
-			if (!ctx.hasUI) return;
-
-			const arg = args.trim().toLowerCase();
-			if (arg && THINKING_LEVELS.includes(arg)) {
-				pi.setThinkingLevel(arg);
-				ctx.ui.notify(`Thinking: ${arg}`);
-				return;
-			}
-
-			if (arg) {
-				ctx.ui.notify(`Unknown level: ${arg}. Valid: ${THINKING_LEVELS.join(", ")}`, "error");
-				return;
-			}
-
-			// Picker
-			const current = pi.getThinkingLevel();
-			const items = THINKING_LEVELS.map(l => {
-				const active = l === current ? " (active)" : "";
-				return `${l}${active}`;
-			});
-			const selected = await ctx.ui.select("Select Thinking Level", items);
-			if (!selected) return;
-
-			const level = selected.split(/\s/)[0];
-			pi.setThinkingLevel(level);
-			ctx.ui.notify(`Thinking: ${level}`);
-		},
-		autocomplete: (partial) => {
-			return THINKING_LEVELS.filter(l => l.startsWith(partial.toLowerCase()));
-		},
-	});
-
 	// ── /mode command ─────────────────────────────
 
 	pi.registerCommand("mode", {
