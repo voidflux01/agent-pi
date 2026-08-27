@@ -36,10 +36,10 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { execFileSync } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Text } from "@mariozechner/pi-tui";
-import { execSync } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -48,6 +48,7 @@ import { fileURLToPath } from "url";
 
 const CAPTURE_DIR_NAME = "web-test-captures";
 const WORKER_NAME = "pi-web-test";
+const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024;
 
 // ── Types ────────────────────────────────────────
 
@@ -69,6 +70,27 @@ interface WebTestResult {
 }
 
 // ── Config Loading ───────────────────────────────
+
+export function validateRemoteWebUrl(value: string): string | null {
+	try {
+		const parsed = new URL(value);
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "Only http: and https: URLs are allowed.";
+		if (parsed.username || parsed.password) return "URLs with embedded credentials are not allowed.";
+		const host = parsed.hostname.toLowerCase().replace(/[\[\]]/g, "").replace(/\.$/, "");
+		const octets = host.split(".").map(Number);
+		const isIpv4 = octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255);
+		const privateIpv4 = isIpv4 && (octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+			(octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+			(octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+			(octets[0] === 192 && octets[1] === 168) || (octets[0] === 198 && octets[1] === 18) || octets[0] >= 224);
+		const blocked = host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+			privateIpv4 || host === "::1" || host.startsWith("::ffff:") ||
+			/^(?:fc|fd|fe8|fe9|fea|feb)/.test(host);
+		return blocked ? "Local and private network URLs are not allowed." : null;
+	} catch {
+		return "Invalid URL.";
+	}
+}
 
 function loadWorkerConfig(): WorkerConfig | null {
 	const extDir = dirname(fileURLToPath(import.meta.url));
@@ -93,7 +115,13 @@ function loadWorkerConfig(): WorkerConfig | null {
 		return null;
 	}
 
-	return { workerUrl: vars.WORKER_URL, apiKey: vars.API_KEY };
+	try {
+		const workerUrl = new URL(vars.WORKER_URL);
+		if (workerUrl.protocol !== "https:") return null;
+		return { workerUrl: workerUrl.origin, apiKey: vars.API_KEY };
+	} catch {
+		return null;
+	}
 }
 
 // ── Capture Directory ────────────────────────────
@@ -112,15 +140,17 @@ function timestamp(): string {
 	return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
+function safeFilePart(value: unknown): string {
+	return String(value ?? "viewport").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 64) || "viewport";
+}
+
 // ── Worker Deployment ────────────────────────────
 
-function checkWorkerHealth(config: WorkerConfig): boolean {
+async function checkWorkerHealth(config: WorkerConfig): Promise<boolean> {
 	try {
-		const result = execSync(
-			`curl -sf --max-time 5 "${config.workerUrl}/ping"`,
-			{ encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
-		);
-		const parsed = JSON.parse(result);
+		const response = await fetch(`${config.workerUrl}/ping`, { signal: AbortSignal.timeout(5_000) });
+		if (!response.ok) return false;
+		const parsed = await response.json() as { status?: string };
 		return parsed.status === "ok";
 	} catch {
 		return false;
@@ -133,14 +163,15 @@ function deployWorker(): { success: boolean; url?: string; error?: string } {
 
 	if (!existsSync(join(workerDir, "node_modules"))) {
 		try {
-			execSync("npm install", { cwd: workerDir, stdio: "ignore", timeout: 60000 });
+			execFileSync("npm", ["ci", "--ignore-scripts"], { cwd: workerDir, stdio: "ignore", timeout: 60000 });
 		} catch (e: any) {
 			return { success: false, error: `npm install failed: ${e.message}` };
 		}
 	}
 
 	try {
-		const output = execSync("npx wrangler deploy 2>&1", {
+		const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+		const output = execFileSync(npx, ["--no-install", "wrangler", "deploy"], {
 			cwd: workerDir,
 			encoding: "utf-8",
 			timeout: 60000,
@@ -172,6 +203,7 @@ async function callWorker(
 			"X-Api-Key": config.apiKey,
 		},
 		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(120_000),
 	});
 	return resp;
 }
@@ -203,10 +235,18 @@ async function doScreenshot(
 	const filename = `screenshot-${ts}.png`;
 	const filePath = join(captureDir, filename);
 
+	const declaredSize = Number(resp.headers.get("content-length") || 0);
+	if (Number.isFinite(declaredSize) && declaredSize > MAX_SCREENSHOT_BYTES) {
+		return { action: "screenshot", url, success: false, error: "Screenshot is too large", elapsed: Date.now() - start };
+	}
 	const buffer = Buffer.from(await resp.arrayBuffer());
+	if (buffer.length > MAX_SCREENSHOT_BYTES) {
+		return { action: "screenshot", url, success: false, error: "Screenshot is too large", elapsed: Date.now() - start };
+	}
 	writeFileSync(filePath, buffer);
 
-	const title = decodeURIComponent(resp.headers.get("X-Page-Title") || "untitled");
+	let title = "untitled";
+	try { title = decodeURIComponent(resp.headers.get("X-Page-Title") || "untitled"); } catch {}
 
 	return {
 		action: "screenshot",
@@ -294,9 +334,10 @@ async function doResponsive(
 
 	if (data.screenshots && Array.isArray(data.screenshots)) {
 		for (const shot of data.screenshots) {
-			const filename = `responsive-${shot.name}-${ts}.png`;
+			const filename = `responsive-${safeFilePart(shot.name)}-${ts}.png`;
 			const filePath = join(captureDir, filename);
-			const buffer = Buffer.from(shot.base64, "base64");
+			const buffer = Buffer.from(typeof shot.base64 === "string" ? shot.base64 : "", "base64");
+			if (buffer.length > MAX_SCREENSHOT_BYTES) continue;
 			writeFileSync(filePath, buffer);
 			savedPaths.push(filePath);
 		}
@@ -423,7 +464,7 @@ export default function (pi: ExtensionAPI) {
 		return config;
 	}
 
-	function ensureWorker(): { config: WorkerConfig | null; error?: string } {
+	async function ensureWorker(): Promise<{ config: WorkerConfig | null; error?: string }> {
 		const cfg = getConfig();
 		if (!cfg) {
 			return {
@@ -433,7 +474,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Quick health check
-		if (!checkWorkerHealth(cfg)) {
+		if (!(await checkWorkerHealth(cfg))) {
 			// Try redeploying
 			const result = deployWorker();
 			if (!result.success) {
@@ -483,8 +524,10 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(`Usage: /web-remote ${action} <url>`, "warning");
 				return;
 			}
+			const urlError = validateRemoteWebUrl(url);
+			if (urlError) { ctx.ui.notify(urlError, "warning"); return; }
 
-			const { config: cfg, error } = ensureWorker();
+			const { config: cfg, error } = await ensureWorker();
 			if (!cfg) {
 				ctx.ui.notify(error!, "error");
 				return;
@@ -571,23 +614,16 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			// Validate URL
-			try {
-				const parsed = new URL(url);
-				if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-					return {
-						content: [{ type: "text" as const, text: "Only http: and https: URLs are allowed." }],
-						details: { error: "Invalid protocol" },
-					};
-				}
-			} catch {
+			// Validate URL before sending it to the remote browser.
+			const urlError = validateRemoteWebUrl(url);
+			if (urlError) {
 				return {
-					content: [{ type: "text" as const, text: `Invalid URL: ${url}` }],
-					details: { error: "Invalid URL" },
+					content: [{ type: "text" as const, text: urlError }],
+					details: { error: urlError },
 				};
 			}
 
-			const { config: cfg, error } = ensureWorker();
+			const { config: cfg, error } = await ensureWorker();
 			if (!cfg) {
 				return {
 					content: [{ type: "text" as const, text: error! }],

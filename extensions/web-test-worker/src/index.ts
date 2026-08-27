@@ -19,6 +19,8 @@ interface Env {
 	API_KEY: string;
 }
 
+const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024;
+
 // ── Helpers ──────────────────────────────────────
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -35,8 +37,19 @@ function errorResponse(message: string, status = 400): Response {
 function validateUrl(url: string): string | null {
 	try {
 		const parsed = new URL(url);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-			return "Only http: and https: URLs are allowed";
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "Only http: and https: URLs are allowed";
+		if (parsed.username || parsed.password) return "URLs with embedded credentials are not allowed"
+		const host = parsed.hostname.toLowerCase().replace(/[\[\]]/g, "").replace(/\.$/, "");
+		const octets = host.split(".").map(Number);
+		const isIpv4 = octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255);
+		const privateIpv4 = isIpv4 && (octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+			(octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+			(octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+			(octets[0] === 192 && octets[1] === 168) || (octets[0] === 198 && octets[1] === 18) || octets[0] >= 224);
+		if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
+			privateIpv4 || host === "::1" || host.startsWith("::ffff:") ||
+			/^(?:fc|fd|fe8|fe9|fea|feb)/.test(host)) {
+			return "Local and private network URLs are not allowed";
 		}
 		return null;
 	} catch {
@@ -44,9 +57,12 @@ function validateUrl(url: string): string | null {
 	}
 }
 
-async function parseBody(request: Request): Promise<Record<string, any>> {
+async function parseBody(request: Request): Promise<Record<string, any> | null> {
 	try {
-		return await request.json();
+		const raw = await request.arrayBuffer();
+		if (raw.byteLength > 1 * 1024 * 1024) return null;
+		const parsed = JSON.parse(new TextDecoder().decode(raw));
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 	} catch {
 		return {};
 	}
@@ -54,9 +70,17 @@ async function parseBody(request: Request): Promise<Record<string, any>> {
 
 // ── Route Handlers ───────────────────────────────
 
+function viewportDimension(value: unknown, fallback: number, min: number, max: number): number | null {
+	const parsed = value === undefined ? fallback : Number(value);
+	return Number.isFinite(parsed) && parsed >= min && parsed <= max ? Math.round(parsed) : null;
+}
+
 async function handleScreenshot(body: Record<string, any>, env: Env): Promise<Response> {
 	const { url, width = 1280, height = 720, fullPage = false } = body;
 	if (!url) return errorResponse("Missing required field: url");
+	const viewportWidth = viewportDimension(width, 1280, 320, 3840);
+	const viewportHeight = viewportDimension(height, 720, 240, 2160);
+	if (viewportWidth === null || viewportHeight === null) return errorResponse("Viewport dimensions must be within 320–3840 x 240–2160");
 
 	const urlError = validateUrl(url);
 	if (urlError) return errorResponse(urlError);
@@ -64,10 +88,11 @@ async function handleScreenshot(body: Record<string, any>, env: Env): Promise<Re
 	const browser = await puppeteer.launch(env.BROWSER);
 	try {
 		const page = await browser.newPage();
-		await page.setViewport({ width: Number(width), height: Number(height) });
+		await page.setViewport({ width: viewportWidth, height: viewportHeight });
 		await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
 
 		const screenshot = await page.screenshot({ fullPage: Boolean(fullPage) });
+		if (screenshot.byteLength > MAX_SCREENSHOT_BYTES) return errorResponse("Screenshot is too large", 413);
 
 		return new Response(screenshot, {
 			headers: {
@@ -196,6 +221,7 @@ async function handleResponsive(body: Record<string, any>, env: Env): Promise<Re
 		{ name: "desktop", width: 1440, height: 900 },
 	];
 
+	if (Array.isArray(viewports) && (viewports.length === 0 || viewports.length > 10)) return errorResponse("Viewports must contain between 1 and 10 entries");
 	const vps = Array.isArray(viewports) ? viewports : defaultViewports;
 
 	const browser = await puppeteer.launch(env.BROWSER);
@@ -204,14 +230,16 @@ async function handleResponsive(body: Record<string, any>, env: Env): Promise<Re
 		const screenshots: Array<{ name: string; width: number; height: number; base64: string }> = [];
 
 		for (const vp of vps) {
-			const w = vp.width || 1280;
-			const h = vp.height || 720;
-			const name = vp.name || `${w}x${h}`;
+			const w = viewportDimension(vp?.width, 1280, 320, 3840);
+			const h = viewportDimension(vp?.height, 720, 240, 2160);
+			if (w === null || h === null) return errorResponse("Viewport dimensions must be within 320–3840 x 240–2160");
+			const name = typeof vp?.name === "string" ? vp.name.slice(0, 64) : `${w}x${h}`;
 
 			await page.setViewport({ width: w, height: h });
 			await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
 
 			const shot = await page.screenshot();
+			if (shot.byteLength > MAX_SCREENSHOT_BYTES) return errorResponse("Screenshot is too large", 413);
 			// Convert ArrayBuffer/Buffer to base64
 			const bytes = new Uint8Array(shot as ArrayBuffer);
 			let binary = "";
@@ -264,8 +292,13 @@ export default {
 		if (request.method !== "POST") {
 			return errorResponse("Method not allowed. Use POST.", 405);
 		}
+		const contentLength = Number(request.headers.get("content-length") || 0);
+		if (!Number.isFinite(contentLength) || contentLength > 1 * 1024 * 1024) {
+			return errorResponse("Request body too large", 413);
+		}
 
 		const body = await parseBody(request);
+		if (body === null) return errorResponse("Request body too large", 413);
 
 		try {
 			switch (url.pathname) {
