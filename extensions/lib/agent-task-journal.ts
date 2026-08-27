@@ -7,6 +7,8 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { RESULT_MARKER } from "./agent-result-contract.ts";
+import { readLastAssistantText } from "./herdr-client.ts";
 
 export type TaskJournalStatus = "dispatched" | "running" | "done" | "error";
 
@@ -33,6 +35,8 @@ export interface TaskJournalEntry {
 	updatedAt: number;
 	/** True when this dispatch resumed an existing session (`-c`). */
 	resumed?: boolean;
+	/** Short human note, e.g. set when a crashed run was reconciled at startup. */
+	note?: string;
 }
 
 export const JOURNAL_FILE = "task-journal.jsonl";
@@ -41,6 +45,90 @@ const MAX_TASK_CHARS = 4000;
 
 export function journalPath(sessionDir: string): string {
 	return join(sessionDir, JOURNAL_FILE);
+}
+
+/** A sub-agent session file not written for this long is considered idle/dead. */
+export const RECONCILE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * Close out non-terminal journal rows left behind when a parent died
+ * mid-dispatch. Called at session start / dispatch time next to
+ * pruneRunArtifacts. Classification for each "dispatched"/"running" row:
+ * - full transcript already on disk (output file or last assistant text)
+ *   with a RESULT marker → done;
+ * - headless run whose pid is still alive → untouched;
+ * - session file still being written (mtime inside the active window) →
+ *   untouched (a live sibling parent will update the row itself);
+ * - anything else → error, marked as reconciled.
+ */
+export function reconcileJournal(sessionDir: string, activeWindowMs: number = RECONCILE_ACTIVE_WINDOW_MS): void {
+	const p = journalPath(sessionDir);
+	try {
+		if (!existsSync(p)) return;
+		const raw = readFileSync(p, "utf8");
+		let changed = false;
+		const kept: string[] = [];
+		for (const line of raw.split("\n")) {
+			if (!line.trim()) {
+				continue;
+			}
+			let touchedLine = line;
+			try {
+				const e = JSON.parse(line) as TaskJournalEntry;
+				if ((e.status === "dispatched" || e.status === "running") && typeof e.id === "string") {
+					const done = classifyCrashedRun(sessionDir, e, activeWindowMs);
+					if (done !== undefined) {
+						e.status = done ? "done" : "error";
+						if (!done && e.exitCode == null) e.exitCode = null;
+						if (!done) e.note = `reconciled after restart (${e.note ?? "no evidence of completion"})`;
+						e.updatedAt = Date.now();
+						touchedLine = JSON.stringify(e);
+						changed = true;
+					}
+				}
+			} catch {
+				// unparseable line: preserve as-is
+			}
+			kept.push(touchedLine);
+		}
+		if (changed) {
+			const tmp = p + ".tmp";
+			writeFileSync(tmp, kept.length ? kept.join("\n") + "\n" : "", "utf8");
+			renameSync(tmp, p);
+		}
+	} catch {}
+}
+
+/**
+ * Evidence check for one in-flight row. Returns true (done), false
+ * (presumed crashed → mark error), or undefined (leave the row alone).
+ */
+function classifyCrashedRun(
+	sessionDir: string,
+	e: TaskJournalEntry,
+	activeWindowMs: number,
+): boolean | undefined {
+	// Strongest evidence: persisted full transcript ends with a RESULT block.
+	if (e.outputFile) {
+		try {
+			const txt = readFileSync(e.outputFile, "utf8");
+			if (txt.includes(RESULT_MARKER)) return true;
+		} catch {}
+	}
+	// Next: the sub-agent's own session ended with a RESULT message.
+	if (e.sessionFile) {
+		try {
+			const st = statSync(e.sessionFile);
+			const last = readLastAssistantText(e.sessionFile);
+			if (last.found && last.text.includes(RESULT_MARKER)) return true;
+			if (Date.now() - st.mtimeMs < activeWindowMs) return undefined; // actively writing
+		} catch {
+			// session file missing/unreadable → fall through to pid/staleness
+		}
+	}
+	// A live pid means the headless fallback is genuinely still running.
+	if (pidAlive(e.pid) === true) return undefined;
+	return false;
 }
 
 /** Retention window for run artifacts (archive .txt files + journal rows). */
@@ -183,7 +271,8 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 	const elapsed = e.elapsedMs != null ? ` ${Math.round(e.elapsedMs / 1000)}s` : "";
 	const session = e.sessionFile ? ` session:${e.sessionFile}` : "";
 	const resumed = e.resumed ? " (resumed)" : "";
-	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${alive}${elapsed}${resumed}${session}`;
+	const note = e.note ? ` [${e.note}]` : "";
+	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${alive}${elapsed}${resumed}${session}${note}`;
 }
 
 /**

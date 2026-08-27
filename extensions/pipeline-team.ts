@@ -49,7 +49,7 @@ import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, pruneRunArtifacts, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
@@ -209,6 +209,7 @@ export default function (pi: ExtensionAPI) {
 		if (!existsSync(sessionDir)) {
 			mkdirSync(sessionDir, { recursive: true });
 		pruneRunArtifacts(sessionDir); // 7-day rolling retention (archives + journal)
+		reconcileJournal(sessionDir); // close rows orphaned by a crashed parent
 		}
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
