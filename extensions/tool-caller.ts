@@ -6,6 +6,7 @@ import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { getToolRegistry } from "./tool-registry.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { loadPolicy, scanCommand, scanFilePath, formatThreatsForBlock } from "./lib/security-engine.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
 
@@ -18,6 +19,22 @@ const CallToolParams = Type.Object({
 // ── Self-reference prevention ──────────────────────────────────────────
 
 const BLOCKED_TOOLS = new Set(["call_tool", "tool_search"]);
+
+export function nestedSecurityBlock(toolName: string, args: Record<string, unknown>, cwd: string): string | null {
+	const policy = loadPolicy(cwd);
+	const threats = toolName === "bash"
+		? scanCommand(typeof args.command === "string" ? args.command : "", policy)
+		: (toolName === "write" || toolName === "edit")
+			? [
+				...scanFilePath(typeof args.path === "string" ? args.path : typeof args.file === "string" ? args.file : "", policy, toolName),
+				...(toolName === "write" && typeof args.content === "string"
+					? scanCommand(args.content, policy).filter((threat) => threat.category === "exfiltration" || threat.category === "remote_exec")
+					: []),
+			]
+			: [];
+	const blocking = threats.filter((threat) => threat.severity === "block");
+	return blocking.length > 0 ? formatThreatsForBlock(blocking, policy.settings.verbose_blocks) : null;
+}
 
 // ── Extension ──────────────────────────────────────────────────────────
 
@@ -58,6 +75,16 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text" as const, text: `Error: Cannot call '${tool_name}' through call_tool — use it directly.` }],
 					details: { tool_name, error: "blocked_self_reference", reason },
+				};
+			}
+
+			// Meta-tool execution does not re-enter Pi's tool_call hook. Re-run the
+			// security policy for nested shell and file operations before invoking it.
+			const nestedBlock = nestedSecurityBlock(tool_name, toolArgs, ctx?.cwd || process.cwd());
+			if (nestedBlock) {
+				return {
+					content: [{ type: "text" as const, text: `Blocked by security policy: ${nestedBlock}` }],
+					details: { tool_name, error: "security_blocked", reason },
 				};
 			}
 
