@@ -2,6 +2,7 @@
 // ABOUTME: Verifies two-phase inject: prep at 70%, hard stop at 80%, flag reset on compact.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import memoryCycle from "../memory-cycle.ts";
 
 // Mock all dependencies that memory-cycle.ts imports
 vi.mock("@mariozechner/pi-tui", () => ({
@@ -72,12 +73,9 @@ async function fireEvent(pi: MockPi, event: string, ctx: any): Promise<any> {
 describe("memory-cycle proactive compaction", () => {
 	let pi: MockPi;
 
-	let modSeq = 0;
-	beforeEach(async () => {
-		modSeq++;
+	beforeEach(() => {
 		pi = createMockPi();
-		const extension = await import(`../memory-cycle.ts?fresh=${modSeq}`);
-		extension.default(pi as any);
+		memoryCycle(pi as any);
 	});
 
 	it("registers a before_agent_start handler", () => {

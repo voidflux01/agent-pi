@@ -352,8 +352,8 @@ describe("Feature: Agent Email Sending", () => {
 			const tool = pi.getTool();
 
 			const result = tool.renderCall({ type: "report", to: "user@test.com" }, mockTheme);
-			expect(result.content).toContain("report");
-			expect(result.content).toContain("user@test.com");
+			expect(result.text).toContain("report");
+			expect(result.text).toContain("user@test.com");
 		});
 
 		it("renderResult shows success", () => {
@@ -366,7 +366,7 @@ describe("Feature: Agent Email Sending", () => {
 				{},
 				mockTheme,
 			);
-			expect(result.content).toContain("✓");
+			expect(result.text).toContain("✓");
 		});
 
 		it("renderResult shows error", () => {
@@ -379,7 +379,7 @@ describe("Feature: Agent Email Sending", () => {
 				{},
 				mockTheme,
 			);
-			expect(result.content).toContain("failed");
+			expect(result.text).toContain("failed");
 		});
 	});
 });

@@ -2,6 +2,9 @@
 // ABOUTME: Verifies the 3-tier priority: caller override > models.json agent > models.json default.
 
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	resolveAgentByName,
 	resolveAgentModelString,
@@ -183,9 +186,20 @@ describe("tools resolution from agent defs", () => {
 
 describe("loadAgentModelsConfig", () => {
 	it("returns hardcoded default when no config file exists", () => {
-		const config = loadAgentModelsConfig("/nonexistent/path");
-		expect(config.default.provider).toBe("anthropic");
-		expect(config.default.model).toBe("claude-haiku-4-5-20251001");
-		expect(Object.keys(config.agents)).toHaveLength(0);
+		const previousHome = process.env.HOME;
+		const isolatedHome = mkdtempSync(join(tmpdir(), "agent-pi-no-model-config-"));
+		try {
+			// The loader also checks the user-level config. Isolate HOME so this
+			// test really exercises the no-config fallback on every machine.
+			process.env.HOME = isolatedHome;
+			const config = loadAgentModelsConfig("/nonexistent/path");
+			expect(config.default.provider).toBe("anthropic");
+			expect(config.default.model).toBe("claude-haiku-4-5-20251001");
+			expect(Object.keys(config.agents)).toHaveLength(0);
+		} finally {
+			if (previousHome === undefined) delete process.env.HOME;
+			else process.env.HOME = previousHome;
+			rmSync(isolatedHome, { recursive: true, force: true });
+		}
 	});
 });

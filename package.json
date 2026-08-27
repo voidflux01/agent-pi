@@ -6,6 +6,12 @@
   "keywords": [
     "pi-package"
   ],
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  },
   "pi": {
     "extensions": [
       "./extensions"
@@ -24,12 +30,12 @@
     "@sinclair/typebox": "*"
   },
   "dependencies": {
+    "@mariozechner/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.84.3",
+    "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.84.3",
+    "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.84.3",
+    "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@^0.84.3",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.0",
-    "yaml": "^2.8.2",
-    "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@^0.84.3",
-    "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.84.3",
-    "@mariozechner/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.84.3",
-    "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.84.3"
+    "yaml": "^2.8.2"
   }
 }

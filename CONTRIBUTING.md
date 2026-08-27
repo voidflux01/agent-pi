@@ -61,7 +61,7 @@ See [docs/EXTENSIONS.md](docs/EXTENSIONS.md) for the full extension reference.
 ### Testing
 
 - Tests live in `agent/extensions/__tests__/`
-- Run tests: `cd agent/extensions && npm test`
+- Run tests: `npm test` from the repository root. The runner sends `bun:test` files to Bun and the remaining files to Vitest.
 - Add tests for new tools, utility functions, and security-sensitive code
 
 ### Agent Definitions
