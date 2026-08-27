@@ -1,3 +1,6 @@
+// ABOUTME: Repairs orphaned tool_result messages before they can brick a Pi session.
+// ABOUTME: Keeps conversation history structurally valid across compaction and resume.
+
 /**
  * Message Integrity Guard Extension
  *
