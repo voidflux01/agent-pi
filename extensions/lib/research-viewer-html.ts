@@ -4,7 +4,7 @@
 import type { ResearchSession, ResearchSessionSummary } from "./research-session.ts";
 
 function escapeHtml(str: string): string {
-	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	return str.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
 }
 
 function escapeForScript(str: string): string {
@@ -441,7 +441,7 @@ export function generateResearchViewerHTML(opts: {
 
 <script>
 const PORT = ${port};
-const sessions = JSON.parse('${escaped}');
+const sessions = ${escaped};
 let activeFilter = 'all';
 let searchQuery = '';
 let detailSession = null;
@@ -462,7 +462,7 @@ function formatDate(iso) {
 }
 
 function statusClass(status) {
-  return 'status-' + (status || 'paused');
+  return 'status-' + (['understanding','planning','researching','implementing','complete','paused'].includes(status) ? status : 'paused');
 }
 
 function statusLabel(status) {
@@ -475,7 +475,7 @@ function renderStats() {
   const active = sessions.filter(s => ['researching', 'implementing', 'understanding', 'planning'].includes(s.status)).length;
   const complete = sessions.filter(s => s.status === 'complete').length;
   const paused = sessions.filter(s => s.status === 'paused').length;
-  const totalIterations = sessions.reduce((sum, s) => sum + (s.iterationCount || 0), 0);
+  const totalIterations = sessions.reduce((sum, s) => sum + (numberValue(s.iterationCount) || 0), 0);
 
   document.getElementById('stats').innerHTML = [
     { value: total, label: 'Sessions' },
@@ -516,20 +516,22 @@ function renderSessions() {
     return;
   }
   document.getElementById('sessions').innerHTML = filtered.map(s => {
-    const delta = s.final != null && s.baseline != null ? (s.final - s.baseline) : null;
+    const finalValue = numberValue(s.final);
+    const baselineValue = numberValue(s.baseline);
+    const delta = finalValue != null && baselineValue != null ? (finalValue - baselineValue) : null;
     const deltaStr = delta != null ? (delta >= 0 ? '+' + delta.toFixed(2) : delta.toFixed(2)) : '';
     const deltaClass = delta != null ? (delta >= 0 === (s.metricDirection === 'higher') ? 'delta-positive' : 'delta-negative') : '';
 
-    return '<div class="session-card" data-id="' + s.id + '">' +
+    return '<div class="session-card" data-id="' + escapeHtmlJS(s.id) + '">' +
       '<div class="card-top">' +
-        '<span class="status-badge ' + statusClass(s.status) + '">' + statusLabel(s.status) + '</span>' +
+        '<span class="status-badge ' + statusClass(s.status) + '">' + escapeHtmlJS(statusLabel(s.status)) + '</span>' +
         '<span class="card-goal">' + escapeHtmlJS(s.goal) + '</span>' +
-        '<span class="card-date">' + formatDate(s.updatedAt) + '</span>' +
+        '<span class="card-date">' + escapeHtmlJS(formatDate(s.updatedAt)) + '</span>' +
       '</div>' +
       '<div class="card-metrics">' +
-        (s.metricName ? '<span class="card-metric">' + escapeHtmlJS(s.metricName) + ': ' + (s.baseline != null ? '<span>' + s.baseline + '</span>' : '-') + (s.final != null ? ' <span class="icon-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span> <span>' + s.final + '</span>' : '') + (deltaStr ? ' (<span class="' + deltaClass + '">' + deltaStr + '</span>)' : '') + '</span>' : '') +
-        '<span class="card-metric">Iterations: <span>' + (s.iterationCount || 0) + '</span> (' + (s.keepCount || 0) + ' keeps, ' + (s.discardCount || 0) + ' discards)</span>' +
-        (s.nextStepCount > 0 ? '<span class="card-metric">Next steps: <span>' + s.nextStepsDone + '/' + s.nextStepCount + '</span></span>' : '') +
+        (s.metricName ? '<span class="card-metric">' + escapeHtmlJS(s.metricName) + ': ' + (baselineValue != null ? '<span>' + escapeHtmlJS(numberText(baselineValue)) + '</span>' : '-') + (finalValue != null ? ' <span class="icon-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span> <span>' + escapeHtmlJS(numberText(finalValue)) + '</span>' : '') + (deltaStr ? ' (<span class="' + deltaClass + '">' + deltaStr + '</span>)' : '') + '</span>' : '') +
+        '<span class="card-metric">Iterations: <span>' + numberText(s.iterationCount || 0) + '</span> (' + numberText(s.keepCount || 0) + ' keeps, ' + numberText(s.discardCount || 0) + ' discards)</span>' +
+        (s.nextStepCount > 0 ? '<span class="card-metric">Next steps: <span>' + numberText(s.nextStepsDone) + '/' + numberText(s.nextStepCount) + '</span></span>' : '') +
       '</div>' +
       (s.tags && s.tags.length > 0 ? '<div class="card-tags">' + s.tags.map(t => '<span class="tag">' + escapeHtmlJS(t) + '</span>').join('') + '</div>' : '') +
     '</div>';
@@ -537,9 +539,14 @@ function renderSessions() {
 }
 
 function escapeHtmlJS(str) {
-  const el = document.createElement('span');
-  el.textContent = str || '';
-  return el.innerHTML;
+  return String(str || '').replace(/[&<>"']/g, function(ch) { return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[ch] || ch; });
+}
+function numberValue(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+function numberText(value) {
+  const n = numberValue(value);
+  return n == null ? '-' : String(n);
 }
 
 async function showDetail(id) {
@@ -563,7 +570,10 @@ function hideDetail() {
 }
 
 function renderDetail(s) {
-  const delta = s.metric.final != null && s.metric.baseline != null ? (s.metric.final - s.metric.baseline) : null;
+  const metric = s.metric && typeof s.metric === 'object' ? s.metric : {};
+  const finalValue = numberValue(metric.final);
+  const baselineValue = numberValue(metric.baseline);
+  const delta = finalValue != null && baselineValue != null ? (finalValue - baselineValue) : null;
   const deltaStr = delta != null ? (delta >= 0 ? '+' + delta.toFixed(2) : delta.toFixed(2)) : '';
   const keeps = (s.iterations || []).filter(i => i.status === 'keep').length;
   const discards = (s.iterations || []).filter(i => i.status === 'discard').length;
@@ -574,17 +584,17 @@ function renderDetail(s) {
   // Header
   html += '<div class="detail-header">' +
     '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
-    '<span class="status-badge ' + statusClass(s.status) + '">' + statusLabel(s.status) + '</span>' +
+    '<span class="status-badge ' + statusClass(s.status) + '">' + escapeHtmlJS(statusLabel(s.status)) + '</span>' +
     '</div>' +
     '<h2>' + escapeHtmlJS(s.goal) + '</h2>' +
     '<div class="detail-meta">' +
-    '<span class="card-metric">Metric: <span>' + escapeHtmlJS(s.metric.name || 'Not set') + '</span></span>' +
-    (s.metric.baseline != null ? '<span class="card-metric">Baseline: <span>' + s.metric.baseline + '</span></span>' : '') +
-    (s.metric.final != null ? '<span class="card-metric">Final: <span>' + s.metric.final + '</span></span>' : '') +
+    '<span class="card-metric">Metric: <span>' + escapeHtmlJS(metric.name || 'Not set') + '</span></span>' +
+    (baselineValue != null ? '<span class="card-metric">Baseline: <span>' + escapeHtmlJS(numberText(baselineValue)) + '</span></span>' : '') +
+    (finalValue != null ? '<span class="card-metric">Final: <span>' + escapeHtmlJS(numberText(finalValue)) + '</span></span>' : '') +
     (deltaStr ? '<span class="card-metric">Delta: <span>' + deltaStr + '</span></span>' : '') +
-    '<span class="card-metric">Iterations: <span>' + (s.iterations || []).length + '</span> (' + keeps + ' keeps, ' + discards + ' discards, ' + crashes + ' crashes)</span>' +
-    '<span class="card-metric">Created: <span>' + formatDate(s.createdAt) + '</span></span>' +
-    '<span class="card-metric">Updated: <span>' + formatDate(s.updatedAt) + '</span></span>' +
+    '<span class="card-metric">Iterations: <span>' + numberText((s.iterations || []).length) + '</span> (' + numberText(keeps) + ' keeps, ' + numberText(discards) + ' discards, ' + numberText(crashes) + ' crashes)</span>' +
+    '<span class="card-metric">Created: <span>' + escapeHtmlJS(formatDate(s.createdAt)) + '</span></span>' +
+    '<span class="card-metric">Updated: <span>' + escapeHtmlJS(formatDate(s.updatedAt)) + '</span></span>' +
     '</div></div>';
 
   // Clarifying Q&A
@@ -613,11 +623,15 @@ function renderDetail(s) {
 
   // Iterations
   if (s.iterations && s.iterations.length > 0) {
-    html += '<div class="detail-section"><h3>Iterations (' + s.iterations.length + ')</h3>' +
+    html += '<div class="detail-section"><h3>Iterations (' + numberText(s.iterations.length) + ')</h3>' +
       '<table class="iter-table"><thead><tr><th>#</th><th>Status</th><th>Metric</th><th>Delta</th><th>Commit</th><th>Description</th></tr></thead><tbody>';
     s.iterations.forEach(it => {
       const cls = it.status === 'keep' ? 'iter-keep' : it.status === 'discard' ? 'iter-discard' : it.status === 'crash' ? 'iter-crash' : 'iter-baseline';
-      html += '<tr><td>' + it.iteration + '</td><td class="' + cls + '">' + (it.status || '').toUpperCase() + '</td><td>' + (it.metric != null ? it.metric : '-') + '</td><td>' + (it.delta != null ? (it.delta >= 0 ? '+' : '') + it.delta.toFixed(3) : '-') + '</td><td style="color:var(--text-dim)">' + (it.commit || '-').slice(0, 7) + '</td><td>' + escapeHtmlJS(it.description) + '</td></tr>';
+      const iteration = numberText(it.iteration);
+      const metric = numberText(it.metric);
+      const deltaValue = numberValue(it.delta);
+      const deltaDisplay = deltaValue == null ? '-' : (deltaValue >= 0 ? '+' : '') + deltaValue.toFixed(3);
+      html += '<tr><td>' + iteration + '</td><td class="' + cls + '">' + escapeHtmlJS((it.status || '').toUpperCase()) + '</td><td>' + metric + '</td><td>' + deltaDisplay + '</td><td style="color:var(--text-dim)">' + escapeHtmlJS((it.commit || '-').slice(0, 7)) + '</td><td>' + escapeHtmlJS(it.description) + '</td></tr>';
     });
     html += '</tbody></table></div>';
   }
@@ -631,9 +645,9 @@ function renderDetail(s) {
   if (s.nextSteps && s.nextSteps.length > 0) {
     html += '<div class="detail-section"><h3>Next Steps</h3><ul class="next-steps-list">';
     s.nextSteps.forEach(step => {
-      const statusCls = 'step-' + (step.status || 'pending');
-      html += '<li><span class="step-priority">#' + step.priority + '</span>' +
-        '<span class="step-status ' + statusCls + '">' + (step.status || 'pending') + '</span>' +
+      const statusCls = 'step-' + (['pending','done','complete'].includes(step.status) ? step.status : 'pending');
+      html += '<li><span class="step-priority">#' + numberText(step.priority) + '</span>' +
+        '<span class="step-status ' + statusCls + '">' + escapeHtmlJS(step.status || 'pending') + '</span>' +
         '<span style="flex:1">' + escapeHtmlJS(step.description) + '</span></li>';
     });
     html += '</ul></div>';
@@ -645,7 +659,7 @@ function renderDetail(s) {
     if (s.implementation.startedAt) html += '<div class="card-metric" style="margin-bottom:8px">Started: <span>' + formatDate(s.implementation.startedAt) + '</span></div>';
     if (s.implementation.completedAt) html += '<div class="card-metric" style="margin-bottom:8px">Completed: <span>' + formatDate(s.implementation.completedAt) + '</span></div>';
     if (s.implementation.teamUsed) html += '<div class="card-metric" style="margin-bottom:8px">Team: <span>' + escapeHtmlJS(s.implementation.teamUsed) + '</span></div>';
-    if (s.implementation.tasksCreated) html += '<div class="card-metric" style="margin-bottom:8px">Tasks: <span>' + s.implementation.tasksCreated + '</span></div>';
+    if (s.implementation.tasksCreated) html += '<div class="card-metric" style="margin-bottom:8px">Tasks: <span>' + numberText(s.implementation.tasksCreated) + '</span></div>';
     if (s.implementation.summary) html += '<pre style="margin-top:8px">' + escapeHtmlJS(s.implementation.summary) + '</pre>';
     html += '</div>';
   }
@@ -654,10 +668,15 @@ function renderDetail(s) {
   if (s.status !== 'complete') {
     const cmd = '/autoresearch --resume ' + s.id;
     html += '<div class="resume-box"><code>' + escapeHtmlJS(cmd) + '</code>' +
-      '<button class="copy-btn" onclick="navigator.clipboard.writeText(\\'' + cmd.replace(/'/g, "\\\\'") + '\\');this.textContent=\\'Copied!\\';setTimeout(()=>this.textContent=\\'Copy\\',2000)">Copy</button></div>';
+      '<button class="copy-btn" data-copy-command="' + escapeHtmlJS(cmd) + '">Copy</button></div>';
   }
 
   document.getElementById('detail-view').innerHTML = html;
+  const copyButton = document.getElementById('detail-view').querySelector('.copy-btn');
+  if (copyButton) copyButton.addEventListener('click', async function() {
+    try { await navigator.clipboard.writeText(copyButton.dataset.copyCommand || ''); copyButton.textContent = 'Copied!'; } catch {}
+    setTimeout(() => { copyButton.textContent = 'Copy'; }, 2000);
+  });
 }
 
 // Event listeners
