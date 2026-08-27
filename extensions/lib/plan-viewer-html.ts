@@ -466,6 +466,14 @@ export function generatePlanViewerHTML(opts: {
     font-size: 14px;
     min-height: 22px;
   }
+  body:not(.approved-state) .plan-item-text { cursor: text; }
+  body:not(.approved-state) .plan-item:hover .plan-item-text {
+    color: var(--text);
+    border-bottom: 1px dashed rgba(128,128,128,0.45);
+  }
+  .plan-item-text[contenteditable="true"] {
+    cursor: text;
+  }
   .plan-item-text[contenteditable="true"] {
     outline: none;
     color: var(--text);
@@ -712,6 +720,17 @@ export function generatePlanViewerHTML(opts: {
   .plan-item.drag-over { border-top: 2px solid var(--accent); }
 
   /* ── Approved State ──────────────────── */
+  .edit-hint {
+    padding: 6px 20px 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-secondary, rgba(128,128,128,0.06));
+    border-bottom: 1px solid rgba(128,128,128,0.12);
+    user-select: none;
+  }
+  .edit-hint .hint-grip { opacity: 0.7; }
+  .edit-hint b { color: var(--text); }
+
   .approved-banner {
     background: var(--surface);
     border: 1px solid var(--success);
@@ -798,6 +817,7 @@ export function generatePlanViewerHTML(opts: {
   body.approved-state .plan-item-text { cursor: default; }
   body.approved-state .footer-wrapper { display: none; }
   body.approved-state .toggle-bar { display: none; }
+  body.approved-state .edit-hint { display: none; }
   body.approved-state .header .modified-badge { display: none !important; }
   body.approved-state .content { padding-bottom: 24px; }
 
@@ -828,6 +848,9 @@ export function generatePlanViewerHTML(opts: {
     <button id="btnRaw" onclick="setView('raw')">Markdown</button>
   </div>
 </div>
+
+<!-- Edit affordance hint (plan mode only) -->
+${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-click any line to edit &nbsp;·&nbsp; drag <span class="hint-grip">⠿</span> to reorder &nbsp;·&nbsp; switch to <b>Markdown</b> tab for free-form edits</div>`}
 
 <!-- Content -->
 <div class="content scrollable">
