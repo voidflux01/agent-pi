@@ -14,6 +14,7 @@ describe("web test network and resource boundaries", () => {
 		const source = readFileSync(new URL("../web-test-worker/src/index.ts", import.meta.url), "utf8");
 		expect(source).toContain("MAX_SCREENSHOT_BYTES");
 		expect(source).toContain("Request body too large");
-		expect(source).toContain("Local and private network URLs are not allowed");
+		expect(source).toContain("validatePublicUrl");
+		expect(source).toContain("validateResolvedHost");
 	});
 });
