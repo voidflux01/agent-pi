@@ -8,13 +8,14 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateCleanupViewerHTML } from "./lib/cleanup-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -30,8 +31,8 @@ const PROTECTED_DIRS = new Set([
 	"/private/var/protected", "/private/etc", "/etc", "/cores",
 ]);
 
-const MAX_DEPTH = Infinity;
-const MAX_FILES = Infinity;
+const MAX_DEPTH = 20;
+const MAX_FILES = 10_000;
 
 const CATEGORIES: Record<string, {
 	label: string;
@@ -108,6 +109,7 @@ interface ScanFile {
 async function scanDirectory(rootDir: string, enabledCategories: string[]) {
 	const results: Record<string, ScanFile[]> = { temp: [], compiled: [], archives: [] };
 	let fileCount = 0;
+	let sizedEntryCount = 0;
 
 	async function getDirSize(dir: string, depth: number): Promise<number> {
 		if (depth > 5) return 0;
@@ -115,6 +117,7 @@ async function scanDirectory(rootDir: string, enabledCategories: string[]) {
 		try {
 			const entries = await fsp.readdir(dir, { withFileTypes: true });
 			for (const entry of entries) {
+				if (++sizedEntryCount > MAX_FILES) return total;
 				const full = path.join(dir, entry.name);
 				try {
 					const stat = await fsp.lstat(full);
@@ -259,8 +262,10 @@ function startCleanupServer(defaultDir: string): Promise<{
 	port: number;
 	server: Server;
 	waitForResult: () => Promise<CleanupResult>;
+	 auth: LocalServerAuth;
 }> {
 	return new Promise((resolveSetup) => {
+		const auth = createLocalServerAuth();
 		let resolveResult: (result: CleanupResult) => void;
 		let settled = false;
 		const settle = (result: CleanupResult) => {
@@ -271,13 +276,8 @@ function startCleanupServer(defaultDir: string): Promise<{
 		const resultPromise = new Promise<CleanupResult>((res) => { resolveResult = res; });
 
 		const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-
 			const url = new URL(req.url || "/", "http://localhost");
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve main page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -306,8 +306,10 @@ function startCleanupServer(defaultDir: string): Promise<{
 				req.on("end", async () => {
 					try {
 						const data = JSON.parse(body);
-						const dir = data.directory || "/Users/";
-						const cats = data.categories || ["temp", "compiled", "archives"];
+						const dir = typeof data.directory === "string" && data.directory.trim() ? data.directory : "/Users/";
+						const cats = Array.isArray(data.categories)
+							? data.categories.filter((category: unknown): category is string => typeof category === "string" && Object.prototype.hasOwnProperty.call(CATEGORIES, category))
+							: ["temp", "compiled", "archives"];
 
 						try {
 							const realDir = await fsp.realpath(dir);
@@ -364,7 +366,9 @@ function startCleanupServer(defaultDir: string): Promise<{
 				req.on("end", async () => {
 					try {
 						const data = JSON.parse(body);
-						const files: string[] = data.files || [];
+						const files: string[] = Array.isArray(data.files)
+							? data.files.filter((filePath: unknown): filePath is string => typeof filePath === "string").slice(0, MAX_FILES)
+							: [];
 						if (files.length === 0) {
 							res.writeHead(400, { "Content-Type": "application/json" });
 							res.end(JSON.stringify({ error: "No files specified." }));
@@ -374,6 +378,8 @@ function startCleanupServer(defaultDir: string): Promise<{
 						const results: any[] = [];
 						for (const filePath of files) {
 							try {
+								const linkStat = await fsp.lstat(filePath);
+								if (linkStat.isSymbolicLink()) throw new Error("Refusing to delete symbolic links");
 								const real = await fsp.realpath(filePath);
 								if (isProtected(real)) {
 									results.push({ path: filePath, success: false, error: "Protected path" });
@@ -483,17 +489,17 @@ function startCleanupServer(defaultDir: string): Promise<{
 
 		server.listen(0, "127.0.0.1", () => {
 			const addr = server.address() as any;
-			resolveSetup({ port: addr.port, server, waitForResult: () => resultPromise });
+			resolveSetup({ port: addr.port, server, waitForResult: () => resultPromise, auth });
 		});
 	});
 }
 
 function openBrowser(url: string): void {
-	try { execSync(`open "${url}"`, { stdio: "ignore" }); }
+	try { execFileSync("open", [url], { stdio: "ignore" }); }
 	catch {
-		try { execSync(`xdg-open "${url}"`, { stdio: "ignore" }); }
+		try { execFileSync("xdg-open", [url], { stdio: "ignore" }); }
 		catch {
-			try { execSync(`start "${url}"`, { stdio: "ignore" }); }
+			try { execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" }); }
 			catch { /* no browser */ }
 		}
 	}
@@ -524,10 +530,11 @@ export default function (pi: ExtensionAPI) {
 	async function launchCleanup(dir: string, ctx?: any): Promise<string> {
 		cleanupServer();
 
-		const { port, server, waitForResult } = await startCleanupServer(dir);
+		const { port, server, waitForResult, auth } = await startCleanupServer(dir);
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: "report" as const,
 			title: "Disk Cleanup",
@@ -536,7 +543,7 @@ export default function (pi: ExtensionAPI) {
 			onClose: () => { activeServer = null; activeSession = null; },
 		};
 		registerActiveViewer(activeSession);
-		openBrowser(url);
+		openBrowser(launchUrl);
 		if (ctx) notifyViewerOpen(ctx, activeSession);
 
 		try {
