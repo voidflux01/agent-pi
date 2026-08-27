@@ -13,6 +13,13 @@ type AudioPlayer = "afplay" | "aplay" | "mpv" | null;
 
 let cachedPlayer: AudioPlayer | undefined;
 
+const SAFE_SOUND_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function soundPath(name: string): string {
+	if (!SAFE_SOUND_NAME.test(name)) throw new Error("Invalid sound name");
+	return join(SOUNDS_DIR, `${name}.json`);
+}
+
 function detectAudioPlayer(): AudioPlayer {
 	if (cachedPlayer !== undefined) return cachedPlayer;
 
@@ -70,14 +77,18 @@ export interface CachedSound {
 }
 
 export function installSound(name: string, dataUri: string): void {
+	const filePath = soundPath(name);
+	if (!/^data:audio\/[^;]+;base64,[A-Za-z0-9+/=]+$/.test(dataUri) || dataUri.length > 12 * 1024 * 1024) {
+		throw new Error("Invalid or oversized audio data");
+	}
 	ensureSoundsDir();
-	const filePath = join(SOUNDS_DIR, `${name}.json`);
 	const data: CachedSound = { name, dataUri };
 	writeFileSync(filePath, JSON.stringify(data), "utf-8");
 }
 
 export function uninstallSound(name: string): void {
-	const filePath = join(SOUNDS_DIR, `${name}.json`);
+	let filePath: string;
+	try { filePath = soundPath(name); } catch { return; }
 	try {
 		if (existsSync(filePath)) unlinkSync(filePath);
 	} catch {
@@ -85,12 +96,15 @@ export function uninstallSound(name: string): void {
 	}
 }
 
+export function isSafeSoundName(name: string): boolean { return SAFE_SOUND_NAME.test(name); }
+
 export function isSoundInstalled(name: string): boolean {
-	return existsSync(join(SOUNDS_DIR, `${name}.json`));
+	try { return existsSync(soundPath(name)); } catch { return false; }
 }
 
 export function loadCachedSound(name: string): CachedSound | null {
-	const filePath = join(SOUNDS_DIR, `${name}.json`);
+	let filePath: string;
+	try { filePath = soundPath(name); } catch { return null; }
 	try {
 		if (!existsSync(filePath)) return null;
 		return JSON.parse(readFileSync(filePath, "utf-8")) as CachedSound;
@@ -117,6 +131,7 @@ export async function playInstalledSound(soundName: string, volume: number = 0.5
 	if (!base64Match) return false;
 
 	const base64Data = base64Match[1];
+	if (base64Data.length > 12 * 1024 * 1024) return false;
 	const tempPath = writeTempMp3(base64Data);
 
 	// Stop any currently playing sound

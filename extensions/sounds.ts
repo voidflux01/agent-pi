@@ -6,11 +6,12 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { generateSoundsViewerHTML, type CatalogItem } from "./lib/sounds-viewer-html.ts";
 import {
 	loadConfig, saveConfig, getActiveAssignmentCount, getAssignedSoundNames,
@@ -18,7 +19,7 @@ import {
 } from "./lib/sounds-config.ts";
 import {
 	playInstalledSound, installSound, uninstallSound, isSoundInstalled,
-	cleanupAllPlayback,
+	cleanupAllPlayback, isSafeSoundName,
 } from "./lib/sounds-player.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 
@@ -34,26 +35,39 @@ interface SoundsViewerResult {
 // ── Catalog Fetching ─────────────────────────────────────────────────
 
 let cachedCatalog: CatalogItem[] | null = null;
+const MAX_SOUND_FEED_BYTES = 8 * 1024 * 1024;
 
 async function fetchCatalog(): Promise<CatalogItem[]> {
 	if (cachedCatalog) return cachedCatalog;
 
 	const resp = await fetch(
 		"https://raw.githubusercontent.com/ruizrica/soundcn/main/registry.json",
+		{ signal: AbortSignal.timeout(15_000) },
 	);
 	if (!resp.ok) throw new Error(`Failed to fetch catalog: ${resp.status}`);
-
-	const data = await resp.json();
-	const items: CatalogItem[] = (data.items || [])
-		.filter((item: any) => item.type === "registry:block")
-		.map((item: any) => ({
-			name: item.name,
-			title: item.title || item.name,
-			description: item.description || "",
-			categories: item.categories || [],
-			author: item.author,
-			meta: item.meta,
-		}));
+	const declared = Number(resp.headers.get("content-length") || 0);
+	if (Number.isFinite(declared) && declared > MAX_SOUND_FEED_BYTES) throw new Error("Sound catalog response too large");
+	const catalogText = await resp.text();
+	if (Buffer.byteLength(catalogText, "utf8") > MAX_SOUND_FEED_BYTES) throw new Error("Sound catalog response too large");
+	const data = JSON.parse(catalogText);
+	const items: CatalogItem[] = (Array.isArray(data.items) ? data.items : [])
+		.filter((item: any) => item?.type === "registry:block")
+		.map((item: any) => {
+			const name = typeof item.name === "string" ? item.name : "";
+			const categories = Array.isArray(item.categories)
+				? item.categories.filter((v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9 _-]{1,64}$/.test(v))
+				: [];
+			return {
+				name,
+				title: typeof item.title === "string" ? item.title : name,
+				description: typeof item.description === "string" ? item.description : "",
+				categories,
+				author: typeof item.author === "string" ? item.author : undefined,
+				meta: item.meta && typeof item.meta === "object" ? item.meta : undefined,
+			};
+		})
+		.filter((item) => isSafeSoundName(item.name))
+		.slice(0, 5000);
 
 	cachedCatalog = items;
 	return items;
@@ -64,8 +78,9 @@ async function fetchCatalog(): Promise<CatalogItem[]> {
 function startSoundsServer(
 	catalog: CatalogItem[],
 	config: SoundsConfig,
-): Promise<{ port: number; server: Server; waitForResult: () => Promise<SoundsViewerResult> }> {
+): Promise<{ port: number; server: Server; waitForResult: () => Promise<SoundsViewerResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
+		const auth = createLocalServerAuth();
 		let resolveResult: (result: SoundsViewerResult) => void;
 		const resultPromise = new Promise<SoundsViewerResult>((res) => {
 			resolveResult = res;
@@ -79,17 +94,8 @@ function startSoundsServer(
 		}, 5_000);
 
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", "http://localhost");
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -125,21 +131,29 @@ function startSoundsServer(
 
 			// CORS proxy: fetch sound data from soundcn.xyz server-side
 			if (req.method === "GET" && url.pathname.startsWith("/api/sound/")) {
-				const name = decodeURIComponent(url.pathname.slice("/api/sound/".length));
-				if (!name || name.includes("/") || name.includes("..")) {
+				let name = "";
+				try { name = decodeURIComponent(url.pathname.slice("/api/sound/".length)); } catch {
+					res.writeHead(400, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Invalid sound name" }));
+					return;
+				}
+				if (!isSafeSoundName(name)) {
 					res.writeHead(400, { "Content-Type": "application/json" });
 					res.end(JSON.stringify({ error: "Invalid sound name" }));
 					return;
 				}
 				(async () => {
 					try {
-						const upstream = await fetch(`https://soundcn.xyz/r/${encodeURIComponent(name)}.json`);
+						const upstream = await fetch(`https://soundcn.xyz/r/${encodeURIComponent(name)}.json`, { signal: AbortSignal.timeout(15_000) });
 						if (!upstream.ok) {
 							res.writeHead(upstream.status, { "Content-Type": "application/json" });
 							res.end(JSON.stringify({ error: `Upstream returned ${upstream.status}` }));
 							return;
 						}
+						const declared = Number(upstream.headers.get("content-length") || 0);
+						if (Number.isFinite(declared) && declared > MAX_SOUND_FEED_BYTES) throw new Error("Sound response too large");
 						const body = await upstream.text();
+						if (Buffer.byteLength(body, "utf8") > MAX_SOUND_FEED_BYTES) throw new Error("Sound response too large");
 						res.writeHead(200, {
 							"Content-Type": "application/json",
 							"Cache-Control": "public, max-age=3600",
@@ -232,6 +246,7 @@ function startSoundsServer(
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise.finally(() => clearInterval(heartbeatCheck)),
+				auth,
 			});
 		});
 	});
@@ -239,13 +254,13 @@ function startSoundsServer(
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}
@@ -300,10 +315,11 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.notify(`Loaded ${catalog.length} sounds. Opening browser...`, "info");
 
 		// Start server
-		const { port, server, waitForResult } = await startSoundsServer(catalog, currentConfig);
+		const { port, server, waitForResult, auth } = await startSoundsServer(catalog, currentConfig);
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: "sounds" as const,
 			title: "Sound Browser",
@@ -313,7 +329,7 @@ export default function (pi: ExtensionAPI) {
 		};
 		registerActiveViewer(activeSession);
 
-		openBrowser(url);
+		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
 		try {
@@ -321,9 +337,15 @@ export default function (pi: ExtensionAPI) {
 
 			// Apply config if user clicked "Apply"
 			if (result.action === "applied" && result.assignments) {
+				const assignments: Partial<Record<HookName, string>> = {};
+				for (const [hook, name] of Object.entries(result.assignments)) {
+					if (ALL_HOOKS.includes(hook as HookName) && typeof name === "string" && isSafeSoundName(name)) {
+						assignments[hook as HookName] = name;
+					}
+				}
 				currentConfig = {
-					assignments: result.assignments as Partial<Record<HookName, string>>,
-					volume: typeof result.volume === "number" ? result.volume : currentConfig.volume,
+					assignments,
+					volume: typeof result.volume === "number" && Number.isFinite(result.volume) ? Math.max(0, Math.min(1, result.volume)) : currentConfig.volume,
 					enabled: typeof result.enabled === "boolean" ? result.enabled : currentConfig.enabled,
 				};
 				saveConfig(currentConfig);

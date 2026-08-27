@@ -25,8 +25,13 @@ export function generateSoundsViewerHTML(opts: {
 	port: number;
 }): string {
 	const { catalog, config, port } = opts;
-	const escapedCatalog = JSON.stringify(catalog).replace(/<\//g, "<\\/");
-	const escapedConfig = JSON.stringify(config).replace(/<\//g, "<\\/");
+	const safeName = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+	const safeCatalog = catalog.filter((item) => safeName(item.name));
+	const allowedHooks = new Set(["agent_end", "agent_start", "tool_execution_start", "tool_execution_end", "turn_start", "turn_end", "session_start", "session_compact"]);
+	const safeAssignments = Object.fromEntries(Object.entries(config.assignments || {}).filter(([hook, name]) => allowedHooks.has(hook) && safeName(name)));
+	const safeConfig = { ...config, assignments: safeAssignments };
+	const escapedCatalog = JSON.stringify(safeCatalog).replace(/<\//g, "<\\/");
+	const escapedConfig = JSON.stringify(safeConfig).replace(/<\//g, "<\\/");
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -932,8 +937,8 @@ export function generateSoundsViewerHTML(opts: {
     let html = '<div class="cat-item active" data-cat="all" onclick="setCategory(\\'all\\')"><span>All</span><span class="count">' + catalog.length + '</span></div>';
     sorted.forEach(([cat, count]) => {
       const label = cat.charAt(0).toUpperCase() + cat.slice(1);
-      html += '<div class="cat-item" data-cat="' + cat + '" onclick="setCategory(\\'' + cat + '\\')">' +
-        '<span>' + label + '</span><span class="count">' + count + '</span></div>';
+      html += '<div class="cat-item" data-cat="' + esc(cat) + '" onclick="setCategory(\\'' + esc(cat) + '\\')">' +
+        '<span>' + esc(label) + '</span><span class="count">' + count + '</span></div>';
     });
     el.innerHTML = html;
   }
@@ -1005,7 +1010,7 @@ export function generateSoundsViewerHTML(opts: {
         '<div class="card-meta">' +
           '<span>' + icon('clock') + ' ' + duration + '</span>' +
           '<span>' + icon('box') + ' ' + size + '</span>' +
-          '<span>' + icon('file') + ' ' + license + '</span>' +
+          '<span>' + icon('file') + ' ' + esc(String(license)) + '</span>' +
         '</div>' +
         (tags.length ? '<div class="card-tags">' + tags.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div>' : '') +
         (assignedHooks.length ? '<div style="font-size:11px;color:var(--success);margin-top:2px">' + icon('check') + ' ' + assignedHooks.join(', ') + '</div>' : '') +
@@ -1277,16 +1282,16 @@ export function generateSoundsViewerHTML(opts: {
       '<div class="detail-header">' +
         '<h2>' + esc(s.title) + '</h2>' +
         '<p>' + esc(s.description) + '</p>' +
-        (assignedHooks.length ? '<div style="margin-top:8px;font-size:12px;color:var(--success)">' + icon('check') + ' Assigned to: ' + assignedHooks.join(', ') + '</div>' : '') +
+        (assignedHooks.length ? '<div style="margin-top:8px;font-size:12px;color:var(--success)">' + icon('check') + ' Assigned to: ' + esc(assignedHooks.join(', ')) + '</div>' : '') +
       '</div>' +
       '<div class="detail-body">' +
         '<div class="detail-meta-grid">' +
           '<div class="detail-meta-item"><label>Duration</label><span>' + duration + '</span></div>' +
           '<div class="detail-meta-item"><label>Size</label><span>' + size + '</span></div>' +
-          '<div class="detail-meta-item"><label>Format</label><span>' + format.toUpperCase() + '</span></div>' +
-          '<div class="detail-meta-item"><label>License</label><span>' + license + '</span></div>' +
+          '<div class="detail-meta-item"><label>Format</label><span>' + esc(String(format).toUpperCase()) + '</span></div>' +
+          '<div class="detail-meta-item"><label>License</label><span>' + esc(String(license)) + '</span></div>' +
           '<div class="detail-meta-item"><label>Author</label><span>' + esc(author.replace(/<[^>]+>/g, '')) + '</span></div>' +
-          '<div class="detail-meta-item"><label>Category</label><span>' + (s.categories || []).join(', ') + '</span></div>' +
+          '<div class="detail-meta-item"><label>Category</label><span>' + esc((s.categories || []).join(', ')) + '</span></div>' +
         '</div>' +
         (allTags.length ? '<div class="detail-tags">' + allTags.map(t => '<span class="tag">' + esc(t) + '</span>').join('') + '</div>' : '') +
       '</div>' +
@@ -1381,7 +1386,7 @@ export function generateSoundsViewerHTML(opts: {
   // ── Helpers ────────────────────────────────
   function esc(s) {
     if (!s) return '';
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
 })();
