@@ -17,6 +17,7 @@ all:
   - gemini-agent
   - qwen-agent
   - opencode-agent
+  - prime-agent
   - groq-agent
   - droid-agent
   - crush-agent
@@ -28,6 +29,7 @@ toolkit:
   - gemini-agent
   - qwen-agent
   - opencode-agent
+  - prime-agent
   - groq-agent
   - droid-agent
   - crush-agent
