@@ -63,6 +63,16 @@ export function decideGateClaim(all: Array<{ id: number; status: string }>): { b
 	return { block: false };
 }
 
+/** Apply the gate's transparent auto-claim and return the claimed task ID. */
+export function claimGateTask(all: Array<{ id: number; status: string }>): number | undefined {
+	const claimId = decideGateClaim(all).claimId;
+	if (claimId === undefined) return undefined;
+	const task = all.find((t) => t.id === claimId);
+	if (!task) return undefined;
+	task.status = "inprogress";
+	return task.id;
+}
+
 	// ── Blocking gate ──────────────────────────────────────────────────
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -274,6 +284,9 @@ export default function (pi: ExtensionAPI) {
 
 		refreshWidget(ctx);
 		if (g.__piTaskList) g.__piTaskList.title = listTitle;
+		// agent-team owns the visible task-list widget. Refresh it whenever the
+		// local task state changes; otherwise it only sees the empty session-start state.
+		try { g.__piRefreshTaskWidget?.(ctx); } catch {}
 		ctx.ui.setWidget("tasks-list", undefined);
 	};
 
@@ -325,8 +338,8 @@ export default function (pi: ExtensionAPI) {
 	let gateEnabled = process.env.PI_TASKS_GATE !== "0";
 
 	function toggleTaskToActive(): Task | undefined {
-		const decision = decideGateClaim(tasks);
-		return decision.claimId ? tasks.find((t) => t.id === decision.claimId) : undefined;
+		const claimId = claimGateTask(tasks);
+		return claimId === undefined ? undefined : tasks.find((t) => t.id === claimId);
 	}
 
 	function persistGateClaim(ctx: any): void {

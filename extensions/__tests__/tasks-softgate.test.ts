@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { decideGateClaim } from "../tasks.ts";
+import { claimGateTask, decideGateClaim } from "../tasks.ts";
 
 describe("tasks gate decision (soft-gate v2)", () => {
 	it("auto-claims newest non-done when nothing is in progress", () => {
@@ -10,6 +10,21 @@ describe("tasks gate decision (soft-gate v2)", () => {
 		]);
 		expect(d.block).toBe(false);
 		expect(d.claimId).toBe(3);
+	});
+
+	it("applies the auto-claim to the task state", () => {
+		const tasks = [
+			{ id: 1, status: "done" },
+			{ id: 2, status: "idle" },
+			{ id: 3, status: "idle" },
+		];
+
+		expect(claimGateTask(tasks)).toBe(3);
+		expect(tasks).toEqual([
+			{ id: 1, status: "done" },
+			{ id: 2, status: "idle" },
+			{ id: 3, status: "inprogress" },
+		]);
 	});
 
 	it("no claim needed when a task is already in progress", () => {

@@ -435,8 +435,12 @@ export default function (pi: ExtensionAPI) {
 						display: true,
 					}, { deliverAs: "followUp", triggerTurn: true });
 				} else {
-					// Clear standby flag after warmup completes — next use is real work
+					// Warmup is exempt from the watchdog, but real SCOUT turns are not.
+					// Restore the role timeout before this persistent state is reused.
 					state.standby = false;
+					if (state.maxDurationMs === 0) {
+						state.maxDurationMs = resolveTimeout(state.name);
+					}
 				}
 
 				// Auto-remove widgets after 30s (default behavior). The pre-spawned

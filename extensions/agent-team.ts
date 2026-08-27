@@ -1585,6 +1585,9 @@ ${agentCatalog}${commanderSection}`,
 	// ── Clear session-bound UI references before replacement/reload ───────────
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
+		if ((globalThis as any).__piRefreshTaskWidget) {
+			(globalThis as any).__piRefreshTaskWidget = undefined;
+		}
 		sessionEpoch++;
 		for (const state of agentStates.values()) {
 			if (state.timer) clearInterval(state.timer);
@@ -1664,6 +1667,10 @@ ${agentCatalog}${commanderSection}`,
 		};
 
 		// Use footer.ts for footer — do not overwrite; widget uses placement: belowEditor
+
+		// tasks.ts publishes state globally; this callback lets it refresh the
+		// visible task widget immediately after add/toggle/new-list/clear.
+		(globalThis as any).__piRefreshTaskWidget = (ctx?: any) => updateWidget(ctx || widgetCtx);
 
 		// Register nav providers for F-key navigation
 		const providers = ((globalThis as any).__piNavProviders = (globalThis as any).__piNavProviders || []);
