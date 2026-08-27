@@ -2,6 +2,88 @@
 
 All notable changes to agent-pi will be documented in this file.
 
+## [2.2.0] — 2026-08-27
+
+### Deterministic RESULT-Contract Gate
+
+Every finished sub-agent transcript is now mechanically checked against the
+## RESULT contract — zero tokens, pure text mechanics. A compliant result
+stays completely silent; a broken one announces itself in three places.
+
+- **`checkResultCompliance()`** — requires a `## RESULT` block with `done:` /
+  `summary:` lines and an exact `## END` closer (tiber-inspired delivery check)
+- **`/agents-status` + parent results** — team/chain/pipeline tool results get
+  a visible `⚠️ RESULT contract violated (...)` warning line when broken;
+  `composeAgentResult` also returns `contractProblems[]` for programmatic use
+- **SA widget integration** — subagent runs record violations as journal-row
+  notes and append the warning to the parent follow-up message
+- Warmup/spawn-exempt; opt-out via `PI_RESULT_CONTRACT_GATE=0` (problems are
+  still computed and journaled, only the warning lines disappear)
+- 9 unit tests (`result-contract-check.test.ts`) pass standalone and in-suite
+
+### SA Runs Join the Durable Task Journal
+
+`subagent_create` / `/subcont` dispatches are no longer invisible to
+`/agents-status`.
+
+- Every spawn appends a `kind:"sa"` row whose id equals its archived
+  transcript base name (`<agent>-sa<id>-<turn>`)
+- Completion closes the row with status / exitCode / elapsedMs / outputFile —
+  the same lifecycle team/chain/pipeline rows already had
+- Restart reconciliation and 7-day retention cover SA rows automatically
+
+### Workspace Provenance Ledger (anti-hijack)
+
+Fixed: herdr workspace reuse could grab the user's own same-label workspace.
+Reuse is now provenance-based:
+
+- Workspaces created by agent-pi are recorded in
+  `.pi/agent-sessions/herdr-workspaces.json`
+- Only ledgered ids still present in `herdr workspace list` are reused;
+  anything else falls through to fresh create-and-record
+- Verified live: create → reuse → externally-closed id replaced by new one
+
+### Delegation Guard + Captain Etiquette
+
+- **delegation-guard** extension blocks model-initiated headless `pi -p …` /
+  `pi --mode json …` bash calls that would bypass dispatch tools (no journal,
+  no herdr tab, no RESULT contract). Interactive pi panes stay allowed.
+  Opt-out: `PI_DELEGATION_GUARD=0`. Detection is a pure token probe with unit
+  tests (`pip`, path prefixes, quotes, `pi.exe` handled)
+- **Outcome etiquette**: `dispatch_agent` / pipeline `dispatch_agents`
+  descriptions now instruct the parent to lead with results and next
+  decisions — not internal mechanics (tabs, polling, journal ids, transport)
+
+### Restart Reconciliation for the Task Journal
+
+Orphaned rows from crashes/hard kills self-heal at session start and before
+dispatch:
+
+- Rows whose persisted output or last assistant message contains the RESULT
+  marker flip to `done`; PIDs still alive are skipped; quiet sessions inside a
+  grace window are skipped; everything else becomes `error` with an audit note
+- Never fabricates status from thin air — flips require on-disk evidence
+
+### Herdr Transport for All Four Dispatch Paths
+
+Team dispatch, chains, pipelines, and subagent widgets can now run their
+sub-agents as visible herdr panes instead of headless child processes:
+observable, attachable mid-run, persistent across parent restarts. Falls back
+to headless when herdr is absent — precision never depends on it. Includes
+per-run environment hardening and full-transcript archiving for SA runs.
+
+### 7-Day Rolling Retention
+
+`outputs/*.txt` archives and journal rows older than 7 days are pruned at
+dispatch/session-start (mtime-based), with corrupt journal lines preserved
+verbatim. Removes session-dir bloat without touching anything recent.
+
+### Docs & Policy Accuracy
+
+- CLAUDE.md remotes section rewritten to match reality (single public origin)
+- New unit-test suites: delegation-guard, journal-prune, journal-reconcile,
+  result-contract-check
+
 ## [2.1.0] — 2026-03-25
 
 ### Web Chat — Remote Access from Any Device
