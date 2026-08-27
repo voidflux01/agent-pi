@@ -1,6 +1,10 @@
 // ABOUTME: Self-contained HTML template for the Task Board Viewer.
 // ABOUTME: Renders a live Kanban-style task board with agent chips, activity feed, and auto-refresh.
 
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
+
 export interface BoardViewerOptions {
 	title: string;
 	port: number;
@@ -19,7 +23,7 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title} — Task Board</title>
+<title>${escapeHtml(title)} — Task Board</title>
 <style>
   :root {
     --bg: #1a1d23;
@@ -759,7 +763,7 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
 <!-- Header -->
 <div class="header">
   <img class="header-logo" src="/logo.png" alt="Pi" onerror="this.style.display='none'">
-  <div class="header-title">${title}</div>
+  <div class="header-title">${escapeHtml(title)}</div>
   <div class="header-status">
     <div class="status-dot" id="statusDot"></div>
     <span id="statusText">Connecting…</span>
@@ -1063,11 +1067,11 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
         if (task.working_directory) detailsHtml += '<div class="detail-row"><span class="detail-label">Directory</span><span class="detail-value">' + escapeHtml(task.working_directory) + '</span></div>';
         if (task.result) detailsHtml += '<div class="detail-row"><span class="detail-label">Result</span><span class="detail-value">' + escapeHtml(task.result) + '</span></div>';
         if (task.error_message) detailsHtml += '<div class="detail-row"><span class="detail-label">Error</span><span class="detail-value" style="color:var(--error)">' + escapeHtml(task.error_message) + '</span></div>';
-        if (task.group_id) detailsHtml += '<div class="detail-row"><span class="detail-label">Group ID</span><span class="detail-value">#' + task.group_id + '</span></div>';
+        if (task.group_id) detailsHtml += '<div class="detail-row"><span class="detail-label">Group ID</span><span class="detail-value">#' + numericText(task.group_id) + '</span></div>';
 
         card.innerHTML =
           '<div class="card-top">' +
-            '<span class="card-id">#' + (task.task_id || '?') + '</span>' +
+            '<span class="card-id">#' + numericText(task.task_id) + '</span>' +
             '<span class="card-desc">' + escapeHtml(task.description || 'Untitled task') + '</span>' +
           '</div>' +
           '<div class="card-meta">' + metaHtml + '</div>' +
@@ -1104,9 +1108,9 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
       const item = document.createElement('div');
       item.className = 'message-item';
 
-      const typeClass = 'type-' + (msg.message_type || 'status');
-      const typeLabel = (msg.message_type || 'status').toUpperCase();
-
+      const rawType = String(msg.message_type || 'status');
+      const typeClass = 'type-' + rawType.replace(/[^a-z0-9_-]/gi, '').slice(0, 32);
+      const typeLabel = escapeHtml(rawType.toUpperCase());
       item.innerHTML =
         '<div class="msg-header">' +
           '<span class="msg-from">' + escapeHtml(msg.from_agent || '?') + '</span>' +
@@ -1150,7 +1154,7 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
         '<div class="group-name">' + escapeHtml(group.group_name || group.name || 'Unnamed') + '</div>' +
         '<div class="group-bar-wrap"><div class="group-bar" style="width:' + pct + '%"></div></div>' +
         '<div class="group-stats">' +
-          '<span>' + completed + '/' + total + ' tasks</span>' +
+          '<span>' + numericText(completed, '0') + '/' + numericText(total, '0') + ' tasks</span>' +
           '<span>' + pct + '%</span>' +
         '</div>';
 
@@ -1211,8 +1215,13 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
   // ── Helpers ──────────────────────────
   function escapeHtml(str) {
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = String(str ?? '');
     return div.innerHTML;
+  }
+
+  function numericText(value, fallback = '?') {
+    const n = Number(value);
+    return Number.isFinite(n) ? String(n) : fallback;
   }
 
   function formatTime(isoStr) {

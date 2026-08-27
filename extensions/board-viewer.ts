@@ -6,11 +6,12 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { generateBoardViewerHTML } from "./lib/board-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 
@@ -107,8 +108,9 @@ async function gatherBoardData(): Promise<BoardData> {
 
 function startBoardServer(
 	title: string,
-): Promise<{ port: number; server: Server; waitForResult: () => Promise<BoardResult> }> {
+): Promise<{ port: number; server: Server; waitForResult: () => Promise<BoardResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
+		const auth = createLocalServerAuth();
 		let resolveResult: (result: BoardResult) => void;
 		let settled = false;
 		const settle = (result: BoardResult) => {
@@ -121,17 +123,8 @@ function startBoardServer(
 		});
 
 		const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", `http://localhost`);
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve the main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -204,6 +197,7 @@ function startBoardServer(
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise,
+				auth,
 			});
 		});
 	});
@@ -211,13 +205,13 @@ function startBoardServer(
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}
@@ -257,10 +251,11 @@ export default function (pi: ExtensionAPI) {
 		cleanupServer();
 
 		// Start server
-		const { port, server } = await startBoardServer(title);
+		const { port, server, auth } = await startBoardServer(title);
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: "board",
 			title,
@@ -274,7 +269,7 @@ export default function (pi: ExtensionAPI) {
 		registerActiveViewer(activeSession);
 
 		// Open the browser
-		openBrowser(url);
+		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
 		return url;
