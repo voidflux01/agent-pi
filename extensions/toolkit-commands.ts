@@ -20,6 +20,7 @@ import { spawn } from "child_process";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { TOOLKIT_WORKER_MODEL } from "./lib/toolkit-cli.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -233,7 +234,7 @@ export default function (pi: ExtensionAPI) {
 							userArgs || "",
 						], {
 							stdio: ["ignore", "pipe", "pipe"],
-							env: { ...process.env, PI_SUBAGENT: "1" },
+							env: childEnvironment({ PI_SUBAGENT: "1" }),
 						});
 
 						let output = "";
