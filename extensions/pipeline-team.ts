@@ -40,6 +40,8 @@ import {
 	sendCommandToPane,
 	shellQuote,
 	writeLaunchScript,
+	launchDonePath,
+	visiblePiTuiArgs,
 	type HerdrTabRef,
 } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
@@ -377,6 +379,9 @@ export default function (pi: ExtensionAPI) {
 		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
+		// Loaded only by the visible herdr transport: writes the pane's done
+		// marker on the child's first agent_end (an interactive worker stays alive).
+		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
 		// Resume existing session when one exists (pipeline previously lacked -c).
 		const hasSession = existsSync(agentSessionFile);
 		// Durable journal record — survives parent restarts (see /agents-status).
@@ -477,7 +482,8 @@ export default function (pi: ExtensionAPI) {
 			let herdrCancelled = false;
 
 			// ── Herdr transport (Phase 2) ──────────────────────────────────
-			// Runs the same headless pi command inside a Herdr pane: visible,
+			// Runs pi inside a Herdr pane in its real interactive TUI (the
+			// headless "--mode json"/"-p" flags are stripped), so operators watch:
 			// persistent across parent restarts, resumable via the session
 			// file. Completion is signalled by a marker file; authoritative
 			// result text is read from pi's session JSONL. Any herdr failure
@@ -490,17 +496,25 @@ export default function (pi: ExtensionAPI) {
 					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", ctx.cwd);
 					if (!wsId) return false;
 
+					// Watchable variant: this transport always launches a pi child, so
+					// drop the headless "--mode json"/"-p" flags and let the pane show
+					// pi's real TUI instead of a raw JSON event stream. The child stays
+					// alive after its turn, so herdr-done.ts writes the done marker on
+					// the first agent_end (the process-exit marker remains the fallback)
+					// and the result text still comes from the session JSONL.
+					const tuiArgs = visiblePiTuiArgs(args, herdrDoneExtPath);
 					const refs = writeLaunchScript({
 						dir: sessionDir,
 						id: journalId,
 						cwd: ctx.cwd,
-						command: ["pi", ...args],
+						command: ["pi", ...tuiArgs],
 						env: {
-					...process.env,
-					PI_SUBAGENT: "1",
-					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
-					PI_SESSION_FILE: agentSessionFile || undefined,
-				},
+							...process.env,
+							PI_SUBAGENT: "1",
+							PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
+							PI_SESSION_FILE: agentSessionFile || undefined,
+							HERDR_DONE_PATH: launchDonePath(sessionDir, journalId),
+						},
 					});
 
 					tab = createHerdrTaskTab(wsId, ctx.cwd, `ap-${journalId}`);

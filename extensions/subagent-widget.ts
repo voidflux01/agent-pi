@@ -46,6 +46,8 @@ import {
 	sendCommandToPane,
 	shellQuote,
 	writeLaunchScript,
+	launchDonePath,
+	visiblePiTuiArgs,
 	type HerdrTabRef,
 } from "./lib/herdr-client.ts";
 
@@ -272,6 +274,10 @@ export default function (pi: ExtensionAPI) {
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
 		const askParentExtPath = path.join(extDir, "ask-parent.ts");
+		// Loaded only by the visible herdr transport: writes the pane's done marker
+		// on the child's first agent_end, since an interactive worker stays alive
+		// after finishing its task.
+		const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
 		const extensions = ["-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath, "-e", askParentExtPath];
 		if (commanderAvail) {
 			// Commander tools are extension-registered (not built-in), so they must NOT
@@ -445,7 +451,8 @@ export default function (pi: ExtensionAPI) {
 				resolve();
 			};
 
-			// Shared argv — both transports run byte-identical semantics.
+			// argv for the headless path. The visible herdr transport derives its
+			// watchable variant from this with visiblePiTuiArgs().
 			const argv = [
 				"--mode", "json",
 				"-p",
@@ -487,8 +494,9 @@ export default function (pi: ExtensionAPI) {
 			let ownedByHerdr = false;
 			let herdrCancelled = false;
 
-			// ── Herdr transport ────────────────────────────────────────────
-			// Runs the same headless pi command inside a Herdr pane: visible,
+			// ── Herdr transport (visible pi TUI) ────────────────────────────────────────────
+			// Runs pi inside a Herdr pane in its real interactive TUI (the headless
+			// "--mode json"/"-p" flags are stripped), so operators watch the work:
 			// persistent across parent restarts, resumable via the session
 			// file. Completion is signalled by a marker file; authoritative
 			// result text is read from pi's session JSONL. Standby (warmup)
@@ -503,12 +511,17 @@ export default function (pi: ExtensionAPI) {
 					if (!wsId) return false;
 
 					const launchId = `sa${state.id}`;
+					const launchDir = path.dirname(state.sessionFile);
+					// The authoritative result still comes from the session JSONL, and
+					// herdr-done.ts writes the done marker on the first agent_end (the
+					// launch script's process-exit marker stays as the fallback).
+					const tuiArgs = visiblePiTuiArgs(argv, herdrDoneExtPath);
 					const refs = writeLaunchScript({
-						dir: path.dirname(state.sessionFile),
+						dir: launchDir,
 						id: launchId,
 						cwd: runCwd,
-						command: ["pi", ...argv],
-						env: spawnEnv,
+						command: ["pi", ...tuiArgs],
+						env: { ...spawnEnv, HERDR_DONE_PATH: launchDonePath(launchDir, launchId) },
 					});
 
 					tab = createHerdrTaskTab(wsId, runCwd, `ap-${launchId}`);

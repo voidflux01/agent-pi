@@ -1,15 +1,20 @@
-// ABOUTME: Herdr transport for sub-agent dispatch (team mode, Phase 1).
+// ABOUTME: Herdr transport for sub-agent dispatch (all pi child runtimes).
 // ABOUTME: When the parent runs inside Herdr (HERDR_ENV=1) and a server is
-// ABOUTME: reachable, sub-agents run as headless `pi --mode json` inside a
-// ABOUTME: Herdr pane: visible, persistent across parent restarts, and
-// ABOUTME: resumable. When Herdr is unavailable, callers fall back to the
+// ABOUTME: reachable, sub-agents run inside a Herdr pane: pi children in
+// ABOUTME: pi's real interactive TUI (visiblePiTuiArgs() drops the headless
+// ABOUTME: `--mode json`/`-p` so the tab is watchable, never a JSON stream),
+// ABOUTME: external runtimes as their own CLI with output tee'd for parsing.
+// ABOUTME: Panes stay persistent across parent restarts and resumable via the
+// ABOUTME: session file. When Herdr is unavailable, callers fall back to the
 // ABOUTME: existing headless child-process path — precision never depends on
 // ABOUTME: Herdr being present.
 // ABOUTME: Design notes (verified against herdr 0.8.2, protocol 20):
 // ABOUTME:  - pane read is a SCREEN capture (ANSI + wrapped lines), so it is
 // ABOUTME:    never used to parse JSON events. Completion is signalled by a
-// ABOUTME:    marker FILE written by the launch script; the authoritative
-// ABOUTME:    result text comes from pi's session JSONL file on disk.
+// ABOUTME:    marker FILE ($HERDR_DONE_PATH, written on the child's first
+// ABOUTME:    agent_end by herdr-done.ts, with the launch script's process-exit
+// ABOUTME:    write as fallback); the authoritative result text comes from pi's
+// ABOUTME:    session JSONL file on disk.
 // ABOUTME:  - pane run / send-text can drop the first character when the pane
 // ABOUTME:    shell is not ready, and zsh's compinit security prompt can eat
 // ABOUTME:    input. Mitigations: --env ZSH_DISABLE_COMPFIX=true on tab
@@ -195,6 +200,50 @@ export function shellQuote(s: string): string {
 	return "'" + s.split("'").join("'\\''") + "'";
 }
 
+// ── watchable argv ───────────────────────────────────────────
+
+/**
+ * Convert a headless pi argv into one an operator can watch.
+ *
+ * The invisible spawn paths need machine-readable, exit-when-done output, so
+ * they carry `--mode json` and `-p`. Inside a Herdr pane those two flags turn
+ * the tab into a wall of raw JSON events, so the visible transport drops them
+ * and lets pi run its real TUI with the same session, model, tools, system
+ * prompt, extensions, and task text.
+ *
+ * It also appends `-e <herdrDoneExtPath>`: a TUI worker does not exit when its
+ * task is done, so herdr-done.ts writes the completion marker on the first
+ * agent_end. pi parses options in one order-independent pass, so the pair is
+ * inserted right after the last existing `-e` to keep the explicit extension
+ * group together.
+ *
+ * Returns the argv unchanged when there is nothing headless to strip.
+ */
+export function visiblePiTuiArgs(args: string[], herdrDoneExtPath: string): string[] {
+	const stripped: string[] = [];
+	let strippedAnything = false;
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i];
+		if (a === "--mode" && (args[i + 1] === "json" || args[i + 1] === "rpc")) {
+			i++;
+			strippedAnything = true;
+			continue;
+		}
+		if (a === "-p" || a === "--print") {
+			strippedAnything = true;
+			continue;
+		}
+		stripped.push(a);
+	}
+	if (!strippedAnything) return stripped;
+
+	let insertAt = 0;
+	for (let i = 0; i < stripped.length - 1; i++) {
+		if (stripped[i] === "-e" || stripped[i] === "--extension") insertAt = i + 2;
+	}
+	return [...stripped.slice(0, insertAt), "-e", herdrDoneExtPath, ...stripped.slice(insertAt)];
+}
+
 export interface LaunchScriptOpts {
 	dir: string;
 	id: string;
@@ -211,12 +260,18 @@ export interface LaunchScriptRefs {
 	donePath: string;
 }
 
+/** Marker-file path for a launch id. Same naming writeLaunchScript() uses, so
+ *  callers can point HERDR_DONE_PATH at it before the refs exist. */
+export function launchDonePath(dir: string, id: string): string {
+	return join(dir, `herdr-launch-${id}.done`);
+}
+
 /** Write a bash script that runs the command and writes the exit code to a
  *  marker file. Returns paths. The script itself handles cwd and env. */
 export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	mkdirSync(opts.dir, { recursive: true });
 	const scriptPath = join(opts.dir, `herdr-launch-${opts.id}.sh`);
-	const donePath = join(opts.dir, `herdr-launch-${opts.id}.done`);
+	const donePath = launchDonePath(opts.dir, opts.id);
 	const envAssign = Object.entries(opts.env || {})
 		.filter(([, v]) => v !== undefined)
 		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)

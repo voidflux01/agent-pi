@@ -42,7 +42,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText,
-	sessionUsage, cleanupLaunchFiles, type HerdrTabRef } from "./lib/herdr-client.ts";
+	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -881,30 +881,16 @@ export default function (pi: ExtensionAPI) {
 					// Watchable variant: this transport always launches pi children,
 					// so drop the headless "--mode json"/"-p" flags and let the pane
 					// show pi's real TUI instead of a raw JSON event stream. The
-					// authoritative result still comes from the session JSONL; a
-					// tiny agent_end extension writes the done marker as soon as the
-					// working turn ends (the process-exit done file stays as the
-					// fallback signal).
-					// args currently carry task text and possibly "-c"; strip only the
-					// headless markers so TUI mode still receives everything else.
-					const headlessStripped: string[] = [];
-					for (let ai = 0; ai < args.length; ai++) {
-						if (args[ai] === "--mode" && args[ai + 1] === "json") { ai++; continue; }
-						if (args[ai] === "-p") continue;
-						headlessStripped.push(args[ai]);
-					}
-					const mi = headlessStripped.indexOf("--model");
-					const tuiArgs = [
-						...headlessStripped.slice(0, mi === -1 ? headlessStripped.length : mi),
-						"-e", herdrDoneExtPath,
-						...headlessStripped.slice(mi === -1 ? headlessStripped.length : mi),
-					];
+					// authoritative result still comes from the session JSONL, and
+					// herdr-done.ts writes the done marker on the first agent_end
+					// (the process-exit marker stays as the fallback signal).
+					const tuiArgs = visiblePiTuiArgs(args, herdrDoneExtPath);
 					const refs = writeLaunchScript({
 						dir: sessionDir,
 						id: journalId,
 						cwd: runCwd,
 						command: ["pi", ...tuiArgs],
-						env: { ...spawnEnv, PI_SUBAGENT: "1", HERDR_DONE_PATH: join(sessionDir, `herdr-launch-${journalId}.done`) },
+						env: { ...spawnEnv, PI_SUBAGENT: "1", HERDR_DONE_PATH: launchDonePath(sessionDir, journalId) },
 					});
 					tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
 					if (!tab) {
