@@ -4,9 +4,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { join, basename, dirname, extname, resolve, relative } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
@@ -15,6 +15,8 @@ import { generateSpecViewerHTML, type SpecDocument } from "./lib/spec-viewer-htm
 import { createSpecStandaloneExport, loadVisualAsExportAsset, saveStandaloneExport, type SpecExportDocument } from "./lib/viewer-standalone-export.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
+import { isWithinDirectory } from "./lib/path-safety.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -177,25 +179,17 @@ function startSpecViewerServer(
 	documents: SpecDocument[],
 	title: string,
 	existingComments: SpecComment[],
-): Promise<{ port: number; server: Server; waitForResult: () => Promise<SpecViewerResult> }> {
+): Promise<{ port: number; server: Server; waitForResult: () => Promise<SpecViewerResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
 		let resolveResult: (result: SpecViewerResult) => void;
 		const resultPromise = new Promise<SpecViewerResult>((res) => {
 			resolveResult = res;
 		});
 
+		const auth = createLocalServerAuth();
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", `http://localhost`);
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve the main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -236,16 +230,21 @@ function startSpecViewerServer(
 
 				// Security: prevent directory traversal
 				const absPath = resolve(folderPath, relPath);
-				const normalizedFolder = resolve(folderPath);
-				if (!absPath.startsWith(normalizedFolder)) {
+				if (!isWithinDirectory(folderPath, absPath)) {
 					res.writeHead(403);
 					res.end("Access denied");
 					return;
 				}
 
 				try {
-					const data = readFileSync(absPath);
-					const ext = extname(absPath).toLowerCase();
+					const realPath = realpathSync(absPath);
+					if (!isWithinDirectory(folderPath, realPath)) {
+						res.writeHead(403);
+						res.end("Access denied");
+						return;
+					}
+					const data = readFileSync(realPath);
+					const ext = extname(realPath).toLowerCase();
 					const contentType = MIME_TYPES[ext] || "application/octet-stream";
 					res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=300" });
 					res.end(data);
@@ -327,6 +326,7 @@ function startSpecViewerServer(
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise,
+				auth,
 			});
 		});
 	});
@@ -336,13 +336,13 @@ function startSpecViewerServer(
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}
@@ -415,7 +415,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Start server
-		const { port, server, waitForResult } = await startSpecViewerServer(
+		const { port, server, waitForResult, auth } = await startSpecViewerServer(
 			folderPath,
 			documents,
 			title,
@@ -424,6 +424,7 @@ export default function (pi: ExtensionAPI) {
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: "spec",
 			title: "Spec viewer",
@@ -435,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		};
 		registerActiveViewer(activeSession);
-		openBrowser(url);
+		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
 		try {
@@ -446,9 +447,10 @@ export default function (pi: ExtensionAPI) {
 				for (const [relPath, content] of Object.entries(result.markdownChanges)) {
 					try {
 						const absPath = resolve(folderPath, relPath);
-						// Security check
-						if (absPath.startsWith(resolve(folderPath))) {
-							writeFileSync(absPath, content, "utf-8");
+						if (isWithinDirectory(folderPath, absPath)) {
+							const realPath = realpathSync(absPath);
+							if (!isWithinDirectory(folderPath, realPath)) throw new Error("Refusing to write outside spec folder");
+							writeFileSync(realPath, content, "utf-8");
 						}
 					} catch {}
 				}
