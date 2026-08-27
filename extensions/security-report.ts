@@ -5,21 +5,22 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { outputLine } from "./lib/output-box.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateSecurityReportHTML, type SecurityReportData, type SecurityReportFinding } from "./lib/security-report-html.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 
 function openBrowser(url: string): void {
-  try { execSync(`open \"${url}\"`, { stdio: "ignore" }); } catch {
-    try { execSync(`xdg-open \"${url}\"`, { stdio: "ignore" }); } catch {
-      try { execSync(`start \"${url}\"`, { stdio: "ignore" }); } catch {}
+  try { execFileSync("open", [url], { stdio: "ignore" }); } catch {
+    try { execFileSync("xdg-open", [url], { stdio: "ignore" }); } catch {
+      try { execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" }); } catch {}
     }
   }
 }
@@ -71,22 +72,15 @@ function parseFindings(markdown: string): SecurityReportFinding[] {
   return findings;
 }
 
-function startServer(report: SecurityReportData): Promise<{ port: number; server: Server; waitForClose: () => Promise<void> }> {
+function startServer(report: SecurityReportData): Promise<{ port: number; server: Server; waitForClose: () => Promise<void>; auth: LocalServerAuth }> {
   return new Promise((resolveSetup) => {
+      const auth = createLocalServerAuth();
     let resolveResult!: () => void;
     const resultPromise = new Promise<void>((resolve) => { resolveResult = resolve; });
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      if (req.method === "OPTIONS") {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-
       const url = new URL(req.url || "/", "http://localhost");
+      if (!authorizeLocalServerRequest(req, res, auth, url)) return;
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(generateSecurityReportHTML(report));
@@ -131,7 +125,7 @@ function startServer(report: SecurityReportData): Promise<{ port: number; server
     server.on("close", () => resolveResult());
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address() as any;
-      resolveSetup({ port: addr.port, server, waitForClose: () => resultPromise });
+      resolveSetup({ port: addr.port, server, waitForClose: () => resultPromise, auth });
     });
   });
 }
@@ -180,9 +174,10 @@ export default function (pi: ExtensionAPI) {
       };
 
       cleanup();
-      const { port, server, waitForClose } = await startServer(report);
+      const { port, server, waitForClose, auth } = await startServer(report);
       activeServer = server;
       const url = `http://127.0.0.1:${port}`;
+      const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
       activeSession = {
         kind: "report",
         title: report.title,
@@ -194,7 +189,7 @@ export default function (pi: ExtensionAPI) {
         },
       };
       registerActiveViewer(activeSession);
-      openBrowser(url);
+      openBrowser(launchUrl);
       notifyViewerOpen(ctx, activeSession);
 
       try {
