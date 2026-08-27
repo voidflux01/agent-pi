@@ -715,7 +715,7 @@ export default function (pi: ExtensionAPI) {
 					elapsedMs: state.elapsed,
 					sessionFile: state.sessionFile || undefined,
 					outputFile: fullOutputPath || undefined,
-					usage: tu && tu.assistantMessages > 0 ? {
+					usage: tu && tu.totalTokens > 0 ? {
 						input: tu.input, output: tu.output, cacheRead: tu.cacheRead, cacheWrite: tu.cacheWrite,
 						totalTokens: tu.totalTokens, costUsd: Math.round(tu.costUsd * 1e6) / 1e6,
 					} : undefined,
