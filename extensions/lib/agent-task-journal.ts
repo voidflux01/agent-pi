@@ -16,7 +16,7 @@ export interface TaskJournalEntry {
 	version: 1;
 	/** Stable per-run id, matching the persisted output file base name. */
 	id: string;
-	kind: "team" | "chain" | "pipeline";
+	kind: "team" | "chain" | "pipeline" | "sa";
 	agent: string;
 	/** The dispatched task prompt (bounded for disk hygiene; never shown in context). */
 	task: string;

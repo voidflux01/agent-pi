@@ -32,7 +32,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
 import { persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
-import { pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
 	closeHerdrTab,
@@ -122,6 +122,7 @@ interface SubState {
 	commanderTaskId?: number;  // pre-assigned Commander task ID
 	autoRemove?: boolean;      // auto-remove widget ~30s after done (default: true)
 	model?: string;            // resolved model string for display
+	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
 	standby?: boolean;         // true = warmup spawn, suppress follow-up message
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
@@ -238,6 +239,23 @@ export default function (pi: ExtensionAPI) {
 		);
 		state.model = model;
 
+		// Journal the dispatch — id doubles as the archived-transcript base name.
+		const saDir = path.join(ctx?.cwd ?? process.cwd(), ".pi", "agent-sessions");
+		const saBase = runBaseName(`${state.name.toLowerCase()}-sa${state.id}`, state.turnCount);
+		state.saRunId = saBase;
+		journalAppend(saDir, {
+			version: 1,
+			id: saBase,
+			kind: "sa",
+			agent: state.name.toLowerCase(),
+			task: prompt,
+			model: state.model || undefined,
+			sessionFile: state.sessionFile,
+			status: "dispatched",
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+		});
+
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 		const tasksExtPath = path.join(extDir, "tasks.ts");
 		const commanderExtPath = path.join(extDir, "commander-mcp.ts");
@@ -351,12 +369,22 @@ export default function (pi: ExtensionAPI) {
 				// Archive the FULL transcript like team/chain/pipeline runs do,
 				// so long results survive the 8k follow-up message cap.
 				let fullOutputPath = "";
+				const saOutDir = path.join(ctx?.cwd ?? process.cwd(), ".pi", "agent-sessions");
 				try {
 					fullOutputPath = persistFullOutput(
-						path.join(process.cwd(), ".pi", "agent-sessions"),
-						runBaseName(`${state.name.toLowerCase()}-sa${state.id}`, state.turnCount),
+						saOutDir,
+						state.saRunId ?? runBaseName(`${state.name.toLowerCase()}-sa${state.id}`, state.turnCount),
 						result,
 					);
+				} catch {}
+				// Close the journal row opened at dispatch time.
+				try {
+					journalUpdate(saOutDir, state.saRunId ?? "", {
+						status: code === 0 ? "done" : "error",
+						exitCode: code,
+						elapsedMs: state.elapsed,
+						outputFile: fullOutputPath || undefined,
+					});
 				} catch {}
 
 				// Standby spawns (warmup) suppress notification and follow-up message
