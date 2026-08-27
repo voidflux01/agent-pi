@@ -41,6 +41,7 @@ import {
 	herdrEnabled,
 	pollDoneFileAsync,
 	readLastAssistantText,
+	sessionUsage,
 	sendCommandToPane,
 	shellQuote,
 	writeLaunchScript,
@@ -387,12 +388,21 @@ export default function (pi: ExtensionAPI) {
 				}
 				// Close the journal row opened at dispatch time.
 				try {
+					const saUsage = sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
 						status: code === 0 ? "done" : "error",
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						outputFile: fullOutputPath || undefined,
 						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
+						usage: saUsage.assistantMessages > 0 ? {
+							input: saUsage.input,
+							output: saUsage.output,
+							cacheRead: saUsage.cacheRead,
+							cacheWrite: saUsage.cacheWrite,
+							totalTokens: saUsage.totalTokens,
+							costUsd: Math.round(saUsage.costUsd * 1e6) / 1e6,
+						} : undefined,
 					});
 				} catch {}
 

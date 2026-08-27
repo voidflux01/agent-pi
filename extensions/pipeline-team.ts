@@ -36,6 +36,7 @@ import {
 	herdrEnabled,
 	pollDoneFileAsync,
 	readLastAssistantText,
+	sessionUsage,
 	sendCommandToPane,
 	shellQuote,
 	writeLaunchScript,
@@ -453,12 +454,17 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath = "";
 				}
 
+				const pu = agentSessionFile && code === 0 ? sessionUsage(agentSessionFile) : null;
 				journalUpdate(sessionDir, journalId, {
 					status: agentState.status,
 					exitCode: code,
 					elapsedMs: agentState.elapsed,
 					sessionFile: code === 0 ? agentSessionFile : undefined,
 					outputFile: fullOutputPath || undefined,
+					usage: pu && pu.assistantMessages > 0 ? {
+						input: pu.input, output: pu.output, cacheRead: pu.cacheRead, cacheWrite: pu.cacheWrite,
+						totalTokens: pu.totalTokens, costUsd: Math.round(pu.costUsd * 1e6) / 1e6,
+					} : undefined,
 				});
 
 				resolvePromise({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed: agentState.elapsed });

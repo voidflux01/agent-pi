@@ -1,0 +1,78 @@
+import { describe, expect, test } from "bun:test";
+import { sessionUsage } from "../lib/herdr-client.ts";
+import { formatJournalEntry, sumJournalUsage, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function makeSession(messages: any[]): string {
+	const dir = mkdtempSync(join(tmpdir(), "usage-test-"));
+	const p = join(dir, "s.jsonl");
+	writeFileSync(p, messages.map((m) => JSON.stringify(m)).join("\n") + "\n");
+	return p;
+}
+
+const u = (input: number, output: number, cacheRead = 0, costTotal?: number) => ({
+	role: "assistant",
+	content: [{ type: "text", text: "ok" }],
+	usage: { input, output, cacheRead, totalTokens: input + output + cacheRead, cost: { total: costTotal ?? 0 } },
+});
+
+describe("sessionUsage", () => {
+	test("sums assistant-message usage and skips other roles", () => {
+		const p = makeSession([
+			{ role: "user", content: [{ type: "text", text: "hi" }] },
+			u(1000, 100, 50, 0.01),
+			u(2000, 200, 0, 0.02),
+			{ message: { role: "assistant", usage: { input: 10, output: 5, cacheRead: 0, cost: { total: 0.0001 } }, content: [] } },
+		]);
+		const s = sessionUsage(p);
+		expect(s.input).toBe(3010);
+		expect(s.output).toBe(305);
+		expect(s.cacheRead).toBe(50);
+		expect(s.totalTokens).toBe(3365);
+		expect(Math.abs(s.costUsd - 0.0301) < 1e-9).toBe(true);
+		expect(s.assistantMessages).toBe(3);
+	});
+
+	test("missing file => zeros", () => {
+		const s = sessionUsage("/nonexistent/file.jsonl");
+		expect(s.assistantMessages).toBe(0);
+		expect(s.costUsd).toBe(0);
+	});
+
+	test("file without usage lines => zeros, no crash", () => {
+		const p = makeSession([{ role: "assistant", content: [{ type: "text", text: "no usage here" }] }]);
+		const s = sessionUsage(p);
+		expect(s.assistantMessages).toBe(0);
+	});
+});
+
+describe("journal usage rendering", () => {
+	const base: TaskJournalEntry = {
+		version: 1, id: "tester-1", kind: "team", agent: "tester", task: "x",
+		status: "done", startedAt: 0, updatedAt: 0,
+	};
+
+	test("entry with usage renders tokens + cache% + cost", () => {
+		const line = formatJournalEntry({ ...base, usage: { input: 300, output: 100, cacheRead: 600, cacheWrite: 0, totalTokens: 12000, costUsd: 0.0042 } });
+		expect(line.includes("12,000tok")).toBe(true);
+		expect(line.includes("(67% cached)")).toBe(true);
+		expect(line.includes("$0.0042")).toBe(true);
+	});
+
+	test("entry without usage renders no token text", () => {
+		expect(formatJournalEntry(base).includes("tok")).toBe(false);
+	});
+
+	test("sumJournalUsage aggregates runs with usage only", () => {
+		const sums = sumJournalUsage([
+			{ ...base, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 100, costUsd: 0.01 } },
+			base,
+			{ ...base, id: "tester-2", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 250, costUsd: 0.02 } },
+		]);
+		expect(sums.runs).toBe(2);
+		expect(sums.totalTokens).toBe(350);
+		expect(Math.abs(sums.costUsd - 0.03) < 1e-9).toBe(true);
+	});
+});

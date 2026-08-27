@@ -40,7 +40,8 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText, cleanupLaunchFiles, type HerdrTabRef } from "./lib/herdr-client.ts";
+import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText,
+	sessionUsage, cleanupLaunchFiles, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -697,12 +698,17 @@ export default function (pi: ExtensionAPI) {
 				state.summaryLines = full.split("\n").map((l: string) => l.trim()).filter(Boolean).slice(-3);
 				invalidateAgentWidget(state);
 
+				const tu = state.sessionFile ? sessionUsage(state.sessionFile) : null;
 				journalUpdate(sessionDir, journalId, {
 					status: state.status,
 					exitCode: code,
 					elapsedMs: state.elapsed,
 					sessionFile: state.sessionFile || undefined,
 					outputFile: fullOutputPath || undefined,
+					usage: tu && tu.assistantMessages > 0 ? {
+						input: tu.input, output: tu.output, cacheRead: tu.cacheRead, cacheWrite: tu.cacheWrite,
+						totalTokens: tu.totalTokens, costUsd: Math.round(tu.costUsd * 1e6) / 1e6,
+					} : undefined,
 				});
 
 				setTimeout(() => {

@@ -21,6 +21,8 @@ export interface TaskJournalEntry {
 	/** The dispatched task prompt (bounded for disk hygiene; never shown in context). */
 	task: string;
 	model?: string;
+	/** Token/cost totals for the finished run (summed from the session file). */
+	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number };
 	cwd?: string;
 	/** Pi session file — enables `-c` resume after a parent restart. */
 	sessionFile?: string;
@@ -272,7 +274,26 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 	const session = e.sessionFile ? ` session:${e.sessionFile}` : "";
 	const resumed = e.resumed ? " (resumed)" : "";
 	const note = e.note ? ` [${e.note}]` : "";
-	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${alive}${elapsed}${resumed}${session}${note}`;
+	let usage = "";
+	if (e.usage && e.usage.totalTokens > 0) {
+		const u = e.usage;
+		const cost = u.costUsd > 0 ? `$${u.costUsd < 0.01 ? u.costUsd.toFixed(4) : u.costUsd.toFixed(2)}` : "$0";
+		const cachePct = u.input + u.cacheRead > 0 ? Math.round((u.cacheRead / (u.input + u.cacheRead)) * 100) : 0;
+		usage = ` ${u.totalTokens.toLocaleString()}tok (${cachePct}% cached) ${cost}`;
+	}
+	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${alive}${elapsed}${usage}${resumed}${session}${note}`;
+}
+
+/** Aggregate usage across finished rows — the fleet total under /agents-status. */
+export function sumJournalUsage(entries: TaskJournalEntry[]): { totalTokens: number; costUsd: number; runs: number } {
+	const acc = { totalTokens: 0, costUsd: 0, runs: 0 };
+	for (const e of entries) {
+		if (!e.usage || e.usage.totalTokens <= 0) continue;
+		acc.totalTokens += e.usage.totalTokens;
+		acc.costUsd += e.usage.costUsd ?? 0;
+		acc.runs += 1;
+	}
+	return acc;
 }
 
 /**
@@ -305,6 +326,11 @@ export function registerTaskStatusCommand(pi: any, sessionDir: () => string): vo
 			if (recent.length > 0) {
 				lines.push("RECENT:");
 				for (const e of recent) lines.push("  " + formatJournalEntry(e));
+				const totals = sumJournalUsage(recent);
+				if (totals.runs > 0) {
+					const cost = totals.costUsd > 0 ? `$${totals.costUsd < 0.01 ? totals.costUsd.toFixed(4) : totals.costUsd.toFixed(2)}` : "$0";
+					lines.push(`  TOTAL (${totals.runs} runs): ${totals.totalTokens.toLocaleString()} tokens, ${cost}`);
+				}
 			}
 			lines.push("Journal: " + journalPath(dir));
 			ctx?.ui?.notify?.(lines.join("\n"), "info");

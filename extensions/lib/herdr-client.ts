@@ -288,6 +288,48 @@ export interface SessionTextResult {
 
 /** Extract the LAST assistant text message from a pi session JSONL file.
  *  This is the authoritative transcript source (no terminal capture). */
+export interface SessionUsage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	totalTokens: number;
+	costUsd: number;
+	assistantMessages: number;
+}
+
+/**
+ * Sum token usage + cost across every assistant message in a pi session
+ * JSONL. Missing/corrupt lines are skipped; files that exist but carry no
+ * usage yield zeros - callers decide whether zeros are meaningful.
+ */
+export function sessionUsage(sessionFile: string): SessionUsage {
+	const out: SessionUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, costUsd: 0, assistantMessages: 0 };
+	if (!existsSync(sessionFile)) return out;
+	try {
+		for (const line of readFileSync(sessionFile, "utf8").split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const e = JSON.parse(line);
+				const msg = e?.message || e;
+				if (msg?.role !== "assistant") continue;
+				const u = msg?.usage;
+				if (!u || typeof u !== "object") continue;
+				out.input += Number(u.input) || 0;
+				out.output += Number(u.output) || 0;
+				out.cacheRead += Number(u.cacheRead) || 0;
+				out.cacheWrite += Number(u.cacheWrite) || 0;
+				const declared = Number(u.totalTokens);
+				out.totalTokens += Number.isFinite(declared) && declared > 0 ? declared : (Number(u.input) || 0) + (Number(u.output) || 0);
+				const c = u.cost;
+				if (c && typeof c === "object") out.costUsd += Number(c.total) || 0;
+				out.assistantMessages += 1;
+			} catch {}
+		}
+	} catch {}
+	return out;
+}
+
 export function readLastAssistantText(sessionFile: string): SessionTextResult {
 	if (!existsSync(sessionFile)) return { text: "", found: false };
 	let last: string | undefined;
