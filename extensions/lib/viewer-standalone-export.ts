@@ -1,13 +1,14 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { join, basename, resolve, relative, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
 
 const BRAND_IMAGE_URL = "https://firebasestorage.googleapis.com/v0/b/ruizrica-io.firebasestorage.app/o/agent.png?alt=media&token=152539b8-8d0c-46e4-950f-190c317ed6c8";
 
 // Standalone exports run outside the authenticated viewer. Keep Markdown HTML
 // inert even when the exported report contains model- or file-sourced text.
-const STANDALONE_MARKDOWN_SANITIZER = `
+const STANDALONE_MARKDOWN_SANITIZER = String.raw`
 function sanitizeMarkdownHtml(html) {
   const template = document.createElement('template');
   template.innerHTML = String(html || '');
@@ -304,10 +305,13 @@ const root = document.getElementById('specContent');
 root.innerHTML = docs.map(function(doc) {
   if (doc.isVisuals) {
     const visuals = (doc.visuals || []).map(function(visual) {
-      if ((visual.mimeType || '').includes('html')) {
-        return '<div class="visual-card"><div class="visual-label">' + escapeHtml(visual.filePath) + '</div><iframe sandbox srcdoc="' + escapeAttr(visual.content) + '"></iframe></div>';
+      const mimeType = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'application/octet-stream', 'text/html'].includes(visual.mimeType) ? visual.mimeType : 'application/octet-stream';
+      const content = typeof visual.content === 'string' ? visual.content : '';
+      if (mimeType === 'text/html') {
+        return '<div class="visual-card"><div class="visual-label">' + escapeHtml(visual.filePath) + '</div><iframe sandbox srcdoc="' + escapeAttr(content) + '"></iframe></div>';
       }
-      return '<div class="visual-card"><div class="visual-label">' + escapeHtml(visual.filePath) + '</div><img src="data:' + visual.mimeType + ';base64,' + visual.content + '" alt="' + escapeAttr(visual.filePath) + '"></div>';
+      const encoded = /^[A-Za-z0-9+/=]*$/.test(content) ? content : '';
+      return '<div class="visual-card"><div class="visual-label">' + escapeHtml(visual.filePath) + '</div><img src="data:' + mimeType + ';base64,' + encoded + '" alt="' + escapeAttr(visual.filePath) + '"></div>';
     }).join('');
     return '<section class="section"><div class="section-header"><div class="section-label">' + escapeHtml(doc.label) + '</div><div class="section-path">' + escapeHtml(doc.filePath) + '</div></div><div class="visual-grid">' + visuals + '</div></section>';
   }
@@ -318,10 +322,13 @@ root.innerHTML = docs.map(function(doc) {
 }
 
 export function saveStandaloneExport(opts: { filePrefix: string; html: string }): { filePath: string; fileName: string } {
+	if (!/^[A-Za-z0-9_-]{1,64}$/.test(opts.filePrefix) || typeof opts.html !== "string") {
+		throw new Error("Invalid standalone export input");
+	}
 	const desktop = ensureDesktop();
-	const fileName = `${opts.filePrefix}-${timestampForFileName()}.html`;
+	const fileName = `${opts.filePrefix}-${timestampForFileName()}-${randomBytes(4).toString("hex")}.html`;
 	const filePath = join(desktop, fileName);
-	writeFileSync(filePath, opts.html, "utf-8");
+	writeFileSync(filePath, opts.html, { encoding: "utf-8", flag: "wx", mode: 0o600 });
 	return { filePath, fileName };
 }
 
@@ -338,6 +345,8 @@ export function loadVisualAsExportAsset(baseFolder: string, relPath: string): { 
 	if (realRelative === ".." || realRelative.startsWith(`..${sep}`) || isAbsolute(realRelative)) {
 		throw new Error("Visual asset resolves outside the export folder");
 	}
+	const size = statSync(realPath).size;
+	if (size > 16 * 1024 * 1024) throw new Error("Visual asset is too large");
 	const data = readFileSync(realPath);
 	const ext = basename(relPath).toLowerCase();
 	let mimeType = "application/octet-stream";
@@ -347,9 +356,10 @@ export function loadVisualAsExportAsset(baseFolder: string, relPath: string): { 
 	else if (ext.endsWith('.webp')) mimeType = 'image/webp';
 	else if (ext.endsWith('.svg')) mimeType = 'image/svg+xml';
 	else if (ext.endsWith('.html') || ext.endsWith('.htm')) mimeType = 'text/html';
+	const content = mimeType === "text/html" ? data.toString("utf-8") : data.toString("base64");
 	return {
-		filePath: relPath,
+		filePath: String(relPath),
 		mimeType,
-		content: mimeType === 'text/html' ? data.toString('utf-8') : data.toString('base64'),
+		content,
 	};
 }
