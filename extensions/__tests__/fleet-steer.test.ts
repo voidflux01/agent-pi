@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildMailboxPreamble,
+	deliverMail,
 	ackSteer,
 	consumeSteer,
 	listSteer,
@@ -54,6 +55,16 @@ describe("steer channel", () => {
 		expect(rec?.body).toBe("shift focus to tests");
 		expect(existsSync(path)).toBe(false);
 		expect(listSteer(mailboxRoot(cwd), "scout").length).toBe(0);
+	});
+
+	it("rejects traversal in mailbox names and message ids", () => {
+		const root = mailboxRoot(mk());
+		const record = { schema: 1 as const, id: "ask-1", kind: "question" as const, from: "a", to: "parent", status: "open" as const, createdAt: 1, updatedAt: 1 };
+		expect(() => deliverMail(root, "../escape", record)).toThrow(/Invalid mailbox/);
+		expect(() => deliverMail(root, "parent", { ...record, id: "../escape" })).toThrow(/Invalid mailbox/);
+		expect(() => buildMailboxPreamble("worker;touch /tmp/pwned", "/tmp/project")).toThrow(/Invalid mailbox/);
+		const preamble = buildMailboxPreamble("worker-1", "/tmp/project with spaces");
+		expect(preamble).toContain("mkdir -p '/tmp/project with spaces/");
 	});
 
 	it("preamble v2 teaches the steer channel", () => {

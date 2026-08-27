@@ -27,13 +27,24 @@ export interface MailRecord {
 
 const PARENT_INBOX = "parent";
 const DEFAULT_POLL_HINT_S = 300;
+const SAFE_MAILBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function mailboxName(value: string): string {
+	const normalized = String(value || "").toLowerCase();
+	if (!SAFE_MAILBOX_NAME.test(normalized)) throw new Error("Invalid mailbox agent or message id");
+	return normalized;
+}
+
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 export function mailboxRoot(cwd = process.cwd()): string {
 	return join(cwd, ".pi", "agent-sessions", "mailbox");
 }
 
 function inboxDir(root: string, agent: string): string {
-	return join(root, "agents", agent.toLowerCase(), "inbox");
+	return join(root, "agents", mailboxName(agent), "inbox");
 }
 
 /** Atomic Maildir delivery: unique tmp write + fsync + no-replace style rename into new/. */
@@ -46,7 +57,7 @@ export function deliverMail(root: string, toAgent: string, rec: MailRecord): str
 	const neu = join(dir, "new");
 	mkdirSync(tmp, { recursive: true });
 	mkdirSync(neu, { recursive: true });
-	const name = `${rec.id}.json`;
+	const name = `${mailboxName(rec.id)}.json`;
 	const tmpPath = join(tmp, `${name}.${process.pid}.${Date.now()}.tmp`);
 	writeFileSync(tmpPath, payload);
 	try {
@@ -88,8 +99,9 @@ export function listMail(root: string, agent: string, opts: { includeAnswered?: 
 
 /** Settle a message: atomic move from new/ into cur/ with updated record. */
 export function settleMail(root: string, toAgent: string, id: string, mutate: (r: MailRecord) => MailRecord): MailRecord | null {
-	const neu = join(inboxDir(root, toAgent), "new", `${id}.json`);
-	const cur = join(inboxDir(root, toAgent), "cur", `${id}.json`);
+	const safeId = mailboxName(id);
+	const neu = join(inboxDir(root, toAgent), "new", `${safeId}.json`);
+	const cur = join(inboxDir(root, toAgent), "cur", `${safeId}.json`);
 	mkdirSync(dirname(cur), { recursive: true });
 	let src = neu;
 	if (!existsSync(neu)) {
@@ -107,7 +119,7 @@ export function settleMail(root: string, toAgent: string, id: string, mutate: (r
 
 export function readMail(root: string, toAgent: string, id: string): MailRecord | null {
 	for (const sub of ["new", "cur"]) {
-		const p = join(inboxDir(root, toAgent), sub, `${id}.json`);
+		const p = join(inboxDir(root, toAgent), sub, `${mailboxName(id)}.json`);
 		if (existsSync(p)) {
 			try { return JSON.parse(readFileSync(p, "utf8")) as MailRecord; } catch {}
 		}
@@ -127,17 +139,24 @@ export function mailboxPreambleEnabled(): boolean {
  * shell tools. Keep it small: these workers bill real tokens.
  */
 export function buildMailboxPreamble(agentName: string, cwd: string): string {
+	const agent = mailboxName(agentName);
 	const root = mailboxRoot(cwd);
 	const inbox = join(root, "agents", PARENT_INBOX, "inbox");
+	const workerInbox = join(root, "agents", agent, "inbox");
+	const workerNew = join(workerInbox, "new");
+	const workerCur = join(workerInbox, "cur");
+	const workerTmp = join(workerInbox, "tmp");
+	const parentNew = join(inbox, "new");
+	const parentTmp = join(inbox, "tmp");
 	return [
 		"[MAILBOX PROTOCOL v" + MAILBOX_PROTOCOL_VERSION + "]",
-		`You are worker "${agentName.toLowerCase()}". If — and only if — you are genuinely blocked on a decision only your captain can make (scope change, irreversible action, missing credential), you MAY ask one blocking question instead of guessing:`,
-		`1. mkdir -p ${join(root, "agents", agentName.toLowerCase(), "inbox", "cur")} ${inbox + "/new"} ${inbox + "/tmp"}`,
+		`You are worker "${agent}". If — and only if — you are genuinely blocked on a decision only your captain can make (scope change, irreversible action, missing credential), you MAY ask one blocking question instead of guessing:`,
+		`1. mkdir -p ${shellQuote(workerCur)} ${shellQuote(parentNew)} ${shellQuote(workerNew)} ${shellQuote(workerTmp)} ${shellQuote(parentTmp)}`,
 		'2. Write ONE json file (atomic: write to tmp then rename into new/) named ask-<epoch36>-<rand>.json:',
-		'   {"schema":1,"id":"ask-...","kind":"question","from":"' + agentName.toLowerCase() + '","to":"parent","expectsReply":true,"subject":"<80 chars>","body":"<what you tried + your proposed default>","status":"open","createdAt":<ms>,"updatedAt":<ms>}',
-		`3. Poll ${inbox}/new and ${inbox}/cur every ~5s (up to ${DEFAULT_POLL_HINT_S}s total) for a file with the same id. When found and status=="answered", read .answer and proceed; delete nothing.`,
+		'   {"schema":1,"id":"ask-...","kind":"question","from":"' + agent + '","to":"parent","expectsReply":true,"subject":"<80 chars>","body":"<what you tried + your proposed default>","status":"open","createdAt":<ms>,"updatedAt":<ms>}',
+		`3. Poll ${shellQuote(parentNew)} and ${shellQuote(join(inbox, "cur"))} every ~5s (up to ${DEFAULT_POLL_HINT_S}s total) for a file with the same id. When found and status=="answered", read .answer and proceed; delete nothing.`,
 		"If no answer in time, proceed with your stated reversible default and note the open question at the end of your result.",
-		`4. STEER CHANNEL: every ~10 tool actions (and always before finalizing), list ${join(root, "agents", agentName.toLowerCase(), "inbox", "new")}; for each steer-*.json: read .body, incorporate it into your remaining work, acknowledge by rewriting the file with acknowledgedAt=<ms> added, then DELETE the file once fully handled. Steer messages come from your captain mid-task — treat them as high-priority course corrections.`,
+		`4. STEER CHANNEL: every ~10 tool actions (and always before finalizing), list ${shellQuote(workerNew)}; for each steer-*.json: read .body, incorporate it into your remaining work, acknowledge by rewriting the file with acknowledgedAt=<ms> added, then DELETE the file once fully handled. Steer messages come from your captain mid-task — treat them as high-priority course corrections.`,
 		"Do not use the mailbox for anything besides asking, answering, and steer handling. End of protocol.",
 	].join("\n");
 }
