@@ -148,14 +148,14 @@ if command -v pi &>/dev/null; then
     success "Pi CLI found at ${DIM}${PI_PATH}${NC}"
 else
     if [ "$DRY_RUN" -eq 1 ]; then
-        info "[dry-run] Pi CLI not found — would run: ${DIM}npm install -g @mariozechner/pi-coding-agent${NC}"
+        info "[dry-run] Pi CLI not found — would run: ${DIM}npm install -g @mariozechner/pi-coding-agent@0.84.3 --ignore-scripts${NC}"
     else
         info "Pi CLI not found — installing globally..."
-        npm install -g @mariozechner/pi-coding-agent
+        npm install -g @mariozechner/pi-coding-agent@0.84.3 --ignore-scripts
         if command -v pi &>/dev/null; then
             success "Pi CLI installed"
         else
-            fail "Failed to install Pi CLI. Try manually: npm install -g @mariozechner/pi-coding-agent"
+            fail "Failed to install Pi CLI. Try manually: npm install -g @mariozechner/pi-coding-agent@0.84.3 --ignore-scripts"
             exit 1
         fi
     fi
@@ -172,7 +172,7 @@ if [ -f "package.json" ]; then
         info "[dry-run] Would run: ${DIM}npm install${NC} (repo root)"
     else
         info "Installing root dependencies..."
-        npm install --silent 2>/dev/null || npm install
+        npm ci --ignore-scripts --silent 2>/dev/null || npm ci --ignore-scripts
         success "Root dependencies installed"
     fi
 else
@@ -185,7 +185,7 @@ if [ -f "extensions/package.json" ]; then
         info "[dry-run] Would run: ${DIM}(cd extensions && npm install)${NC}"
     else
         info "Installing extension dependencies..."
-        (cd extensions && npm install --silent 2>/dev/null || npm install)
+        (cd extensions && npm ci --ignore-scripts --silent 2>/dev/null || npm ci --ignore-scripts)
         success "Extension dependencies installed"
     fi
 else
@@ -221,10 +221,10 @@ fi
 if [ -f "$SETTINGS_FILE" ]; then
     ALREADY_REGISTERED=$(node -e "
     const fs = require('fs');
-    const s = JSON.parse(fs.readFileSync('$SETTINGS_FILE_WIN', 'utf-8'));
+    const s = JSON.parse(fs.readFileSync(process.argv[1], 'utf-8'));
     const pkgs = s.packages || [];
-    console.log(pkgs.includes('$SCRIPT_DIR_WIN') ? 'yes' : 'no');
-" 2>/dev/null || echo "no")
+    console.log(pkgs.includes(process.argv[2]) ? 'yes' : 'no');
+" "$SETTINGS_FILE_WIN" "$SCRIPT_DIR_WIN" 2>/dev/null || echo "no")
 else
     ALREADY_REGISTERED="no"
 fi
@@ -237,11 +237,11 @@ else
     else
         node -e "
         const fs = require('fs');
-        const s = JSON.parse(fs.readFileSync('$SETTINGS_FILE_WIN', 'utf-8'));
+        const s = JSON.parse(fs.readFileSync(process.argv[1], 'utf-8'));
         s.packages = s.packages || [];
-        s.packages.push('$SCRIPT_DIR_WIN');
-        fs.writeFileSync('$SETTINGS_FILE_WIN', JSON.stringify(s, null, 2) + '\n');
-    "
+        s.packages.push(process.argv[2]);
+        fs.writeFileSync(process.argv[1], JSON.stringify(s, null, 2) + '\n');
+    " "$SETTINGS_FILE_WIN" "$SCRIPT_DIR_WIN"
         success "Registered ${DIM}$SCRIPT_DIR${NC} in Pi settings"
     fi
 fi
@@ -261,9 +261,9 @@ fi
 # Enable quiet startup (suppress verbose keybindings/skills/extensions listing)
 QUIET_ENABLED=$(node -e "
     const fs = require('fs');
-    const s = JSON.parse(fs.readFileSync('$SETTINGS_FILE_WIN', 'utf-8'));
+    const s = JSON.parse(fs.readFileSync(process.argv[1], 'utf-8'));
     console.log(s.quietStartup === true ? 'yes' : 'no');
-" 2>/dev/null || echo "no")
+" "$SETTINGS_FILE_WIN" 2>/dev/null || echo "no")
 
 if [ "$QUIET_ENABLED" = "yes" ]; then
     success "Quiet startup already enabled"
@@ -273,11 +273,11 @@ else
     else
         node -e "
         const fs = require('fs');
-        const s = JSON.parse(fs.readFileSync('$SETTINGS_FILE_WIN', 'utf-8'));
+        const s = JSON.parse(fs.readFileSync(process.argv[1], 'utf-8'));
         s.quietStartup = true;
         s.defaultThinkingLevel = s.defaultThinkingLevel || 'off';
-        fs.writeFileSync('$SETTINGS_FILE_WIN', JSON.stringify(s, null, 2) + '\n');
-    "
+        fs.writeFileSync(process.argv[1], JSON.stringify(s, null, 2) + '\n');
+    " "$SETTINGS_FILE_WIN"
         success "Enabled quiet startup ${DIM}(thinking defaults to off)${NC}"
     fi
 fi
@@ -288,10 +288,10 @@ KEYBINDINGS_FILE_WIN="$(to_win_path "$KEYBINDINGS_FILE")"
 
 SHIFT_TAB_FREE=$(node -e "
     const fs = require('fs');
-    if (!fs.existsSync('$KEYBINDINGS_FILE_WIN')) { console.log('no'); process.exit(); }
-    const k = JSON.parse(fs.readFileSync('$KEYBINDINGS_FILE_WIN', 'utf-8'));
+    if (!fs.existsSync(process.argv[1])) { console.log('no'); process.exit(); }
+    const k = JSON.parse(fs.readFileSync(process.argv[1], 'utf-8'));
     console.log(Array.isArray(k.cycleThinkingLevel) && k.cycleThinkingLevel.length === 0 ? 'yes' : 'no');
-" 2>/dev/null || echo "no")
+" "$KEYBINDINGS_FILE_WIN" 2>/dev/null || echo "no")
 
 if [ "$SHIFT_TAB_FREE" = "yes" ]; then
     success "Shift+Tab already freed for mode cycling"
@@ -301,11 +301,11 @@ else
     else
         node -e "
         const fs = require('fs');
-        const file = '$KEYBINDINGS_FILE_WIN';
+        const file = process.argv[1];
         const k = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
         k.cycleThinkingLevel = [];
         fs.writeFileSync(file, JSON.stringify(k, null, 2) + '\n');
-    "
+    " "$KEYBINDINGS_FILE_WIN"
         success "Freed Shift+Tab for mode cycling ${DIM}(unbound cycleThinkingLevel)${NC}"
     fi
 fi
