@@ -35,7 +35,7 @@ import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName, toolkitVisibleCommandLine } from "./lib/toolkit-cli.ts";
-import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
+import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
@@ -534,10 +534,12 @@ export default function (pi: ExtensionAPI) {
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
 
+
 		// Build args — first run creates session, subsequent runs resume
 		const extDir = dirname(fileURLToPath(import.meta.url));
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const askParentExtPath = join(extDir, "ask-parent.ts");
+		const nudgeListenerExtPath = join(extDir, "nudge-listener.ts");
 		const commanderExtPath = join(extDir, "commander-mcp.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
@@ -555,6 +557,14 @@ export default function (pi: ExtensionAPI) {
 
 		// Hoist for use in pre-dispatch claim + post-dispatch reconciliation
 		const canonicalName = state.def.name;
+
+		// Purge stale steer mails from a previous (dead) run so a fresh task
+		// never inherits mid-task course corrections that no longer apply.
+		try {
+			for (const { path } of listSteer(join(runCwd, ".pi", "agent-sessions", "mailbox"), canonicalName)) {
+				rmSync(path, { force: true });
+			}
+		} catch {}
 		const taskId = commanderAvailable ? g.__piCurrentTask?.commanderTaskId as number | undefined : undefined;
 
 		let tools = state.def.tools;
@@ -611,6 +621,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", footerExtPath,
 			"-e", memoryCycleExtPath,
 			"-e", askParentExtPath,
+			"-e", nudgeListenerExtPath,
 			...(commanderAvailable ? ["-e", commanderExtPath] : []),
 			"--model", model,
 			"--tools", tools,
