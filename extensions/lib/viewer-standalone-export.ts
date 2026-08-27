@@ -1,9 +1,29 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, basename, resolve } from "node:path";
+import { writeFileSync, readFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { join, basename, resolve, relative, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
+import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
 
 const BRAND_IMAGE_URL = "https://firebasestorage.googleapis.com/v0/b/ruizrica-io.firebasestorage.app/o/agent.png?alt=media&token=152539b8-8d0c-46e4-950f-190c317ed6c8";
-const MARKED_CDN_URL = "https://cdn.jsdelivr.net/npm/marked/marked.min.js";
+
+// Standalone exports run outside the authenticated viewer. Keep Markdown HTML
+// inert even when the exported report contains model- or file-sourced text.
+const STANDALONE_MARKDOWN_SANITIZER = `
+function sanitizeMarkdownHtml(html) {
+  const template = document.createElement('template');
+  template.innerHTML = String(html || '');
+  template.content.querySelectorAll('script,style,iframe,object,embed,form,link,meta').forEach(function(el) { el.remove(); });
+  template.content.querySelectorAll('*').forEach(function(el) {
+    Array.from(el.attributes).forEach(function(attr) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith('on') || name === 'style' || (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action') && /^(javascript:|vbscript:|data:(?!image\/(?:png|gif|jpe?g|webp)))/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return template.innerHTML;
+}
+`;
 
 function timestampForFileName(): string {
 	return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -98,7 +118,7 @@ function baseDocument(opts: { title: string; label: string; body: string; script
     <div class="panel">${body}</div>
     <div class="footer-note">This export is standalone and read-only. External assets are limited to approved CDNs and the provided brand image URL.</div>
   </div>
-  <script src="${MARKED_CDN_URL}"><\/script>
+  <script>${SAFE_MARKDOWN_RUNTIME}<\/script>
   <script>${script}</script>
 </body>
 </html>`;
@@ -110,8 +130,9 @@ export function createPlanStandaloneExport(opts: { title: string; markdown: stri
 	const body = `<div class="section"><div class="markdown-body" id="content"></div></div>`;
 	const script = `
 const state = ${state};
+${STANDALONE_MARKDOWN_SANITIZER}
 marked.setOptions({ gfm: true, breaks: true });
-document.getElementById('content').innerHTML = marked.parse(state.markdown || '');
+document.getElementById('content').innerHTML = sanitizeMarkdownHtml(marked.parse(state.markdown || ''));
 document.querySelectorAll('#content input, #content textarea, #content button, #content [contenteditable="true"]').forEach(function(el) {
   el.disabled = true;
   el.setAttribute('readonly', 'readonly');
@@ -159,6 +180,7 @@ export function createCompletionReportStandaloneExport(report: CompletionReportE
 </div>`;
 	const script = `
 const report = ${state};
+${STANDALONE_MARKDOWN_SANITIZER}
 marked.setOptions({ gfm: true, breaks: true });
 document.getElementById('overview').innerHTML =
   '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">' +
@@ -194,7 +216,7 @@ function preprocessCheckboxMarkdown(md) {
   return String(md || '').replace(/^(\\s*- \\[[ xX]\\] )(\\d+)\\./gm, '$1$2\\\\.');
 }
 function renderMarkdownWithTables(md) {
-  const html = marked.parse(md || '');
+  const html = sanitizeMarkdownHtml(marked.parse(md || ''));
   return html.split('<table>').join('<div class="table-wrap"><table class="ui-table">').split('</table>').join('</table></div>');
 }
 function renderTasks(taskMd) {
@@ -276,6 +298,7 @@ export function createSpecStandaloneExport(opts: { title: string; documents: Spe
 function escapeHtml(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function escapeAttr(value) { return escapeHtml(value).replace(/'/g, '&#39;'); }
 const docs = ${docs};
+${STANDALONE_MARKDOWN_SANITIZER}
 marked.setOptions({ gfm: true, breaks: true });
 const root = document.getElementById('specContent');
 root.innerHTML = docs.map(function(doc) {
@@ -288,7 +311,7 @@ root.innerHTML = docs.map(function(doc) {
     }).join('');
     return '<section class="section"><div class="section-header"><div class="section-label">' + escapeHtml(doc.label) + '</div><div class="section-path">' + escapeHtml(doc.filePath) + '</div></div><div class="visual-grid">' + visuals + '</div></section>';
   }
-  return '<section class="section"><div class="section-header"><div class="section-label">' + escapeHtml(doc.label) + '</div><div class="section-path">' + escapeHtml(doc.filePath) + '</div></div><div class="markdown-body">' + marked.parse(doc.markdown || '') + '</div></section>';
+  return '<section class="section"><div class="section-header"><div class="section-label">' + escapeHtml(doc.label) + '</div><div class="section-path">' + escapeHtml(doc.filePath) + '</div></div><div class="markdown-body">' + sanitizeMarkdownHtml(marked.parse(doc.markdown || '')) + '</div></section>';
 }).join('');
 `;
 	return baseDocument({ title: opts.title, label: "Spec", body, script });
@@ -303,8 +326,19 @@ export function saveStandaloneExport(opts: { filePrefix: string; html: string })
 }
 
 export function loadVisualAsExportAsset(baseFolder: string, relPath: string): { filePath: string; mimeType: string; content: string } {
-	const absPath = resolve(baseFolder, relPath);
-	const data = readFileSync(absPath);
+	const root = resolve(baseFolder);
+	const absPath = resolve(root, relPath);
+	const relativePath = relative(root, absPath);
+	if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+		throw new Error("Visual asset is outside the export folder");
+	}
+	const realRoot = realpathSync(root);
+	const realPath = realpathSync(absPath);
+	const realRelative = relative(realRoot, realPath);
+	if (realRelative === ".." || realRelative.startsWith(`..${sep}`) || isAbsolute(realRelative)) {
+		throw new Error("Visual asset resolves outside the export folder");
+	}
+	const data = readFileSync(realPath);
 	const ext = basename(relPath).toLowerCase();
 	let mimeType = "application/octet-stream";
 	if (ext.endsWith('.png')) mimeType = 'image/png';
