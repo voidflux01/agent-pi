@@ -9,7 +9,7 @@
  * and visual rendering.
  *
  * Commands:
- *   /debug-capture <scenario>   — capture a predefined or custom scenario
+ *   /debug-capture <scenario>   — capture a predefined scenario
  *
  * Tool:
  *   debug_capture               — programmatic capture (agent can call during work)
@@ -19,7 +19,6 @@
  *   modes          — Each operational mode screenshot
  *   footer         — Footer status bar
  *   theme <name>   — Pi with a specific theme
- *   custom <cmds>  — Arbitrary shell commands
  *   pi <prompt>    — Run Pi with a prompt and capture its output
  *
  * Prerequisites: vhs, ttyd, ffmpeg on PATH
@@ -30,7 +29,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
-import { execSync, spawn } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -72,11 +71,20 @@ function timestamp(): string {
 	return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
+function safeVhsText(value: string, maxLength = 256): string {
+	return String(value).replace(/[\\"\r\n]/g, (char) => char === "\\" ? "\\\\" : char === "\"" ? "\\\"" : " ").slice(0, maxLength);
+}
+
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 function tapeHeader(captureDir: string, ts: string, opts: CaptureOptions): string {
-	const w = opts.width ?? DEFAULT_WIDTH;
-	const h = opts.height ?? DEFAULT_HEIGHT;
-	const fs = opts.fontSize ?? DEFAULT_FONT_SIZE;
-	const theme = opts.theme ?? DEFAULT_THEME;
+	const w = Number.isFinite(opts.width) ? Math.max(320, Math.min(4000, Math.round(opts.width!))) : DEFAULT_WIDTH;
+	const h = Number.isFinite(opts.height) ? Math.max(240, Math.min(3000, Math.round(opts.height!))) : DEFAULT_HEIGHT;
+	const fs = Number.isFinite(opts.fontSize) ? Math.max(8, Math.min(48, Math.round(opts.fontSize!))) : DEFAULT_FONT_SIZE;
+	const rawTheme = opts.theme ?? DEFAULT_THEME;
+	const theme = /^[A-Za-z0-9 _.:-]{1,64}$/.test(rawTheme) ? rawTheme : DEFAULT_THEME;
 
 	return [
 		`Output ${captureDir}/capture-${ts}.gif`,
@@ -113,32 +121,15 @@ function writeHelperScript(captureDir: string, absCaptureDir: string, name: stri
 	return relPath;
 }
 
-function scenarioCustom(commands: string, captureDir: string, ts: string, opts: CaptureOptions): string {
-	const lines = [tapeHeader(captureDir, ts, opts)];
-
-	// Split commands by semicolons or newlines
-	const cmds = commands.split(/[;\n]/).map(c => c.trim()).filter(Boolean);
-
-	for (const cmd of cmds) {
-		lines.push(`Type "${cmd.replace(/"/g, '\\"')}"`);
-		lines.push("Enter");
-		lines.push("Sleep 1s");
-	}
-
-	lines.push("Sleep 2s");
-	lines.push(screenshotCmd(captureDir, `custom-${ts}`));
-	lines.push("Sleep 500ms");
-
-	return lines.join("\n");
-}
-
 function scenarioPi(prompt: string, captureDir: string, ts: string, opts: CaptureOptions): string {
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const lines = [tapeHeader(captureDir, ts, opts)];
 
-	// Run Pi in print mode with the prompt
-	const escaped = prompt.replace(/"/g, '\\"').replace(/'/g, "'\\''");
-	lines.push(`Type "pi -p '${escaped}'"`);
+	// Quote the terminal command and then escape VHS's surrounding string.
+	// The prompt is untrusted input and must not become shell syntax.
+	const terminalCommand = `pi -p ${shellQuote(prompt.slice(0, 4000))}`;
+	const escaped = safeVhsText(terminalCommand, 5000);
+	lines.push(`Type "${escaped}"`);
 	lines.push("Enter");
 	lines.push("");
 	lines.push("# Wait for Pi to finish (look for shell prompt return)");
@@ -258,12 +249,12 @@ echo -e " \${ACCENT}opus 4\${RST} \${DIM}|\${RST} \${DIM}42%\${RST} \${DIM}|\${R
 function scenarioTheme(themeName: string, captureDir: string, ts: string, opts: CaptureOptions, absCaptureDir: string): string {
 	const themedOpts = { ...opts, theme: themeName };
 	const lines = [tapeHeader(captureDir, ts, themedOpts)];
-	const safeName = themeName.toLowerCase().replace(/\s+/g, "-");
+	const safeName = themeName.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "default";
 
 	// Write a helper script that shows colorful output
 	const script = `#!/bin/bash
 echo ""
-echo "Theme: ${themeName}"
+echo ${shellQuote("Theme: " + themeName)}
 echo ""
 echo -e "\\033[31mRed \\033[32mGreen \\033[33mYellow \\033[34mBlue \\033[35mMagenta \\033[36mCyan \\033[37mWhite\\033[0m"
 echo -e "\\033[1;31mBold Red \\033[1;32mBold Green \\033[1;34mBold Blue \\033[1;36mBold Cyan\\033[0m"
@@ -368,7 +359,7 @@ function generateTape(
 	const ts = timestamp();
 
 	const parts = scenario.trim().split(/\s+/);
-	const command = parts[0]?.toLowerCase() || "custom";
+	const command = parts[0]?.toLowerCase() || "unknown";
 	const args = parts.slice(1).join(" ");
 
 	let tape: string;
@@ -389,13 +380,8 @@ function generateTape(
 		case "pi":
 			tape = scenarioPi(args || "Say hello", relCaptureDir, ts, opts);
 			break;
-		case "custom":
-			tape = scenarioCustom(args || "echo 'No commands specified'", relCaptureDir, ts, opts);
-			break;
 		default:
-			// Treat the entire input as custom commands
-			tape = scenarioCustom(scenario, relCaptureDir, ts, opts);
-			break;
+			throw new Error(`Unknown debug capture scenario: ${command}`);
 	}
 
 	const tapePath = join(captureDir, `tape-${ts}.tape`);
@@ -448,9 +434,9 @@ export default function (pi: ExtensionAPI) {
 
 	function checkPrereqs(): string | null {
 		try {
-			execSync("which vhs", { stdio: "ignore" });
-			execSync("which ttyd", { stdio: "ignore" });
-			execSync("which ffmpeg", { stdio: "ignore" });
+			execFileSync("which", ["vhs"], { stdio: "ignore" });
+			execFileSync("which", ["ttyd"], { stdio: "ignore" });
+			execFileSync("which", ["ffmpeg"], { stdio: "ignore" });
 			return null;
 		} catch {
 			return "Missing prerequisites: vhs, ttyd, and ffmpeg must be on PATH. Install with: brew install vhs";
@@ -459,7 +445,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── /debug-capture command ───────────────────
 
-	const SCENARIOS = ["tasks", "modes", "footer", "theme", "pi", "custom"];
+	const SCENARIOS = ["tasks", "modes", "footer", "theme", "pi"];
 
 	pi.registerCommand("debug-capture", {
 		description: "Capture a VHS screenshot of Pi's TUI for visual debugging",
@@ -471,7 +457,7 @@ export default function (pi: ExtensionAPI) {
 					: s === "footer" ? "footer — Footer status bar"
 					: s === "theme" ? "theme <name> — Pi with a specific VHS theme"
 					: s === "pi" ? "pi <prompt> — Run Pi with a prompt and capture output"
-					: "custom <cmds> — Run arbitrary shell commands",
+					: "",
 			}));
 			const filtered = items.filter(i => i.value.startsWith(prefix));
 			return filtered.length > 0 ? filtered : items;
@@ -481,7 +467,7 @@ export default function (pi: ExtensionAPI) {
 			if (!scenario) {
 				ctx.ui.notify(
 					"Usage: /debug-capture <scenario>\n" +
-					"Scenarios: tasks, modes, footer, theme <name>, pi <prompt>, custom <cmds>",
+					"Scenarios: tasks, modes, footer, theme <name>, pi <prompt>",
 					"warning",
 				);
 				return;
@@ -529,13 +515,12 @@ export default function (pi: ExtensionAPI) {
 			"  footer         — Footer status bar",
 			"  theme <name>   — Terminal with a specific VHS theme (e.g. 'theme Dracula')",
 			"  pi <prompt>    — Run Pi non-interactively and capture its output",
-			"  custom <cmds>  — Run arbitrary shell commands (semicolon-separated)",
 			"",
 			"The resulting PNG paths can be passed to the Read tool to visually inspect the UI.",
 		].join("\n"),
 		parameters: Type.Object({
 			scenario: Type.String({
-				description: "Capture scenario: tasks, modes, footer, theme <name>, pi <prompt>, custom <cmds>",
+				description: "Capture scenario: tasks, modes, footer, theme <name>, or pi <prompt>",
 			}),
 			width: Type.Optional(Type.Number({ description: "Terminal width in pixels (default: 1400)" })),
 			height: Type.Optional(Type.Number({ description: "Terminal height in pixels (default: 900)" })),
