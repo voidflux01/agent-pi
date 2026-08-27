@@ -16,7 +16,7 @@
 
 [Pi](https://github.com/badlogic/pi-mono) is a terminal-based AI coding agent by [@badlogic](https://github.com/badlogic). Out of the box it's a single-agent assistant with tool use, conversation memory, and a TUI.
 
-**agent** is a Pi package — **43 extensions, 11 themes, and 20+ skills** that transform Pi into something more:
+**agent** is a Pi package — **48 extensions, 11 themes, and 20+ skills** that transform Pi into something more:
 
 - **6 operational modes** — NORMAL, PLAN, SPEC, PIPELINE, TEAM, CHAIN
 - **Multi-agent orchestration** — dispatch teams, run sequential chains, or execute parallel pipelines
@@ -33,13 +33,13 @@ Everything is configuration — no forks, no patches. Just extensions, agent def
 Don't have Pi installed? No problem. The installer handles everything — installs Pi, registers the package, and configures settings in one go:
 
 ```bash
-git clone https://github.com/ruizrica/agent-pi.git && cd agent-pi && ./install.sh
+git clone https://github.com/voidflux01/agent-pi.git && cd agent-pi && ./install.sh
 ```
 
 ### Already have Pi?
 
 ```bash
-pi install git:github.com/ruizrica/agent-pi
+pi install git:github.com/voidflux01/agent-pi
 ```
 
 Pi discovers all extensions, themes, and skills automatically.
@@ -251,7 +251,7 @@ When unset, Commander tools report "not configured" instead of trying to spawn a
 
 | Problem | Fix |
 |---------|-----|
-| Extensions not loading | `pi install git:github.com/ruizrica/agent-pi` — reinstall the package |
+| Extensions not loading | `pi install git:github.com/voidflux01/agent-pi` — reinstall the package |
 | No themes available | Same as above — themes are auto-discovered from the package |
 | Shift+Tab not working | Ensure mode-cycler extension loaded — check `pi config` |
 | No chains/pipelines | Agent configs at `agents/` are loaded automatically by extensions |

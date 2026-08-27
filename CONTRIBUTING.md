@@ -12,23 +12,17 @@ Thank you for your interest in contributing to agent! This guide will help you g
 ## Project Structure
 
 ```
-agent/
-  extensions/          # All custom extensions (TypeScript)
-    lib/               # Shared library code for extensions
-    __tests__/         # Test suite
-    web-test-worker/   # Cloudflare Worker for browser testing
-    assets/            # Static assets (logos, etc.)
-  .pi/
-    agents/            # Agent definitions (.md) and team configs (.yaml)
-    commands/          # Toolkit slash commands
-    prompts/           # Prompt templates
-  themes/              # Custom terminal themes (.json)
-  skills/              # Skill packs (reusable agent workflows)
-  settings.json        # Main Pi configuration
-  models.json          # Model provider configuration
-  keybindings.json     # Custom keyboard shortcuts
-docs/                  # Documentation and HTML docs site
-context-os/            # Spec-driven development workspace
+extensions/          # All custom extensions (TypeScript)
+  lib/               # Shared library code for extensions
+  __tests__/         # Test suite
+  web-test-worker/   # Cloudflare Worker for browser testing
+  assets/            # Static assets (logos, etc.)
+agents/              # Agent definitions and team configs
+commands/            # Toolkit slash commands
+prompts/             # Prompt templates
+themes/              # Custom terminal themes (.json)
+skills/              # Skill packs
+package.json         # Pi package manifest
 ```
 
 ## Writing Extensions
@@ -60,22 +54,22 @@ See [docs/EXTENSIONS.md](docs/EXTENSIONS.md) for the full extension reference.
 
 ### Testing
 
-- Tests live in `agent/extensions/__tests__/`
-- Run tests: `npm test` from the repository root. The runner sends `bun:test` files to Bun and the remaining files to Vitest.
+- Tests live in `extensions/__tests__/`
+- Run tests: `npm test` from the repository root. The runner sends `bun:test` files to Bun and the remaining files to Vitest. Bun is required for the Bun-based test files.
 - Add tests for new tools, utility functions, and security-sensitive code
 
 ### Agent Definitions
 
-- Agent `.md` files go in `agent/.pi/agents/`
+- Agent `.md` files go in `agents/`
 - Use YAML frontmatter: `name`, `description`, `tools`
 - Keep system prompts concise and focused on the agent's role
 - Add new agents to `teams.yaml` under the appropriate team(s)
 
 ### Themes
 
-- Theme JSON files go in `agent/themes/`
+- Theme JSON files go in `themes/`
 - Follow the existing format (see any `.json` file in that directory)
-- Test with `/theme <name>` or Ctrl+T to cycle
+- Test with `/theme <name>` or Ctrl+X to cycle
 
 ## Pull Request Process
 
