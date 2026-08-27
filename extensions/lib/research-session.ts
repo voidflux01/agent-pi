@@ -108,7 +108,10 @@ function slugify(input: string): string {
 		.slice(0, 80) || "research";
 }
 
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+
 function sessionFilePath(id: string): string {
+	if (!SAFE_SESSION_ID.test(id)) throw new Error("Invalid research session id");
 	return join(SESSIONS_DIR, `${id}.json`);
 }
 
@@ -146,7 +149,8 @@ export function saveResearchSession(session: ResearchSession): void {
 }
 
 export function loadResearchSession(id: string): ResearchSession | null {
-	const path = sessionFilePath(id);
+	let path: string;
+	try { path = sessionFilePath(id); } catch { return null; }
 	if (!existsSync(path)) return null;
 	try {
 		return JSON.parse(readFileSync(path, "utf-8")) as ResearchSession;
