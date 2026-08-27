@@ -28,6 +28,19 @@ import {
 } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { spawn } from "child_process";
+import {
+	cleanupLaunchFiles,
+	closeHerdrTab,
+	createHerdrTaskTab,
+	ensureHerdrWorkspace,
+	herdrEnabled,
+	pollDoneFileAsync,
+	readLastAssistantText,
+	sendCommandToPane,
+	shellQuote,
+	writeLaunchScript,
+	type HerdrTabRef,
+} from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -402,59 +415,14 @@ export default function (pi: ExtensionAPI) {
 		const textChunks: string[] = [];
 
 		return new Promise((resolvePromise) => {
-			const proc = spawn("pi", args, {
-				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env, PI_SUBAGENT: "1" },
-			});
-
-			// Track for escape-cancel integration
-			agentState.proc = proc;
-			journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
-
-			let buffer = "";
-
-			proc.stdout!.setEncoding("utf-8");
-			proc.stdout!.on("data", (chunk: string) => {
-				buffer += chunk;
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) {
-					if (!line.trim()) continue;
-					try {
-						const event = JSON.parse(line);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								const full = textChunks.join("");
-								const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-								agentState.lastWork = last;
-								updateWidget();
-							}
-						}
-					} catch {}
-				}
-			});
-
-			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
-
-			proc.on("close", (code) => {
-				agentState.proc = null;
-
-				if (buffer.trim()) {
-					try {
-						const event = JSON.parse(buffer);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") textChunks.push(delta.delta || "");
-						}
-					} catch {}
-				}
-
+			// Shared completion path for both transports. Persist the FULL
+			// transcript on disk, then compose the compact but complete
+			// result index for the next phase agent / final report.
+			const finish = (code: number | null, externalFull?: string) => {
 				clearInterval(agentState.timer);
+				agentState.proc = null;
 				agentState.elapsed = Date.now() - startTime;
-				const output = textChunks.join("");
+				const output = externalFull ?? textChunks.join("");
 				agentState.output = output;
 				agentState.status = code === 0 ? "done" : "error";
 				agentState.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
@@ -465,8 +433,6 @@ export default function (pi: ExtensionAPI) {
 					agentState.status === "done" ? "success" : "error",
 				);
 
-				// Persist the FULL transcript on disk, then compose the compact
-				// but complete result index for the parent context / next agent.
 				let fullOutputPath = "";
 				let composed = output;
 				try {
@@ -494,28 +460,177 @@ export default function (pi: ExtensionAPI) {
 				});
 
 				resolvePromise({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed: agentState.elapsed });
-			});
+			};
 
-			proc.on("error", (err) => {
-				agentState.proc = null;
-				clearInterval(agentState.timer);
-				agentState.status = "error";
-				agentState.lastWork = `Error: ${err.message}`;
-				agentState.output = `Error spawning agent: ${err.message}`;
-				updateWidget();
-				journalUpdate(sessionDir, journalId, { status: "error", exitCode: 1, elapsedMs: Date.now() - startTime });
-				resolvePromise({
-					output: `Error spawning agent: ${err.message}`,
-					fullOutput: "",
-					fullOutputPath: "",
-					exitCode: 1,
-					elapsed: Date.now() - startTime,
+			let buffer = "";
+			let ownedByHerdr = false;
+			let herdrCancelled = false;
+
+			// ── Herdr transport (Phase 2) ──────────────────────────────────
+			// Runs the same headless pi command inside a Herdr pane: visible,
+			// persistent across parent restarts, resumable via the session
+			// file. Completion is signalled by a marker file; authoritative
+			// result text is read from pi's session JSONL. Any herdr failure
+			// before takeover falls back to the headless path below —
+			// precision never depends on herdr being present.
+			const runHerdrTransport = async (): Promise<boolean> => {
+				if (!herdrEnabled()) return false;
+				let tab: HerdrTabRef | null = null;
+				try {
+					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", ctx.cwd);
+					if (!wsId) return false;
+
+					const refs = writeLaunchScript({
+						dir: sessionDir,
+						id: journalId,
+						cwd: ctx.cwd,
+						command: ["pi", ...args],
+						env: { ...process.env, PI_SUBAGENT: "1" },
+					});
+
+					tab = createHerdrTaskTab(wsId, ctx.cwd, `ap-${journalId}`);
+					if (!tab) {
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+
+					// Escape-cancel integration: kill() closes the pane.
+					agentState.proc = {
+						kill: () => {
+							herdrCancelled = true;
+							closeHerdrTab(tab!);
+						},
+					} as any;
+					journalUpdate(sessionDir, journalId, { status: "running" });
+
+					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					if (!sent) {
+						agentState.proc = null;
+						closeHerdrTab(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+					ownedByHerdr = true;
+
+					// Live dashboard: poll the session JSONL for latest text.
+					const liveTimer = setInterval(() => {
+						if (herdrCancelled) return;
+						try {
+							const { text } = readLastAssistantText(agentSessionFile);
+							if (text) {
+								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+								if (last) {
+									agentState.lastWork = last;
+									updateWidget();
+								}
+							}
+						} catch {}
+					}, 3000);
+
+					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => herdrCancelled);
+					clearInterval(liveTimer);
+					cleanupLaunchFiles(refs);
+
+					if (herdrCancelled) {
+						finish(130);
+						return true;
+					}
+					if (exitCode === null) {
+						finish(1);
+						return true;
+					}
+
+					// Authoritative result text from the session JSONL.
+					const { text } = readLastAssistantText(agentSessionFile);
+					finish(exitCode, text || undefined);
+					closeHerdrTab(tab);
+					return true;
+				} catch {
+					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					// Already driving this agent in a pane — never double-run headless.
+					if (ownedByHerdr && !herdrCancelled) {
+						finish(1);
+						return true;
+					}
+					return false;
+				}
+			};
+
+			const runHeadless = () => {
+				const proc = spawn("pi", args, {
+					stdio: ["ignore", "pipe", "pipe"],
+					env: { ...process.env, PI_SUBAGENT: "1" },
 				});
-			});
 
-			proc.on("exit", () => { clearInterval(agentState.timer); });
-		});
-	}
+				// Track for escape-cancel integration
+				agentState.proc = proc;
+				journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
+
+				proc.stdout!.setEncoding("utf-8");
+				proc.stdout!.on("data", (chunk: string) => {
+					buffer += chunk;
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+					for (const line of lines) {
+						if (!line.trim()) continue;
+						try {
+							const event = JSON.parse(line);
+							if (event.type === "message_update") {
+								const delta = event.assistantMessageEvent;
+								if (delta?.type === "text_delta") {
+									textChunks.push(delta.delta || "");
+									const full = textChunks.join("");
+									const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+									agentState.lastWork = last;
+									updateWidget();
+								}
+							}
+						} catch {}
+					}
+				});
+
+				proc.stderr!.setEncoding("utf-8");
+				proc.stderr!.on("data", () => {});
+
+				proc.on("close", (code) => {
+					agentState.proc = null;
+
+					if (buffer.trim()) {
+						try {
+							const event = JSON.parse(buffer);
+							if (event.type === "message_update") {
+								const delta = event.assistantMessageEvent;
+								if (delta?.type === "text_delta") textChunks.push(delta.delta || "");
+							}
+						} catch {}
+					}
+
+					finish(code);
+				});
+
+				proc.on("error", (err) => {
+					agentState.proc = null;
+					agentState.status = "error";
+					agentState.lastWork = `Error: ${err.message}`;
+					agentState.output = `Error spawning agent: ${err.message}`;
+					updateWidget();
+					journalUpdate(sessionDir, journalId, { status: "error", exitCode: 1, elapsedMs: Date.now() - startTime });
+					resolvePromise({
+						output: `Error spawning agent: ${err.message}`,
+						fullOutput: "",
+						fullOutputPath: "",
+						exitCode: 1,
+						elapsed: Date.now() - startTime,
+					});
+				});
+
+				proc.on("exit", () => {});
+			};
+
+			runHerdrTransport().then((ok) => {
+				if (!ok) runHeadless();
+			});
+		});	}
 
 	// ── Dispatch Agents for a Phase ──────────────
 
