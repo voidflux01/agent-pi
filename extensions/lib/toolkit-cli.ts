@@ -2,6 +2,7 @@
 // ABOUTME: Toolkit agents represent installed CLI software and should stream real CLI stdout/stderr.
 
 import { spawn } from "child_process";
+import { accessSync, constants as fsConstants } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -37,6 +38,8 @@ export interface ToolkitWorkerSpawnOptions {
 interface ToolkitCliCommand {
 	command: string;
 	args: (task: string, cwd?: string) => string[];
+	/** Fallback argv used once when the plain invocation fails early. */
+	pureArgs?: (task: string, cwd?: string) => string[];
 }
 
 export interface ToolkitWorkerResult {
@@ -110,11 +113,15 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				args: (task: string) => [task],
 			};
 		case "opencode-agent":
+			// Plain invocation first (user preference). If the local plugin/MCP
+			// layer races and the run dies with a server error, spawnToolkitWorker
+			// retries once with --pure below.
 			// --format json streams typed events ending in step_finish with usage;
 			// --auto approves permissions non-interactively.
 			return {
 				command: "opencode",
 				args: (task: string) => ["run", "--format", "json", "--auto", task],
+				pureArgs: (task: string) => ["run", "--pure", "--format", "json", "--auto", task],
 			};
 		case "prime-agent":
 			return {
@@ -145,10 +152,12 @@ export function spawnToolkitWorker(
 	return new Promise((resolve) => {
 		const cliCommand = getToolkitCliCommand(agentDef.name);
 		const command = cliCommand?.command || "pi";
-		const args = cliCommand
-			? cliCommand.args(options.task, options.cwd)
-			: getToolkitWorkerArgs(agentDef, options);
-		const proc = spawn(command, args, {
+		const attempts: string[][] = [];
+		const runAttempt = (): void => {
+		let args = cliCommand
+			? (attempts.length ? attempts[attempts.length - 1] : cliCommand.args(options.task, options.cwd))
+			: (attempts.length ? attempts[attempts.length - 1] : getToolkitWorkerArgs(agentDef, options));
+		const proc = spawn(resolveCommandPath(command), args, {
 			stdio: ["ignore", "pipe", "pipe"],
 			env: { ...process.env, ...options.env, PI_SUBAGENT: "1" },
 			cwd: options.cwd,
@@ -179,25 +188,42 @@ export function spawnToolkitWorker(
 			}
 		});
 
+		const finishWith = (exitCode: number, outText: string) => {
+			resolve({
+				exitCode,
+				elapsed: Date.now() - startTime,
+				output: outText,
+			});
+		};
+
+		const retryWithPureArgsOr = (fallback: () => void) => {
+			if (cliCommand?.pureArgs && attempts.length === 0) {
+				attempts.push(cliCommand.pureArgs(options.task, options.cwd));
+				output = "";
+				buffer = "";
+				runAttempt();
+				return;
+			}
+			fallback();
+		};
+
 		proc.on("error", (err) => {
 			const msg = `CLI spawn error (${command}): ${err.message}`;
 			options.onStderr?.(msg);
 			options.onStdoutLine?.(msg);
-			resolve({
-				exitCode: 1,
-				elapsed: Date.now() - startTime,
-				output: msg,
-			});
+			retryWithPureArgsOr(() => finishWith(1, msg));
 		});
 
 		proc.on("close", (code) => {
 			if (buffer.trim()) options.onStdoutLine?.(buffer);
-			resolve({
-				exitCode: code ?? 1,
-				elapsed: Date.now() - startTime,
-				output,
-			});
+			if ((code ?? 1) !== 0 && attempts.length === 0 && cliCommand?.pureArgs && /server error|UnknownError/i.test(output)) {
+				retryWithPureArgsOr(() => finishWith(code ?? 1, output));
+				return;
+			}
+			finishWith(code ?? 1, output);
 		});
+		};
+		runAttempt();
 	});
 }
 
@@ -284,6 +310,22 @@ export function parseToolkitResult(
 }
 
 /** Short runtime label for journal rows ("pi" rows leave it unset). */
+/** Resolve a bare CLI name against PATH (node spawn on macOS GUI contexts
+ *  may miss user-shell PATH entries like ~/.opencode/bin). Returns input
+ *  unchanged when it already contains a path separator or no candidate found. */
+function resolveCommandPath(command: string): string {
+	if (command.includes("/")) return command;
+	for (const dir of (process.env.PATH || "").split(":")) {
+		if (!dir) continue;
+		const cand = join(dir, command);
+		try {
+			accessSync(cand, fsConstants.X_OK);
+			return cand;
+		} catch {}
+	}
+	return command;
+}
+
 function shellQuote(s: string): string {
 	return /^[A-Za-z0-9_\-./:=@%^+]+$/.test(s) ? s : `'` + s.replace(/'/g, `'\\''`) + `'`;
 }
