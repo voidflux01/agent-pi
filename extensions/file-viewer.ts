@@ -5,12 +5,13 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateFileViewerHTML } from "./lib/file-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, closeActiveViewer, getActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 
 interface FileViewerResult {
 	action: "done";
@@ -20,13 +21,13 @@ interface FileViewerResult {
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}
@@ -110,7 +111,7 @@ function startFileViewerServer(opts: {
 	editable: boolean;
 	lineRange?: string;
 	language?: string;
-}): Promise<{ port: number; server: Server; waitForResult: () => Promise<FileViewerResult> }> {
+}): Promise<{ port: number; server: Server; waitForResult: () => Promise<FileViewerResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup, rejectSetup) => {
 		let initialContent = "";
 		try {
@@ -125,18 +126,10 @@ function startFileViewerServer(opts: {
 			resolveResult = res;
 		});
 
+		const auth = createLocalServerAuth();
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", "http://localhost");
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			if (url.pathname === "/favicon.ico") {
 				res.writeHead(204);
@@ -226,7 +219,7 @@ function startFileViewerServer(opts: {
 
 		server.listen(0, "127.0.0.1", () => {
 			const addr = server.address() as any;
-			resolveSetup({ port: addr.port, server, waitForResult: () => resultPromise });
+			resolveSetup({ port: addr.port, server, waitForResult: () => resultPromise, auth });
 		});
 	});
 }
@@ -262,7 +255,7 @@ export default function (pi: ExtensionAPI) {
 		const title = params.title || basename(filePath);
 
 		const language = detectLanguage(filePath);
-		const { port, server, waitForResult } = await startFileViewerServer({
+		const { port, server, waitForResult, auth } = await startFileViewerServer({
 			filePath,
 			title,
 			editable,
@@ -271,6 +264,7 @@ export default function (pi: ExtensionAPI) {
 		});
 		activeServer = server;
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: "file",
 			title: "File viewer",
@@ -282,7 +276,7 @@ export default function (pi: ExtensionAPI) {
 			},
 		};
 		registerActiveViewer(activeSession);
-		openBrowser(url);
+		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
 		try {
