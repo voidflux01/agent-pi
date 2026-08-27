@@ -23,7 +23,7 @@ import * as os from "os";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import { renderSubagentWidget, parseSubName } from "./lib/subagent-render.ts";
+import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
@@ -354,8 +354,10 @@ export default function (pi: ExtensionAPI) {
 				state.proc = undefined;
 				invalidateWidget(state.id);
 
+				// Capture this before an error clears the global scout fallback below.
+				const isPersistentScout = (globalThis as any).__piScoutId === state.id;
 				// If this is the pre-spawned scout, publish status for the footer pill
-				if ((globalThis as any).__piScoutId === state.id) {
+				if (isPersistentScout) {
 					publishScoutStatus(state);
 					// If errored, clear the global so the main agent falls back
 					if (state.status === "error") {
@@ -437,13 +439,16 @@ export default function (pi: ExtensionAPI) {
 					state.standby = false;
 				}
 
-				// Auto-remove widget after 30s (default behavior)
-				if (state.autoRemove !== false) {
+				// Auto-remove widgets after 30s (default behavior). The pre-spawned
+				// scout is intentionally retained in `agents` for /subcont, but its
+				// active-turn widget must not remain stuck in the TUI forever.
+				const retainScoutState = isPersistentScout && state.status === "done";
+				if (shouldScheduleWidgetRemoval(state, isPersistentScout)) {
 					setTimeout(() => {
 						if (agents.has(state.id) && state.status !== "running") {
 							ctx.ui.setWidget(`sub-${state.id}`, undefined);
 							widgetBoxes.delete(state.id);
-							agents.delete(state.id);
+							if (!retainScoutState) agents.delete(state.id);
 						}
 					}, 30_000);
 				}

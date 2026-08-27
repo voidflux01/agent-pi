@@ -12,6 +12,7 @@ export interface SubRenderState {
 	summary?: string;
 	model?: string;
 	maxDurationMs?: number; // watchdog timeout for progress warning
+	autoRemove?: boolean; // whether completed widgets are removed automatically
 }
 
 export interface SubRenderTheme {
@@ -25,6 +26,16 @@ export interface SubRenderResult {
 }
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/**
+ * Decide whether a completed widget should get the delayed auto-removal.
+ * The pre-spawned scout keeps its state for /subcont, but its active-turn
+ * widget must still disappear after completion.
+ */
+export function shouldScheduleWidgetRemoval(state: Pick<SubRenderState, "status" | "turnCount" | "autoRemove">, isPersistentScout: boolean): boolean {
+	if (state.autoRemove !== false) return true;
+	return isPersistentScout && state.status !== "running" && state.turnCount > 1;
+}
 
 /**
  * Build the title label: "NAME - SA{id}"

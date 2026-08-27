@@ -2,7 +2,7 @@
 // ABOUTME: Validates ROLE - SA{id} titles, pre-written summaries, and single top divider
 
 import { describe, it, expect } from "vitest";
-import { renderSubagentWidget, subagentTitle, parseSubName, type SubRenderState } from "../lib/subagent-render.ts";
+import { renderSubagentWidget, subagentTitle, parseSubName, shouldScheduleWidgetRemoval, type SubRenderState } from "../lib/subagent-render.ts";
 
 function makeFakeTheme() {
 	return {
@@ -24,6 +24,24 @@ function makeState(overrides: Partial<SubRenderState> = {}): SubRenderState {
 		...overrides,
 	};
 }
+
+describe("widget cleanup policy", () => {
+	it("removes the active persistent scout widget but keeps scout state", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 2 }, true)).toBe(true);
+	});
+
+	it("does not auto-remove the scout warmup state", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 1 }, true)).toBe(false);
+	});
+
+	it("removes an active persistent scout widget after an error too", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "error", turnCount: 2 }, true)).toBe(true);
+	});
+
+	it("preserves explicit autoRemove false for ordinary agents", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 2 }, false)).toBe(false);
+	});
+});
 
 describe("renderSubagentWidget", () => {
 	const theme = makeFakeTheme();
