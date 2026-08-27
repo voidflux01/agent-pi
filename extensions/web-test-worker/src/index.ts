@@ -34,27 +34,40 @@ function errorResponse(message: string, status = 400): Response {
 	return jsonResponse({ error: message }, status);
 }
 
-function validateUrl(url: string): string | null {
+import { isBlockedHost, ipv4Parts, ipv6Parts, validatePublicUrl } from "../../lib/remote-url-safety.ts";
+
+/**
+ * Check DNS answers before handing a hostname to the browser. The browser
+ * renderer resolves the hostname separately, so request validation remains
+ * lexical as well; this lookup closes the common hostname-to-private-IP gap.
+ */
+async function validateResolvedHost(url: string): Promise<string | null> {
+	const hostname = new URL(url).hostname.replace(/[\[\]]/g, "").replace(/\.$/, "");
+	if (ipv4Parts(hostname) || ipv6Parts(hostname)) return null;
 	try {
-		const parsed = new URL(url);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "Only http: and https: URLs are allowed";
-		if (parsed.username || parsed.password) return "URLs with embedded credentials are not allowed"
-		const host = parsed.hostname.toLowerCase().replace(/[\[\]]/g, "").replace(/\.$/, "");
-		const octets = host.split(".").map(Number);
-		const isIpv4 = octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255);
-		const privateIpv4 = isIpv4 && (octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
-			(octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
-			(octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-			(octets[0] === 192 && octets[1] === 168) || (octets[0] === 198 && octets[1] === 18) || octets[0] >= 224);
-		if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
-			privateIpv4 || host === "::1" || host.startsWith("::ffff:") ||
-			/^(?:fc|fd|fe8|fe9|fea|feb)/.test(host)) {
-			return "Local and private network URLs are not allowed";
+		const answers = await Promise.all(["A", "AAAA"].map(async (type) => {
+			const query = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`;
+			const response = await fetch(query, { headers: { accept: "application/dns-json" }, signal: AbortSignal.timeout(5_000) });
+			if (!response.ok) throw new Error("DNS lookup failed");
+			return await response.json() as { Answer?: Array<{ type?: number; data?: string }> };
+		}));
+		for (const answerSet of answers) {
+			for (const answer of answerSet.Answer || []) {
+				if (answer.data && (answer.type === 1 || answer.type === 28) && isBlockedHost(answer.data)) {
+					return "The hostname resolves to a local or private network address";
+				}
+			}
 		}
 		return null;
 	} catch {
-		return "Invalid URL";
+		return "Unable to validate the hostname's DNS answers";
 	}
+}
+
+async function validateTarget(url: unknown): Promise<string | null> {
+	if (typeof url !== "string") return "Missing required field: url";
+	const lexicalError = validatePublicUrl(url);
+	return lexicalError || await validateResolvedHost(url);
 }
 
 async function parseBody(request: Request): Promise<Record<string, any> | null> {
@@ -82,7 +95,7 @@ async function handleScreenshot(body: Record<string, any>, env: Env): Promise<Re
 	const viewportHeight = viewportDimension(height, 720, 240, 2160);
 	if (viewportWidth === null || viewportHeight === null) return errorResponse("Viewport dimensions must be within 320–3840 x 240–2160");
 
-	const urlError = validateUrl(url);
+	const urlError = await validateTarget(url);
 	if (urlError) return errorResponse(urlError);
 
 	const browser = await puppeteer.launch(env.BROWSER);
@@ -109,7 +122,7 @@ async function handleContent(body: Record<string, any>, env: Env): Promise<Respo
 	const { url, selector } = body;
 	if (!url) return errorResponse("Missing required field: url");
 
-	const urlError = validateUrl(url);
+	const urlError = await validateTarget(url);
 	if (urlError) return errorResponse(urlError);
 
 	const browser = await puppeteer.launch(env.BROWSER);
@@ -155,7 +168,7 @@ async function handleA11y(body: Record<string, any>, env: Env): Promise<Response
 	const { url } = body;
 	if (!url) return errorResponse("Missing required field: url");
 
-	const urlError = validateUrl(url);
+	const urlError = await validateTarget(url);
 	if (urlError) return errorResponse(urlError);
 
 	const browser = await puppeteer.launch(env.BROWSER);
@@ -212,7 +225,7 @@ async function handleResponsive(body: Record<string, any>, env: Env): Promise<Re
 	const { url, viewports } = body;
 	if (!url) return errorResponse("Missing required field: url");
 
-	const urlError = validateUrl(url);
+	const urlError = await validateTarget(url);
 	if (urlError) return errorResponse(urlError);
 
 	const defaultViewports = [

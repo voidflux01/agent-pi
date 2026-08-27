@@ -43,6 +43,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { validatePublicUrl } from "./lib/remote-url-safety.ts";
 
 // ── Constants ────────────────────────────────────
 
@@ -72,24 +73,7 @@ interface WebTestResult {
 // ── Config Loading ───────────────────────────────
 
 export function validateRemoteWebUrl(value: string): string | null {
-	try {
-		const parsed = new URL(value);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "Only http: and https: URLs are allowed.";
-		if (parsed.username || parsed.password) return "URLs with embedded credentials are not allowed.";
-		const host = parsed.hostname.toLowerCase().replace(/[\[\]]/g, "").replace(/\.$/, "");
-		const octets = host.split(".").map(Number);
-		const isIpv4 = octets.length === 4 && octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255);
-		const privateIpv4 = isIpv4 && (octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
-			(octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
-			(octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-			(octets[0] === 192 && octets[1] === 168) || (octets[0] === 198 && octets[1] === 18) || octets[0] >= 224);
-		const blocked = host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
-			privateIpv4 || host === "::1" || host.startsWith("::ffff:") ||
-			/^(?:fc|fd|fe8|fe9|fea|feb)/.test(host);
-		return blocked ? "Local and private network URLs are not allowed." : null;
-	} catch {
-		return "Invalid URL.";
-	}
+	return validatePublicUrl(value);
 }
 
 function loadWorkerConfig(): WorkerConfig | null {
