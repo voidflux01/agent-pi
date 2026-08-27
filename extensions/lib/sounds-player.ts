@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { SOUNDS_DIR, ensureSoundsDir } from "./sounds-config.ts";
 
 // ── Platform Detection ───────────────────────────────────────────────
@@ -26,7 +26,7 @@ function detectAudioPlayer(): AudioPlayer {
 	const candidates: AudioPlayer[] = ["afplay", "aplay", "mpv"];
 	for (const cmd of candidates) {
 		try {
-			execSync(`which ${cmd}`, { stdio: "ignore" });
+			execFileSync("which", [cmd], { stdio: "ignore" });
 			cachedPlayer = cmd;
 			return cmd;
 		} catch {

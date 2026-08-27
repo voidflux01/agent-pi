@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isSafeSoundName } from "../lib/sounds-player.ts";
+import { readFileSync } from "node:fs";
 import { generateSoundsViewerHTML } from "../lib/sounds-viewer-html.ts";
 
 describe("sound viewer boundaries", () => {
@@ -17,5 +18,6 @@ describe("sound viewer boundaries", () => {
 		});
 		expect(html).toContain("function esc(s)");
 		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).toContain("MAX_SOUND_FEED_BYTES");
+		expect(readFileSync(new URL("../lib/sounds-player.ts", import.meta.url), "utf8")).toContain('execFileSync("which", [cmd]');
 	});
 });
