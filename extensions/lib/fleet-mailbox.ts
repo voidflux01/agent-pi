@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 
-export type MailKind = "question" | "answer" | "decision" | "status";
+export type MailKind = "question" | "answer" | "decision" | "status" | "steer";
 export type MailStatus = "open" | "answered" | "expired" | "cancelled";
 
 export interface MailRecord {
@@ -20,6 +20,7 @@ export interface MailRecord {
 	options?: string[];
 	status: MailStatus;
 	answer?: string;
+	acknowledgedAt?: number;   // worker confirmed receipt (AMQ-style receipt)
 	createdAt: number;
 	updatedAt: number;
 }
@@ -82,7 +83,7 @@ export function listMail(root: string, agent: string, opts: { includeAnswered?: 
 			} catch {}
 		}
 	}
-	return out.sort((a, b) => a.rec.createdAt - b.rec.createdAt);
+	return out.sort((a, b) => (a.rec.createdAt - b.rec.createdAt) || (a.rec.id < b.rec.id ? -1 : a.rec.id > b.rec.id ? 1 : 0));
 }
 
 /** Settle a message: atomic move from new/ into cur/ with updated record. */
@@ -113,7 +114,7 @@ export function readMail(root: string, toAgent: string, id: string): MailRecord 
 	}
 	return null;
 }
-export const MAILBOX_PROTOCOL_VERSION = 1;
+export const MAILBOX_PROTOCOL_VERSION = 2;
 
 /** Runtime-neutral env gate: PI_FLEET_MAILBOX=0 disables external participation. */
 export function mailboxPreambleEnabled(): boolean {
@@ -136,6 +137,66 @@ export function buildMailboxPreamble(agentName: string, cwd: string): string {
 		'   {"schema":1,"id":"ask-...","kind":"question","from":"' + agentName.toLowerCase() + '","to":"parent","expectsReply":true,"subject":"<80 chars>","body":"<what you tried + your proposed default>","status":"open","createdAt":<ms>,"updatedAt":<ms>}',
 		`3. Poll ${inbox}/new and ${inbox}/cur every ~5s (up to ${DEFAULT_POLL_HINT_S}s total) for a file with the same id. When found and status=="answered", read .answer and proceed; delete nothing.`,
 		"If no answer in time, proceed with your stated reversible default and note the open question at the end of your result.",
-		"Do not use the mailbox for anything else. End of protocol.",
+		`4. STEER CHANNEL: every ~10 tool actions (and always before finalizing), list ${join(root, "agents", agentName.toLowerCase(), "inbox", "new")}; for each steer-*.json: read .body, incorporate it into your remaining work, acknowledge by rewriting the file with acknowledgedAt=<ms> added, then DELETE the file once fully handled. Steer messages come from your captain mid-task — treat them as high-priority course corrections.`,
+		"Do not use the mailbox for anything besides asking, answering, and steer handling. End of protocol.",
 	].join("\n");
+}
+
+
+// ── Steer channel (runtime-neutral fast lane) ──────────────────────────────
+// Parent writes a steer mail into the WORKER's inbox/new/. Workers either:
+//  - pi-family: nudge-listener extension auto-delivers via sendUserMessage
+//    ({ deliverAs: "steer" }) and acknowledges, or
+//  - external CLIs: taught by MAILBOX PREAMBLE v2 to check inbox between
+//    actions, incorporate .body, then delete the file (= implicit consume).
+
+/** Deliver an out-of-band steering instruction to a running worker. */
+export function sendSteer(root: string, toAgent: string, message: string, from = PARENT_INBOX): MailRecord {
+	const rec: MailRecord = {
+		schema: 1,
+		id: `steer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+		kind: "steer",
+		from,
+		to: toAgent.toLowerCase(),
+		subject: message.slice(0, 80),
+		body: message.slice(0, 2000),
+		status: "open",
+		createdAt: Date.now(),
+		updatedAt: Date.now(),
+	};
+	deliverMail(root, toAgent, rec);
+	return rec;
+}
+
+/** Pending steer mails for an agent (oldest first). */
+export function listSteer(root: string, agent: string): Array<{ path: string; rec: MailRecord }> {
+	return listMail(root, agent).filter(({ rec }) => rec.kind === "steer");
+}
+
+/** Acknowledge one steer mail WITHOUT consuming it: sets acknowledgedAt in place. */
+export function ackSteer(root: string, path: string): boolean {
+	try {
+		const raw = readFileSync(path, "utf8");
+		const rec = JSON.parse(raw) as MailRecord;
+		if (!rec.acknowledgedAt) {
+			rec.acknowledgedAt = Date.now();
+			rec.updatedAt = rec.acknowledgedAt;
+			writeFileSync(path + ".tmp", JSON.stringify(rec, null, "\t") + "\n");
+			renameSync(path + ".tmp", path); // same-dir rename is atomic; id unchanged so no collision
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Consume (delete) one steer mail after incorporating it. Returns the record or null. */
+export function consumeSteer(root: string, path: string): MailRecord | null {
+	try {
+		const rec = JSON.parse(readFileSync(path, "utf8")) as MailRecord;
+		rmSync(path, { force: true });
+		return rec;
+	} catch {
+		return null;
+	}
 }

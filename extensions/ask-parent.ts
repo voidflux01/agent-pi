@@ -6,11 +6,11 @@
 // ABOUTME: in-process, and in herdr panes alike.
 // ABOUTME: Parent side provides visibility commands; nothing here blocks the parent.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { deliverMail, listMail, readMail, settleMail, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
+import { deliverMail, listMail, readMail, settleMail, sendSteer, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
 
 const DEFAULT_TIMEOUT_S = Number(process.env.PI_ASK_PARENT_TIMEOUT_S || 600);
 // Legacy flat dir kept readable so /asks still shows pre-migration questions.
@@ -221,6 +221,19 @@ export default function (pi: ExtensionAPI) {
 			}
 			const ok = answerAsk(m[1], m[2]);
 			ctx?.ui?.notify?.(ok ? `Answered ${m[1]}.` : `No open ask ${m[1]} — check /asks`, ok ? "success" : "error");
+		},
+	});
+
+	pi.registerCommand("nudge", {
+		description: "Steer a running worker mid-task: /nudge <agent> <message>",
+		handler: async (args: string, ctx: any) => {
+			const m = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+			if (!m) {
+				ctx?.ui?.notify?.("usage: /nudge <agent> <message>", "info");
+				return;
+			}
+			const rec = sendSteer(mailboxRoot(process.cwd()), m[1], m[2]);
+			ctx?.ui?.notify?.(`Steer sent to ${rec.to} (${rec.id})`, "success");
 		},
 	});
 }
