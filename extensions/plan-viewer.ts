@@ -16,6 +16,7 @@ import { generatePlanViewerHTML } from "./lib/plan-viewer-html.ts";
 import { createPlanStandaloneExport, saveStandaloneExport } from "./lib/viewer-standalone-export.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { armGrillSession, grillStatePath, readGrillState, recordGrillTurn, saveGrillResults, type GrillTurn } from "./lib/grill-core.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -190,6 +191,7 @@ const ShowPlanParams = Type.Object({
 	file_path: Type.String({ description: "Path to the markdown plan file (e.g. .context/todo.md)" }),
 	title: Type.Optional(Type.String({ description: "Title to display in the viewer header" })),
 	mode: Type.Optional(Type.String({ description: "Viewer mode: 'plan' (default) for plan review/approval, or 'questions' for follow-up questions with inline answers" })),
+	grill: Type.Optional(Type.Boolean({ description: "Plan mode only: automatically arm a grill-me design interview for this plan (default true). The user's approval will direct you to interview first if no decisions were recorded." })),
 });
 
 // ── Extension ────────────────────────────────────────────────────────
@@ -294,6 +296,95 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	// ── Grill-me interview tools (built-in port of @firstpick/pi-extension-grill-me) ──
+
+	pi.registerCommand("grill-me", {
+		description: "Start a deterministic design interview and save results to Markdown",
+		handler: async (args2: string, ctx2: ExtensionContext) => {
+			const plan = args2.trim() || "(No plan supplied yet. Ask the user to paste or describe the plan first.)";
+			const st = armGrillSession(ctx.cwd, plan);
+			ctx.ui.notify(`Grill session initialized: ${grillStatePath(ctx.cwd)}`, "info");
+			pi.sendUserMessage(
+				`Start /grill-me for this plan:\n\n${plan}\n\nRules:\n- Interview me relentlessly about every aspect of this plan until we reach shared understanding.\n- Walk down each branch of the design tree, resolving dependencies between decisions one-by-one.\n- Ask exactly one question at a time.\n- For each question, provide your recommended answer.\n- If a question can be answered by exploring the codebase, explore the codebase instead.\n- Use grill_record_turn after each question/answer decision is captured.\n- For every resolved turn, include my explicit choice in userAnswer; do not leave the answer only in notes.\n- Use grill_save_results to save the results into a Markdown file in the project directory when enough understanding has been reached or when I ask to stop/save.`,
+			);
+			void st;
+		},
+	});
+
+	pi.registerTool({
+		name: "grill_record_turn",
+		label: "Grill Record Turn",
+		description: "Record one grill-me question, recommended answer, user answer, and decision status in project state (.pi/grill-me/state.json).",
+		promptSnippet: "Record structured progress for an active grill-me design interview",
+		promptGuidelines: [
+			"Use grill_record_turn after each grill-me interview question is answered or resolved from codebase exploration.",
+			"For a resolved turn, userAnswer must contain the explicit selected or discovered answer; notes are not a substitute.",
+			"Do not use grill_record_turn for more than one question at a time.",
+		],
+		parameters: Type.Object({
+			question: Type.String({ description: "The exact question asked, one question only." }),
+			recommendedAnswer: Type.String({ description: "The assistant's recommended answer to the question." }),
+			userAnswer: Type.Optional(Type.String({ description: "The user's explicit answer. Required when decisionStatus is resolved." })),
+			decisionStatus: Type.Union([
+				Type.Literal("resolved"),
+				Type.Literal("open"),
+				Type.Literal("needs-codebase-check"),
+			]),
+			notes: Type.Optional(Type.String({ description: "Short rationale, dependency, or follow-up notes." })),
+		}),
+		async execute(_toolCallId: string, params: any, _signal: unknown, _onUpdate: unknown, ctx2: ExtensionContext) {
+			const turn = params as GrillTurn;
+			const res = recordGrillTurn(ctx.cwd, turn);
+			if (!res.ok) {
+				return {
+					content: [{ type: "text" as const, text: res.error }],
+					isError: true,
+					details: { path: ".pi/grill-me/state.json" },
+				};
+			}
+			return {
+				content: [{ type: "text" as const, text: `Recorded grill turn #${res.count}` }],
+				details: { count: res.count },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "grill_save_results",
+		label: "Grill Save Results",
+		description: "Save the active grill-me interview state as a Markdown file inside the project directory (default GRILL-ME.md).",
+		promptSnippet: "Save grill-me interview decisions and risks to Markdown in the project directory",
+		promptGuidelines: ["Use grill_save_results when the grill-me interview is complete or the user asks to save/stop."],
+		parameters: Type.Object({
+			path: Type.Optional(Type.String({ description: "Relative output path. Defaults to GRILL-ME.md." })),
+			summary: Type.Optional(Type.String({ description: "Optional current shared-understanding summary." })),
+			agreedDecisions: Type.Optional(Type.Array(Type.String())),
+			openRisks: Type.Optional(Type.Array(Type.String())),
+			nextDecisionNeeded: Type.Optional(Type.String()),
+		}),
+		async execute(_toolCallId: string, params: any, _signal: unknown, _onUpdate: unknown, ctx2: ExtensionContext) {
+			const p = params as { path?: string; summary?: string; agreedDecisions?: string[]; openRisks?: string[]; nextDecisionNeeded?: string };
+			const res = saveGrillResults(ctx.cwd, {
+				summary: p.summary,
+				agreedDecisions: p.agreedDecisions,
+				openRisks: p.openRisks,
+				nextDecisionNeeded: p.nextDecisionNeeded,
+			}, p.path);
+			if ("error" in res && res.error) {
+				return {
+					content: [{ type: "text" as const, text: (res as any).error }],
+					isError: true,
+					details: {},
+				};
+			}
+			const ok = res as { path: string; turns: number };
+			return {
+				content: [{ type: "text" as const, text: `Saved grill results to ${ok.path}` }],
+				details: { path: ok.path, turns: ok.turns },
+			};
+		},
+	});
+
 	// ── show_plan tool ───────────────────────────────────────────────
 
 	pi.registerTool({
@@ -319,6 +410,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const purpose: ViewerPurpose = modeStr === "questions" ? "questions" : "plan";
+			const grillEnabled = modeStr !== "questions" && params.grill !== false;
 
 			// Read the file
 			let markdown: string;
@@ -331,6 +423,14 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const displayTitle = title || basename(file_path, ".md");
+
+			// Auto-arm the design interview when showing a plan for approval.
+			if (grillEnabled) {
+				try {
+					const st = armGrillSession(ctx.cwd, markdown, file_path);
+					ctx.ui.notify(`🔥 Grill-me armed (${st.turns.length} prior turns) — approval will gate on interview depth`, "info");
+				} catch {}
+			}
 
 			// Open viewer and wait for result
 			const result = await runViewer(ctx, markdown, file_path, displayTitle, purpose, signal);
@@ -381,10 +481,24 @@ export default function (pi: ExtensionAPI) {
 					? " (plan was edited by user — use the updated version)"
 					: "";
 
+				// Grill integration: direct what happens after approval based on
+				// interview progress recorded via grill_record_turn.
+				const grill = grillEnabled ? readGrillState(ctx.cwd) : undefined;
+				const unresolved = grill?.turns.filter((t2) => t2.decisionStatus !== "resolved") ?? [];
+				let approvalContent = `Plan approved! Proceed with implementation.${modifiedNote}`;
+				if (grill) {
+					if (grill.turns.length === 0) {
+						approvalContent += `\n\n🔥 GRILL-ME INTERVIEW REQUIRED before implementation (auto-armed): interview the user about this plan — one question at a time, with your recommended answer each time; answer questions from the codebase when possible instead of asking. Record each decision with grill_record_turn and save the final write-up with grill_save_results. Cover every design branch that materially affects implementation, then start implementing without re-asking anything already resolved.`;
+					} else if (unresolved.length > 0) {
+						approvalContent += `\n\n🔥 Grill-me has ${unresolved.length} unresolved question(s): ` + unresolved.slice(0, 5).map((t2) => `"${t2.question}"`).join("; ") + `. Resolve these first (ask the user or check the codebase), record them with grill_record_turn, then proceed.`;
+					} else {
+						approvalContent += `\n\n✅ Grill-me interview complete (${grill.turns.length} decisions recorded — honor them exactly).`;
+					}
+				}
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",
-						content: `Plan approved! Proceed with implementation.${modifiedNote}`,
+						content: approvalContent,
 						display: true,
 					},
 					{ deliverAs: "followUp" as any, triggerTurn: true },
@@ -393,13 +507,24 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{
 						type: "text" as const,
-						text: `Plan approved by user.${modifiedNote} The updated plan has been saved to ${file_path}.`,
+						text: (() => {
+						let msg = `Plan approved by user.${modifiedNote} The updated plan has been saved to ${file_path}.`;
+						if (grillEnabled && grill) {
+							const unres = grill.turns.filter((t3) => t3.decisionStatus !== "resolved").length;
+							if (grill.turns.length === 0) msg += " Grill-me armed but no questions asked yet — run the required design interview before implementing.";
+							else if (unres > 0) msg += ` Grill-me has ${unres} unresolved question(s) to resolve first.`;
+							else msg += ` Grill-me complete: ${grill.turns.length} decisions recorded.`;
+						}
+						return msg;
+					})(),
 					}],
 					details: {
 						action: "approved" as const,
 						purpose: "plan",
 						modified: result.modified,
 						filePath: file_path,
+						grillTurns: grill?.turns.length ?? 0,
+						grillUnresolved: grill?.turns.filter((t3) => t3.decisionStatus !== "resolved").length ?? 0,
 					},
 				};
 			}
