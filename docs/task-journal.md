@@ -152,7 +152,7 @@ Besides pi itself, named toolkit agents dispatch to external CLI runtimes. The f
 
 | Agent name | CLI invoked | Result text | Usage source |
 |---|---|---|---|
-| `opencode-agent` | `opencode run --pure --format json --auto <task>` | Concatenated JSON text parts | Last `step_finish` tokens + cost |
+| `opencode-agent` | `opencode run --format json --auto <task>` | Concatenated JSON text parts | Last `step_finish` tokens + cost |
 | `prime-agent` | `prime-agent -p --mode json --no-session <task>` | Assistant-role `message_end` text | Inline message usage |
 | others (`cursor-agent`, `gemini-agent`, ...) | their plain CLIs | raw stdout tail (no structured parse) | not reported |
 
@@ -166,7 +166,6 @@ DONE  tm07-k9a1 [opencode]   12s 15,398tok (0% cached) $0.0035
 
 Notes:
 - Both JSON-streaming runtimes report real token/cost usage into the journal row and the `/agents-status` TOTAL footer.
-- `--pure` on opencode skips local plugin/MCP startup that can stall headless runs.
 - External runtimes are one-shot executors: they do not load agent-pi extensions, so RESULT-contract checking and `ask_parent` questions apply to pi-runtime sub-agents only. The parent still archives whatever they produced and records exit/elapsed.
 
 ## Tips

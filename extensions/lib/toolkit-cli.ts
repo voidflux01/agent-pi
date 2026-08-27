@@ -110,12 +110,11 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				args: (task: string) => [task],
 			};
 		case "opencode-agent":
-			// --pure skips local plugin/MCP startup, which can stall headless runs;
 			// --format json streams typed events ending in step_finish with usage;
 			// --auto approves permissions non-interactively.
 			return {
 				command: "opencode",
-				args: (task: string) => ["run", "--pure", "--format", "json", "--auto", task],
+				args: (task: string) => ["run", "--format", "json", "--auto", task],
 			};
 		case "prime-agent":
 			return {

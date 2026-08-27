@@ -117,7 +117,7 @@ describe("visible external runtime helpers", () => {
 		const argv = toolkitVisibleCommandLine("opencode-agent", "do it", "/tmp/x", "/tmp/x/out.raw");
 		expect(argv[0]).toBe("bash");
 		const script = argv[2];
-		expect(script).toContain("opencode run --pure --format json --auto");
+		expect(script).toContain("opencode run --format json --auto");
 		expect(script).toContain("tee /tmp/x/out.raw");
 	});
 
