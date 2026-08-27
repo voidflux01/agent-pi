@@ -40,6 +40,7 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText, cleanupLaunchFiles, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -635,10 +636,10 @@ export default function (pi: ExtensionAPI) {
 				commanderSync((client) => preClaimTask(client, taskId, canonicalName));
 			}
 
-			const finish = (code: number | null, stderrBuf: string) => {
+			const finish = (code: number | null, stderrBuf: string, externalFull?: string) => {
 				clearInterval(timer);
 
-				let full = textChunks.join("");
+				let full = externalFull ?? textChunks.join("");
 				if ((code !== 0 && code !== null) && stderrBuf.trim()) {
 					if (isContextLossError(stderrBuf)) {
 						full = "Context overflow: agent session broke tool_use/tool_result pairing. Clear session and re-dispatch.";
@@ -782,34 +783,131 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const proc = spawn("pi", args, {
-				stdio: ["ignore", "pipe", "pipe"],
-				env: spawnEnv,
-				cwd: runCwd,
-			});
-			state.proc = proc;
-			journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
+			// ── Herdr transport (Phase 1) ───────────────────────────────
+			// Runs the same headless pi command inside a Herdr pane: visible,
+			// persistent across parent restarts, resumable via the session file.
+			// Completion is signalled by a marker file; the authoritative result
+			// text is read from pi's session JSONL. Any herdr failure falls back
+			// to the headless child-process path below — precision never depends
+			// on herdr being present.
+			const runHerdrTransport = async (): Promise<boolean> => {
+				if (!herdrEnabled()) return false;
+				let tab: HerdrTabRef | null = null;
+				let cancelled = false;
+				try {
+					// Inside herdr, HERDR_WORKSPACE_ID is the parent's own workspace;
+					// otherwise use the shared "agent-pi" workspace.
+					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
+					if (!wsId) return false;
 
-			let buffer = "";
-			proc.stdout!.setEncoding("utf-8");
-			proc.stdout!.on("data", (chunk: string) => {
-				buffer += chunk;
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) {
-					if (!line.trim()) continue;
-					handleStdoutLine(line);
+					const refs = writeLaunchScript({
+						dir: sessionDir,
+						id: journalId,
+						cwd: runCwd,
+						command: ["pi", ...args],
+						env: { ...spawnEnv, PI_SUBAGENT: "1" },
+					});
+
+					tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
+					if (!tab) {
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+
+					// Escape-cancel integration: kill() closes the pane.
+					state.proc = {
+						kill: () => {
+							cancelled = true;
+							closeHerdrTab(tab!);
+						},
+					} as any;
+					journalUpdate(sessionDir, journalId, { status: "running" });
+
+					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					if (!sent) {
+						closeHerdrTab(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+
+					// Live dashboard: poll the session JSONL for the latest text so
+					// the widget shows what the agent is doing (screen capture would
+					// be unreliable, so we read pi's own session file).
+					const liveTimer = setInterval(() => {
+						if (runEpoch !== sessionEpoch || cancelled) return;
+						try {
+							const { text } = readLastAssistantText(agentSessionFile);
+							if (text) {
+								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+								if (last) {
+									state.lastWork = last;
+									state.summary = last;
+									invalidateAgentWidget(state);
+								}
+							}
+						} catch {}
+					}, 3000);
+
+					// No hard timeout, matching the headless path (7-day safety cap).
+					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => cancelled);
+					clearInterval(liveTimer);
+					cleanupLaunchFiles(refs);
+
+					if (cancelled) {
+						finish(130, "Cancelled (herdr pane closed)");
+						return true;
+					}
+					if (exitCode === null) {
+						finish(1, "Timed out waiting for agent output");
+						return true;
+					}
+
+					// Authoritative result text from the session JSONL (no screen capture).
+					const { text } = readLastAssistantText(agentSessionFile);
+					finish(exitCode, "", text);
+					closeHerdrTab(tab);
+					return true;
+				} catch {
+					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					return false;
 				}
-			});
+			};
 
-			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", (chunk: string) => { stderrBuf += chunk; });
-			proc.on("close", (code) => {
-				if (buffer.trim()) handleStdoutLine(buffer);
-				finish(code, stderrBuf);
+			const runHeadless = () => {
+				const proc = spawn("pi", args, {
+					stdio: ["ignore", "pipe", "pipe"],
+					env: spawnEnv,
+					cwd: runCwd,
+				});
+				state.proc = proc;
+				journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
+
+				let buffer = "";
+				proc.stdout!.setEncoding("utf-8");
+				proc.stdout!.on("data", (chunk: string) => {
+					buffer += chunk;
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+					for (const line of lines) {
+						if (!line.trim()) continue;
+						handleStdoutLine(line);
+					}
+				});
+
+				proc.stderr!.setEncoding("utf-8");
+				proc.stderr!.on("data", (chunk: string) => { stderrBuf += chunk; });
+				proc.on("close", (code) => {
+					if (buffer.trim()) handleStdoutLine(buffer);
+					finish(code, stderrBuf);
+				});
+				proc.on("error", (err) => finish(1, `Error spawning agent: ${err.message}`));
+				proc.on("exit", () => { clearInterval(timer); });
+				};
+
+			// Try herdr first; any failure silently falls back to headless.
+			runHerdrTransport().then((ok) => {
+				if (!ok) runHeadless();
 			});
-			proc.on("error", (err) => finish(1, `Error spawning agent: ${err.message}`));
-			proc.on("exit", () => { clearInterval(timer); });
 		});
 	}
 
