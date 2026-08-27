@@ -30,6 +30,7 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } 
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
@@ -262,6 +263,7 @@ export default function (pi: ExtensionAPI) {
 
 	function loadAgents(cwd: string) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
+		const securityGuardExtPath = join(extDir, "security-guard.ts");
 		const extProjectDir = resolve(extDir, "..");
 
 		// Create session storage dir
@@ -537,6 +539,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Build args — first run creates session, subsequent runs resume
 		const extDir = dirname(fileURLToPath(import.meta.url));
+		const securityGuardExtPath = join(extDir, "security-guard.ts");
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const nudgeListenerExtPath = join(extDir, "nudge-listener.ts");
@@ -616,6 +619,7 @@ export default function (pi: ExtensionAPI) {
 
 		const baseArgs = [
 			"--no-extensions",
+			"-e", securityGuardExtPath,
 			"-e", tasksExtPath,
 			"-e", footerExtPath,
 			"-e", memoryCycleExtPath,
@@ -643,12 +647,11 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise((resolve) => {
 			// Build env — include Commander task ID when available
-			const spawnEnv: Record<string, string | undefined> = {
-				...process.env,
+			const spawnEnv: Record<string, string | undefined> = childEnvironment({
 				PI_SUBAGENT: "1",
 				PI_AGENT_NAME: displayName(state.def.name).toLowerCase(),
 				PI_SESSION_FILE: state.sessionFile || undefined,
-			};
+			});
 			if (commanderAvailable) {
 				const currentTask = g.__piCurrentTask as { commanderTaskId?: number } | null;
 				if (currentTask?.commanderTaskId !== undefined) {

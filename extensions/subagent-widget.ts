@@ -23,6 +23,7 @@ import * as os from "os";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
@@ -272,6 +273,7 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
+		const securityGuardExtPath = path.join(extDir, "security-guard.ts");
 		const tasksExtPath = path.join(extDir, "tasks.ts");
 		const commanderExtPath = path.join(extDir, "commander-mcp.ts");
 		const footerExtPath = path.join(extDir, "footer.ts");
@@ -288,7 +290,7 @@ export default function (pi: ExtensionAPI) {
 		// on the child's first agent_end, since an interactive worker stays alive
 		// after finishing its task.
 		const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
-		const extensions = ["-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath, "-e", askParentExtPath];
+		const extensions = ["-e", securityGuardExtPath, "-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath, "-e", askParentExtPath];
 		if (commanderAvail) {
 			// Commander tools are extension-registered (not built-in), so they must NOT
 			// go in --tools (which only accepts built-in names and warns on unknowns).
@@ -321,12 +323,11 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		const spawnEnv: Record<string, string | undefined> = {
-			...process.env,
+		const spawnEnv: Record<string, string | undefined> = childEnvironment({
 			PI_SUBAGENT: "1",
 			PI_AGENT_NAME: state.name.toLowerCase(),
 			PI_SESSION_FILE: state.sessionFile,
-		};
+		});
 		if (commanderAvail && cmdTaskId !== undefined) {
 			spawnEnv.PI_COMMANDER_TASK_ID = String(cmdTaskId);
 		}

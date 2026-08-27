@@ -49,6 +49,7 @@ import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFile
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
@@ -179,6 +180,7 @@ export default function (pi: ExtensionAPI) {
 
 	function loadChains(cwd: string) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
+		const securityGuardExtPath = join(extDir, "security-guard.ts");
 		const extProjectDir = resolve(extDir, "..");
 
 		sessionDir = join(cwd, ".pi", "agent-sessions");
@@ -327,6 +329,7 @@ export default function (pi: ExtensionAPI) {
 		const hasSession = agentSessions.get(agentKey);
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
+		const securityGuardExtPath = join(extDir, "security-guard.ts");
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const footerExtPath = join(extDir, "footer.ts");
@@ -355,6 +358,7 @@ export default function (pi: ExtensionAPI) {
 			"--mode", "json",
 			"-p",
 			"--no-extensions",
+			"-e", securityGuardExtPath,
 			"-e", tasksExtPath,
 			"-e", footerExtPath,
 			"-e", memoryCycleExtPath,
@@ -465,13 +469,12 @@ export default function (pi: ExtensionAPI) {
 						id: journalId,
 						cwd: ctx.cwd,
 						command: ["pi", ...tuiArgs],
-						env: {
-							...process.env,
+						env: childEnvironment({
 							PI_SUBAGENT: "1",
 							PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
 							PI_SESSION_FILE: agentSessionFile || undefined,
 							HERDR_DONE_PATH: launchDonePath(sessionDir, journalId),
-						},
+						}),
 					});
 
 					tab = createHerdrTaskTab(wsId, ctx.cwd, `ap-${journalId}`);
@@ -545,12 +548,11 @@ export default function (pi: ExtensionAPI) {
 			const runHeadless = () => {
 				const proc = spawn("pi", args, {
 					stdio: ["ignore", "pipe", "pipe"],
-					env: {
-					...process.env,
+					env: childEnvironment({
 					PI_SUBAGENT: "1",
 					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
 					PI_SESSION_FILE: agentSessionFile || undefined,
-				},
+					}),
 					cwd: ctx.cwd,
 				});
 

@@ -1,0 +1,26 @@
+// ABOUTME: Builds a least-privilege environment for delegated Pi workers.
+// ABOUTME: Keeps runtime basics while preventing accidental propagation of API keys and session secrets.
+
+const SAFE_ENV_NAMES = new Set([
+	"HOME", "PATH", "SHELL", "TERM", "COLORTERM", "LANG", "TMPDIR", "TMP", "TEMP",
+	"PWD", "USER", "LOGNAME", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+	"COMMANDER_MCP_SERVER_PATH", "HERDR_DONE_PATH", "HERDR_ENV", "HERDR_SESSION", "HERDR_WORKSPACE_ID",
+]);
+
+/**
+ * Do not pass the parent's complete environment to a child agent. Provider keys
+ * and OAuth/session secrets are intentionally excluded. An explicit opt-in is
+ * available for installations that cannot use Pi's on-disk auth configuration.
+ */
+export function childEnvironment(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+	const allowName = (name: string) => {
+		if (/(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)$/i.test(name)) return false;
+		return SAFE_ENV_NAMES.has(name) || name.startsWith("LC_") || (name.startsWith("PI_") && name !== "PI_CHILD_INHERIT_ENV");
+	};
+	const inherited = process.env.PI_CHILD_INHERIT_ENV === "1"
+		? { ...process.env }
+		: Object.fromEntries(Object.entries(process.env).filter(([name]) => allowName(name)));
+	// Overrides are explicit per-child configuration (for example a narrowly scoped
+	// JIRA token for the Commander MCP server), so do not silently discard them.
+	return { ...inherited, ...overrides };
+}

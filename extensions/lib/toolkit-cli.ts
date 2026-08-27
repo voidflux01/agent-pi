@@ -5,6 +5,7 @@ import { spawn } from "child_process";
 import { accessSync, constants as fsConstants } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { childEnvironment } from "./child-runtime.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
 	"cursor-agent",
@@ -66,11 +67,13 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 	const footerExtPath = join(extensionsDir, "footer.ts");
 	const memoryCycleExtPath = join(extensionsDir, "memory-cycle.ts");
 	const nudgeListenerExtPath = join(extensionsDir, "nudge-listener.ts");
+	const securityGuardExtPath = join(extensionsDir, "security-guard.ts");
 
 	const args = [
 		"--mode", "json",
 		"-p",
 		"--no-extensions",
+		"-e", securityGuardExtPath,
 		"-e", tasksExtPath,
 		"-e", footerExtPath,
 		"-e", memoryCycleExtPath,
@@ -159,7 +162,7 @@ export function spawnToolkitWorker(
 			: (attempts.length ? attempts[attempts.length - 1] : getToolkitWorkerArgs(agentDef, options));
 		const proc = spawn(resolveCommandPath(command), args, {
 			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, ...options.env, PI_SUBAGENT: "1" },
+			env: childEnvironment({ ...options.env, PI_SUBAGENT: "1" }),
 			cwd: options.cwd,
 		});
 		options.onProcess?.(proc);
