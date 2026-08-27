@@ -3,11 +3,22 @@
 
 import { describe, it, expect } from "vitest";
 import { renderSubagentWidget, type SubRenderState } from "../lib/subagent-render.ts";
+import { resolveTimeout } from "../subagent-widget.ts";
 
 // ── Timeout resolution tests ─────────────────────────────────────────────────
 // We can't import resolveTimeout directly (it's a module-scoped function inside
 // the extension default export), so we test the behavior via the render output
 // and validate the constants match our expectations.
+
+describe("timeout resolution", () => {
+	it("uses a five-minute default for SCOUT", () => {
+		expect(resolveTimeout("SCOUT")).toBe(5 * 60 * 1000);
+	});
+
+	it("honors an explicit zero timeout", () => {
+		expect(resolveTimeout("SCOUT", 0)).toBe(0);
+	});
+});
 
 describe("timeout render warnings", () => {
 	function makeFakeTheme() {
@@ -101,9 +112,9 @@ describe("PLAN prompt lifecycle guidance", () => {
 		expect(PLAN_PROMPT).toContain("Scout lifecycle management");
 	});
 
-	it("mentions the 10-minute timeout for scouts", async () => {
+	it("mentions the 5-minute timeout for scouts", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("10-minute timeout");
+		expect(PLAN_PROMPT).toContain("5-minute timeout");
 	});
 
 	it("mentions auto-dismiss behavior", async () => {

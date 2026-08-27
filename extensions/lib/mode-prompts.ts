@@ -39,14 +39,13 @@ Commander is offline. Tasks are tracked locally only. Commander tools will soft-
 	// Scout delegation section — when a scout is pre-spawned and ready
 	const scoutSection = opts.scoutId != null ? `
 
-## Scout Agent (ALWAYS use for context gathering)
-A scout subagent (SA${opts.scoutId}) is pre-spawned and ready. **ALWAYS delegate context-gathering work to the scout** instead of doing it yourself.
+## Scout Agent (use on demand)
+A scout subagent (SA${opts.scoutId}) is available. Use it only for non-trivial, multi-file context gathering. Do not start a scout for a quick answer, a single-file lookup, or a simple edit.
 
 ### What to delegate to the scout:
-- Reading files, exploring directory structures
-- Searching for patterns, symbols, or text in the codebase (grep, find)
-- Understanding architecture, tracing code paths, mapping dependencies
-- Any investigation or information-gathering task
+- Mapping a multi-file directory or architecture area
+- Searching for patterns, symbols, or text across related files
+- Understanding architecture, tracing code paths, or mapping dependencies
 
 ### How to use the scout:
 \`\`\`
@@ -62,9 +61,10 @@ The scout runs in the background. When it finishes, its findings are delivered a
 - Any action that modifies the codebase
 
 ### Important:
-- Do NOT use Read, Bash (for reading), grep, find, or ls yourself — send those to the scout
-- You CAN still use Bash for running tests, builds, or commands that modify things
-- If the scout errors, fall back to doing the work directly` : "";
+- Give the scout one bounded task and wait for its single report; do not repeatedly continue the same scout for the same request.
+- You may use Read, Bash (for reading), grep, find, or ls yourself for simple or narrowly scoped work.
+- You CAN still use Bash for running tests, builds, or commands that modify things.
+- If the scout errors or times out, fall back to doing the work directly.` : "";
 
 	return `You are in NORMAL mode. Classify the incoming task and select the best execution mode.
 ${scoutSection}
@@ -136,7 +136,7 @@ subagent_create_batch {
 After scouts report back, synthesize their findings — identify files that need changes, existing patterns to follow, reusable components, and any gaps or concerns.
 
 #### Scout lifecycle management:
-- Scouts have a **10-minute timeout** — if a scout hangs, it will be automatically killed
+- Scouts have a **5-minute timeout** — if a scout hangs, it will be automatically killed
 - Scouts **auto-dismiss** their widgets 30 seconds after completing work
 - When you spawn a new batch, any leftover done/error scouts are **auto-cleaned** first
 - You **cannot spawn a new batch** while scouts from a previous batch are still running

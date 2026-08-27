@@ -1,7 +1,7 @@
 // ABOUTME: Guards the herdr visible transport: a pi child in a pane must run
 // ABOUTME: pi's real TUI, never a raw JSON event stream (the full-screen-JSON bug).
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrEnabled, visiblePiTuiArgs, launchDonePath, writeLaunchScript } from "../lib/herdr-client.ts";
@@ -109,6 +109,18 @@ describe("visiblePiTuiArgs", () => {
 });
 
 describe("launch marker paths", () => {
+	it("clears a stale completion marker before writing a new launch", () => {
+		const dir = mkdtempSync(join(tmpdir(), "herdr-stale-"));
+		try {
+			const stale = launchDonePath(dir, "sa7");
+			writeFileSync(stale, "0\n", "utf8");
+			writeLaunchScript({ dir, id: "sa7", cwd: dir, command: ["true"], env: {} });
+			expect(existsSync(stale)).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("launchDonePath matches what writeLaunchScript actually writes", () => {
 		const dir = mkdtempSync(join(tmpdir(), "herdr-launch-"));
 		try {

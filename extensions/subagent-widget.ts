@@ -32,7 +32,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildAgentResultContractPrompt, checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
@@ -69,7 +69,17 @@ function getCommanderClient(): any | undefined {
 /** Send SIGTERM and wait up to `timeoutMs` for exit; escalate to SIGKILL. */
 function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 	return new Promise((resolve) => {
-		if (!proc || proc.exitCode !== null) {
+		if (!proc) {
+			resolve();
+			return;
+		}
+		// Herdr uses a lightweight close-pane handle with no exit event.
+		if (proc.__piNoExitEvent) {
+			try { proc.kill(); } catch {}
+			resolve();
+			return;
+		}
+		if (proc.exitCode !== null && proc.exitCode !== undefined) {
 			resolve();
 			return;
 		}
@@ -94,7 +104,7 @@ function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 
 /** Default timeout per agent role (ms). Prevents zombie subagents. */
 const ROLE_TIMEOUT_MS: Record<string, number> = {
-	SCOUT:    10 * 60 * 1000,   // 10 minutes
+	SCOUT:    5 * 60 * 1000,    // 5 minutes
 	BUILDER:  30 * 60 * 1000,   // 30 minutes
 	REVIEWER: 15 * 60 * 1000,   // 15 minutes
 	TESTER:   20 * 60 * 1000,   // 20 minutes
@@ -106,8 +116,8 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 const TIMEOUT_KILL_GRACE_MS = 30_000;
 
 /** Resolve the timeout for a subagent based on role name or explicit override. */
-function resolveTimeout(name: string, explicitTimeout?: number): number {
-	if (explicitTimeout !== undefined && explicitTimeout > 0) return explicitTimeout;
+export function resolveTimeout(name: string, explicitTimeout?: number): number {
+	if (explicitTimeout !== undefined && explicitTimeout >= 0) return explicitTimeout;
 	return ROLE_TIMEOUT_MS[name.toUpperCase()] || DEFAULT_TIMEOUT_MS;
 }
 
@@ -300,6 +310,8 @@ export default function (pi: ExtensionAPI) {
 			});
 			systemPromptArgs.push("--append-system-prompt", cmdPrompt);
 		}
+		// Keep parent-visible results compact and structurally complete.
+		systemPromptArgs.push("--append-system-prompt", buildAgentResultContractPrompt());
 
 		// Pre-claim: parent claims Commander task on behalf of subagent
 		if (commanderAvail && cmdTaskId !== undefined) {
@@ -342,7 +354,10 @@ export default function (pi: ExtensionAPI) {
 				}, state.maxDurationMs);
 			}
 
+			let finished = false;
 			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }) => {
+				if (finished) return;
+				finished = true;
 				clearInterval(timer);
 				// Clear watchdog — agent exited normally before timeout
 				if (state.watchdogTimer) {
@@ -361,8 +376,7 @@ export default function (pi: ExtensionAPI) {
 					publishScoutStatus(state);
 					// If errored, clear the global so the main agent falls back
 					if (state.status === "error") {
-						(globalThis as any).__piScoutId = undefined;
-						(globalThis as any).__piScoutStatus = undefined;
+						clearScoutStatusIf(state.id);
 					}
 				}
 
@@ -486,6 +500,8 @@ export default function (pi: ExtensionAPI) {
 					task: extTask0,
 					sessionFile: state.sessionFile,
 					env: spawnEnv,
+					cwd: ctx?.cwd ?? process.cwd(),
+					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: (line: string) => processLine(state, line),
 					onStderr: (chunk: string) => {
 						if (chunk.trim()) {
@@ -548,6 +564,7 @@ export default function (pi: ExtensionAPI) {
 						},
 						once: () => {},
 						removeListener: () => {},
+						__piNoExitEvent: true,
 					} as any;
 
 					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
@@ -607,6 +624,7 @@ export default function (pi: ExtensionAPI) {
 				const proc = spawn("pi", argv, {
 					stdio: ["ignore", "pipe", "pipe"],
 					env: spawnEnv,
+					cwd: ctx?.cwd ?? process.cwd(),
 				});
 
 				state.proc = proc;
@@ -659,7 +677,7 @@ export default function (pi: ExtensionAPI) {
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
 			commanderTaskId: Type.Optional(Type.Number({ description: "Pre-assigned Commander task ID (avoids race conditions)" })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
-			timeout: Type.Optional(Type.Number({ description: "Max runtime in milliseconds. Defaults by role: scout=10min, builder=30min, reviewer=15min, default=20min. Set 0 to disable." })),
+			timeout: Type.Optional(Type.Number({ description: "Max runtime in milliseconds. Defaults by role: scout=5min, builder=30min, reviewer=15min, default=20min. Set 0 to disable." })),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
@@ -717,7 +735,7 @@ export default function (pi: ExtensionAPI) {
 
 			// ── Guard: prevent duplicate batch spawns while agents are running ──
 			if (!args.force) {
-				const running = Array.from(agents.values()).filter(a => a.status === "running");
+				const running = Array.from(agents.values()).filter(a => a.status === "running" && !a.standby);
 				if (running.length > 0) {
 					const names = running.map(a => `SA${a.id} (${a.name})`).join(", ");
 					return {
@@ -857,6 +875,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			ctx.ui.setWidget(`sub-${args.id}`, undefined);
 			widgetBoxes.delete(args.id);
+			clearScoutStatusIf(args.id);
 			agents.delete(args.id);
 
 			return {
@@ -1052,6 +1071,7 @@ export default function (pi: ExtensionAPI) {
 
 			ctx.ui.setWidget(`sub-${num}`, undefined);
 			widgetBoxes.delete(num);
+			clearScoutStatusIf(num);
 			agents.delete(num);
 		},
 	});
@@ -1075,6 +1095,8 @@ export default function (pi: ExtensionAPI) {
 			await Promise.all(killPromises);
 
 			const total = agents.size;
+			(globalThis as any).__piScoutId = undefined;
+			(globalThis as any).__piScoutStatus = undefined;
 			agents.clear();
 			widgetBoxes.clear();
 			nextId = 1;
@@ -1097,6 +1119,12 @@ export default function (pi: ExtensionAPI) {
 			model: state.model || "",
 			elapsed: state.elapsed,
 		};
+	}
+
+	function clearScoutStatusIf(id: number): void {
+		if ((globalThis as any).__piScoutId !== id) return;
+		(globalThis as any).__piScoutId = undefined;
+		(globalThis as any).__piScoutStatus = undefined;
 	}
 
 	function preSpawnScout(ctx: any) {

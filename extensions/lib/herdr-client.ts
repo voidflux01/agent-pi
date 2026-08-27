@@ -272,6 +272,9 @@ export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	mkdirSync(opts.dir, { recursive: true });
 	const scriptPath = join(opts.dir, `herdr-launch-${opts.id}.sh`);
 	const donePath = launchDonePath(opts.dir, opts.id);
+	// A crashed parent can leave the previous marker behind. Never let a new
+	// launch inherit that stale completion signal.
+	rmSync(donePath, { force: true });
 	const envAssign = Object.entries(opts.env || {})
 		.filter(([, v]) => v !== undefined)
 		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)
@@ -299,7 +302,8 @@ export function pollDoneFile(donePath: string, timeoutMs: number, aborted?: () =
 		if (aborted?.()) return null;
 		try {
 			if (existsSync(donePath)) {
-				return parseInt(readFileSync(donePath, "utf8").trim(), 10) || 0;
+				const code = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
+				if (Number.isFinite(code)) return code;
 			}
 		} catch {}
 		tickSleep();
@@ -321,7 +325,8 @@ export async function pollDoneFileAsync(
 		if (aborted?.()) return null;
 		try {
 			if (existsSync(donePath)) {
-				return parseInt(readFileSync(donePath, "utf8").trim(), 10) || 0;
+				const code = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
+				if (Number.isFinite(code)) return code;
 			}
 		} catch {}
 		await new Promise<void>((res) => setTimeout(res, 1000));

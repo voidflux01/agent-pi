@@ -33,6 +33,8 @@ export interface ToolkitWorkerSpawnOptions {
 	env?: NodeJS.ProcessEnv;
 	onStdoutLine?: (line: string) => void;
 	onStderr?: (chunk: string) => void;
+	/** Called for each attempt so the caller can cancel the live child. */
+	onProcess?: (proc: any) => void;
 }
 
 interface ToolkitCliCommand {
@@ -160,6 +162,7 @@ export function spawnToolkitWorker(
 			env: { ...process.env, ...options.env, PI_SUBAGENT: "1" },
 			cwd: options.cwd,
 		});
+		options.onProcess?.(proc);
 
 		const startTime = Date.now();
 		let output = "";

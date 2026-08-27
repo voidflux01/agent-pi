@@ -662,7 +662,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
+			let finished = false;
 			const finish = (code: number | null, stderrBuf: string, externalFull?: string) => {
+				if (finished) return;
+				finished = true;
 				clearInterval(timer);
 
 				let full = externalFull ?? textChunks.join("");
@@ -851,6 +854,7 @@ export default function (pi: ExtensionAPI) {
 					sessionFile: agentSessionFile,
 					cwd: runCwd,
 					env: spawnEnv,
+					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
 				}).then(({ exitCode, output }) => {

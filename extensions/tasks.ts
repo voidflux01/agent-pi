@@ -550,6 +550,7 @@ export default function (pi: ExtensionAPI) {
 								} else {
 									syncState = { ...syncState, groupCreationInFlight: false };
 								}
+								try { refreshUI(ctx); } catch {}
 							});
 						} else if (syncState.groupId !== undefined) {
 							// Path B: group exists — add individual tasks with group_id
@@ -565,6 +566,7 @@ export default function (pi: ExtensionAPI) {
 									if (cid !== undefined) {
 										syncState = addMapping(syncState, t.id, cid);
 										syncState = updateMappingStatus(syncState, t.id, "idle");
+										try { refreshUI(ctx); } catch {}
 									}
 								});
 							}
