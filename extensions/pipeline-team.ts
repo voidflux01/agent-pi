@@ -659,7 +659,8 @@ export default function (pi: ExtensionAPI) {
 		let allSuccess = true;
 
 		if (mode === "parallel") {
-			const promises = agentDefs.map((d, i) => {
+			const maxParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || "4", 10) || 4);
+			const launch = (d: any, i: number) => {
 				const def = allAgents.get(d.role.toLowerCase());
 				if (!def) {
 					phaseState.agents[i].status = "error";
@@ -668,9 +669,18 @@ export default function (pi: ExtensionAPI) {
 					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
 				return spawnAgent(def, d.task, phaseState.agents[i], ctx);
+			};
+			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
+			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
+			const results: Array<Awaited<ReturnType<typeof spawnAgent>>> = [];
+			let cursor = 0;
+			const workers = Array.from({ length: Math.min(maxParallel, agentDefs.length) }, async () => {
+				while (cursor < agentDefs.length) {
+					const i = cursor++;
+					results[i] = await launch(agentDefs[i], i);
+				}
 			});
-
-			const results = await Promise.all(promises);
+			await Promise.all(workers);
 			for (const r of results) {
 				outputs.push(r.output);
 				fullOutputs.push(r.fullOutput || "");
