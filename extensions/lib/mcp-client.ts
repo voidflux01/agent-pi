@@ -2,6 +2,7 @@
 // ABOUTME: Spawns a subprocess, communicates via line-delimited JSON on stdin/stdout.
 
 import { spawn, type ChildProcess } from "child_process";
+import { childEnvironment } from "./child-runtime.ts";
 
 // ── JSON-RPC helpers ────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export class McpClient {
 	private pending = new Map<number, PendingCall>();
 	private buffer = "";
 	private connected = false;
+	private static readonly MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 	constructor(serverPath: string, env: Record<string, string>, timeoutMs = 60_000) {
 		this.serverPath = serverPath;
@@ -61,7 +63,7 @@ export class McpClient {
 	async connect(): Promise<void> {
 		this.proc = spawn("node", [this.serverPath], {
 			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...process.env, ...this.env },
+			env: childEnvironment(this.env),
 		});
 
 		this.proc.stdout!.setEncoding("utf-8");
@@ -91,6 +93,8 @@ export class McpClient {
 		// Wait for initialize response
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
+				this.pending.delete(initId);
+				try { this.proc?.kill(); } catch {}
 				reject(new Error("MCP initialize timeout"));
 			}, this.timeoutMs);
 
@@ -165,6 +169,11 @@ export class McpClient {
 	}
 
 	private onData(chunk: string): void {
+		if (Buffer.byteLength(this.buffer) + Buffer.byteLength(chunk) > McpClient.MAX_BUFFER_BYTES) {
+			try { this.proc?.kill(); } catch {}
+			this.onClose();
+			return;
+		}
 		const { messages, remainder } = parseJsonRpcLines(this.buffer + chunk);
 		this.buffer = remainder;
 

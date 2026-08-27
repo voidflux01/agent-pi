@@ -269,6 +269,14 @@ describe("McpClient", () => {
 		vi.useRealTimers();
 	});
 
+	it("should terminate a subprocess that exceeds the JSON-RPC buffer limit", () => {
+		const client = new McpClient("/path/to/server.js", {});
+		const proc: any = lastMockProc;
+		(client as any).proc = proc;
+		(client as any).onData("x".repeat(8 * 1024 * 1024 + 1));
+		expect(proc.kill).toHaveBeenCalled();
+	});
+
 	it("should kill subprocess on disconnect", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		const connectPromise = client.connect();
