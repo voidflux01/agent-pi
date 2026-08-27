@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
@@ -17,6 +17,7 @@ import { createPlanStandaloneExport, saveStandaloneExport } from "./lib/viewer-s
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { armGrillSession, grillStatePath, readGrillState, recordGrillTurn, saveGrillResults, type GrillTurn } from "./lib/grill-core.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -36,26 +37,17 @@ function startViewerServer(
 	markdown: string,
 	title: string,
 	purpose: ViewerPurpose,
-): Promise<{ port: number; server: Server; waitForResult: () => Promise<ViewerResult> }> {
+): Promise<{ port: number; server: Server; waitForResult: () => Promise<ViewerResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
 		let resolveResult: (result: ViewerResult) => void;
 		const resultPromise = new Promise<ViewerResult>((res) => {
 			resolveResult = res;
 		});
 
+		const auth = createLocalServerAuth();
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			// CORS headers for local dev
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", `http://localhost`);
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve the main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -161,6 +153,7 @@ function startViewerServer(
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise,
+				auth,
 			});
 		});
 	});
@@ -169,15 +162,15 @@ function startViewerServer(
 function openBrowser(url: string): void {
 	try {
 		// macOS
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
 			// Linux
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			// Windows fallback
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {
 				// Give up silently — URL is logged anyway
 			}
@@ -229,10 +222,11 @@ export default function (pi: ExtensionAPI) {
 		cleanupServer();
 
 		// Start HTTP server
-		const { port, server, waitForResult } = await startViewerServer(markdown, title, purpose);
+		const { port, server, waitForResult, auth } = await startViewerServer(markdown, title, purpose);
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		activeSession = {
 			kind: purpose,
 			title: purpose === "questions" ? "Questions viewer" : "Plan viewer",
@@ -246,7 +240,7 @@ export default function (pi: ExtensionAPI) {
 		registerActiveViewer(activeSession);
 
 		// Open the browser
-		openBrowser(url);
+		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
 		// Wait for user action in the browser (or abort)
