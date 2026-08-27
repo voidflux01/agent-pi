@@ -64,3 +64,31 @@ describe("hard gate integration", () => {
 		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
 	});
 });
+
+
+describe("transcript-backed reconstruction", () => {
+	it("restores the gate from the last tasks tool result without auto-claiming", async () => {
+		const handlers = new Map<string, Function>();
+		const pi = {
+			registerTool() {}, registerCommand() {},
+			on(name: string, handler: Function) { handlers.set(name, handler); },
+			sendMessage() {},
+		};
+		const ctx: any = {
+			ui: { setStatus() {}, setWidget() {}, notify() {} },
+			sessionManager: { getBranch: () => [{ type: "message", message: { role: "toolResult", toolName: "tasks", details: { action: "add", tasks: [{ id: 1, text: "resume", status: "idle" }], nextId: 2 } } }] },
+		};
+		tasksExtension(pi as any);
+		await handlers.get("session_start")!(undefined, ctx);
+		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
+	});
+
+	it("ignores malformed reconstructed task details", async () => {
+		const handlers = new Map<string, Function>();
+		const pi = { registerTool() {}, registerCommand() {}, on(name: string, handler: Function) { handlers.set(name, handler); }, sendMessage() {} };
+		const ctx: any = { ui: { setStatus() {}, setWidget() {}, notify() {} }, sessionManager: { getBranch: () => [{ type: "message", message: { role: "toolResult", toolName: "tasks", details: { tasks: {}, nextId: "bad" } } }] } };
+		tasksExtension(pi as any);
+		await expect(handlers.get("session_start")!(undefined, ctx)).resolves.toBeUndefined();
+		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
+	});
+});
