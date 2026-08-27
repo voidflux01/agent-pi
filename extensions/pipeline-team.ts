@@ -35,6 +35,8 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
+import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
@@ -332,7 +334,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		agentState: AgentState,
 		ctx: any,
-	): Promise<{ output: string; exitCode: number; elapsed: number }> {
+	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		agentState.status = "running";
 		agentState.task = task;
 		agentState.elapsed = 0;
@@ -358,6 +360,25 @@ export default function (pi: ExtensionAPI) {
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
+		// Resume existing session when one exists (pipeline previously lacked -c).
+		const hasSession = existsSync(agentSessionFile);
+		// Durable journal record — survives parent restarts (see /agents-status).
+		const journalId = runBaseName(agentKey, agentState.index + 1);
+		journalAppend(sessionDir, {
+			version: 1,
+			id: journalId,
+			kind: "pipeline",
+			agent: agentDef.name,
+			task,
+			model,
+			cwd: ctx.cwd,
+			sessionFile: hasSession ? agentSessionFile : undefined,
+			resumed: !!hasSession,
+			status: "dispatched",
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+		});
+
 		const args = [
 			"--mode", "json",
 			"-p",
@@ -368,10 +389,15 @@ export default function (pi: ExtensionAPI) {
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--thinking", "off",
-			"--append-system-prompt", agentDef.systemPrompt,
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt(),
 			"--session", agentSessionFile,
-			task,
 		];
+
+		if (hasSession) {
+			args.push("-c");
+		}
+
+		args.push(task);
 
 		const textChunks: string[] = [];
 
@@ -383,6 +409,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Track for escape-cancel integration
 			agentState.proc = proc;
+			journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
 
 			let buffer = "";
 
@@ -438,7 +465,35 @@ export default function (pi: ExtensionAPI) {
 					agentState.status === "done" ? "success" : "error",
 				);
 
-				resolvePromise({ output, exitCode: code ?? 1, elapsed: agentState.elapsed });
+				// Persist the FULL transcript on disk, then compose the compact
+				// but complete result index for the parent context / next agent.
+				let fullOutputPath = "";
+				let composed = output;
+				try {
+					fullOutputPath = persistFullOutput(sessionDir, runBaseName(agentKey, agentState.index + 1), output);
+					composed = composeAgentResult({
+						agent: agentDef.name,
+						status: agentState.status,
+						exitCode: code,
+						elapsedMs: agentState.elapsed,
+						model,
+						outputText: output,
+						fullOutputPath,
+					}).content;
+				} catch {
+					composed = output; // persistence failure must never lose the result itself
+					fullOutputPath = "";
+				}
+
+				journalUpdate(sessionDir, journalId, {
+					status: agentState.status,
+					exitCode: code,
+					elapsedMs: agentState.elapsed,
+					sessionFile: code === 0 ? agentSessionFile : undefined,
+					outputFile: fullOutputPath || undefined,
+				});
+
+				resolvePromise({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed: agentState.elapsed });
 			});
 
 			proc.on("error", (err) => {
@@ -448,8 +503,11 @@ export default function (pi: ExtensionAPI) {
 				agentState.lastWork = `Error: ${err.message}`;
 				agentState.output = `Error spawning agent: ${err.message}`;
 				updateWidget();
+				journalUpdate(sessionDir, journalId, { status: "error", exitCode: 1, elapsedMs: Date.now() - startTime });
 				resolvePromise({
 					output: `Error spawning agent: ${err.message}`,
+					fullOutput: "",
+					fullOutputPath: "",
 					exitCode: 1,
 					elapsed: Date.now() - startTime,
 				});
@@ -465,7 +523,7 @@ export default function (pi: ExtensionAPI) {
 		agentDefs: { role: string; task: string }[],
 		mode: "parallel" | "sequential",
 		ctx: any,
-	): Promise<{ outputs: string[]; success: boolean }> {
+	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean }> {
 		const phaseState = phaseStates[currentPhaseIndex];
 		phaseState.agents = agentDefs.map((d, i) => ({
 			role: d.role,
@@ -479,6 +537,8 @@ export default function (pi: ExtensionAPI) {
 		updateWidget();
 
 		const outputs: string[] = [];
+		const fullOutputs: string[] = [];
+		const fullOutputPaths: string[] = [];
 		let allSuccess = true;
 
 		if (mode === "parallel") {
@@ -488,7 +548,7 @@ export default function (pi: ExtensionAPI) {
 					phaseState.agents[i].status = "error";
 					phaseState.agents[i].lastWork = `Agent "${d.role}" not found`;
 					updateWidget();
-					return Promise.resolve({ output: `Agent "${d.role}" not found`, exitCode: 1, elapsed: 0 });
+					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
 				return spawnAgent(def, d.task, phaseState.agents[i], ctx);
 			});
@@ -496,6 +556,8 @@ export default function (pi: ExtensionAPI) {
 			const results = await Promise.all(promises);
 			for (const r of results) {
 				outputs.push(r.output);
+				fullOutputs.push(r.fullOutput || "");
+				fullOutputPaths.push(r.fullOutputPath || "");
 				if (r.exitCode !== 0) allSuccess = false;
 			}
 		} else {
@@ -509,6 +571,8 @@ export default function (pi: ExtensionAPI) {
 					phaseState.agents[i].lastWork = `Agent "${d.role}" not found`;
 					updateWidget();
 					outputs.push(`Agent "${d.role}" not found`);
+					fullOutputs.push("");
+					fullOutputPaths.push("");
 					allSuccess = false;
 					break;
 				}
@@ -516,6 +580,8 @@ export default function (pi: ExtensionAPI) {
 				const task = d.task.replace(/\$INPUT/g, input);
 				const result = await spawnAgent(def, task, phaseState.agents[i], ctx);
 				outputs.push(result.output);
+				fullOutputs.push(result.fullOutput || "");
+				fullOutputPaths.push(result.fullOutputPath || "");
 				input = result.output;
 
 				if (result.exitCode !== 0) {
@@ -525,7 +591,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		return { outputs, success: allSuccess };
+		return { outputs, fullOutputs, fullOutputPaths, success: allSuccess };
 	}
 
 	// ── Ctrl+J Overlay ───────────────────────────
@@ -743,8 +809,12 @@ export default function (pi: ExtensionAPI) {
 			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
 			const result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx);
 
-			// Merge outputs into accumulated context
+			// Merge outputs into accumulated context. Each output is already a
+			// compact precision-preserving index (## RESULT + full-output path),
+			// so the accumulated context stays small without losing access.
 			const mergedOutput = result.outputs.join("\n\n---\n\n");
+			const mergedFull = result.fullOutputs.join("\n\n---\n\n");
+			const mergedPaths = result.fullOutputPaths.filter(Boolean).join("\n");
 			const outputSummary = mergedOutput.length > 3000
 				? mergedOutput.slice(0, 3000) + "\n\n... [output truncated, full output was " + mergedOutput.length + " chars]"
 				: mergedOutput;
@@ -761,8 +831,10 @@ export default function (pi: ExtensionAPI) {
 				reviewLoopCount++;
 			}
 
-			const truncated = mergedOutput.length > 8000
-				? mergedOutput.slice(0, 8000) + "\n\n... [truncated]"
+			// mergedOutput is already composed (compact index + pointers); keep a
+			// safety cap that never silently drops the pointer lines.
+			const truncated = mergedOutput.length > 12000
+				? mergedOutput.slice(0, 12000) + "\n\n... [output truncated at 12000 chars — full transcripts preserved on disk]"
 				: mergedOutput;
 
 			const status = result.success ? "done" : "error";
@@ -773,7 +845,8 @@ export default function (pi: ExtensionAPI) {
 					phase: phase.def.name,
 					agents: agents.map(a => a.role),
 					status,
-					fullOutput: mergedOutput,
+					fullOutput: mergedFull,
+					fullOutputPath: mergedPaths,
 					reviewLoop: reviewLoopCount,
 				},
 			};
@@ -872,6 +945,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Commands ──────────────────────────────────
+
+	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("pipeline", {
 		description: "Select a pipeline configuration",

@@ -36,6 +36,8 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
+import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
@@ -293,7 +295,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		stepIndex: number,
 		ctx: any,
-	): Promise<{ output: string; exitCode: number; elapsed: number }> {
+	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		// Explicit project/user/frontmatter routing wins. Otherwise preserve the
 		// provider/model that launched the parent Pi session.
 		const model = resolveInheritedModel(
@@ -310,6 +312,23 @@ export default function (pi: ExtensionAPI) {
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
+		// Durable journal record — survives parent restarts (see /agents-status).
+		const journalId = runBaseName(`chain-${agentKey}`, stepIndex + 1);
+		journalAppend(sessionDir, {
+			version: 1,
+			id: journalId,
+			kind: "chain",
+			agent: agentDef.name,
+			task,
+			model,
+			cwd: ctx.cwd,
+			sessionFile: hasSession ? agentSessionFile : undefined,
+			resumed: !!hasSession,
+			status: "dispatched",
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+		});
+
 		const args = [
 			"--mode", "json",
 			"-p",
@@ -320,7 +339,7 @@ export default function (pi: ExtensionAPI) {
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--thinking", "off",
-			"--append-system-prompt", agentDef.systemPrompt,
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt(),
 			"--session", agentSessionFile,
 		];
 
@@ -343,6 +362,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Track for escape-cancel integration
 			currentChainProc = proc;
+			journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
 
 			const timer = setInterval(() => {
 				state.elapsed = Date.now() - startTime;
@@ -400,14 +420,47 @@ export default function (pi: ExtensionAPI) {
 					agentSessions.set(agentKey, agentSessionFile);
 				}
 
-				resolve({ output, exitCode: code ?? 1, elapsed });
+				// Persist the FULL transcript on disk, then compose the compact
+				// but complete result index for the parent context / next step.
+				let fullOutputPath = "";
+				let composed = output;
+				try {
+					fullOutputPath = persistFullOutput(sessionDir, runBaseName(`chain-${agentKey}`, stepIndex + 1), output);
+					composed = composeAgentResult({
+						agent: agentDef.name,
+						status: code === 0 ? "done" : "error",
+						exitCode: code,
+						elapsedMs: elapsed,
+						model,
+						outputText: output,
+						fullOutputPath,
+					}).content;
+				} catch {
+					composed = output; // persistence failure must never lose the result itself
+					fullOutputPath = "";
+				}
+
+				state.lastWork = resultOneLiner(output, "") || state.lastWork;
+
+				journalUpdate(sessionDir, journalId, {
+					status: code === 0 ? "done" : "error",
+					exitCode: code,
+					elapsedMs: elapsed,
+					sessionFile: code === 0 ? agentSessionFile : undefined,
+					outputFile: fullOutputPath || undefined,
+				});
+
+				resolve({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed });
 			});
 
 			proc.on("error", (err) => {
 				currentChainProc = null;
 				clearInterval(timer);
+				journalUpdate(sessionDir, journalId, { status: "error", exitCode: 1, elapsedMs: Date.now() - startTime });
 				resolve({
 					output: `Error spawning agent: ${err.message}`,
+					fullOutput: "",
+					fullOutputPath: "",
 					exitCode: 1,
 					elapsed: Date.now() - startTime,
 				});
@@ -422,9 +475,9 @@ export default function (pi: ExtensionAPI) {
 	async function runChain(
 		task: string,
 		ctx: any,
-	): Promise<{ output: string; success: boolean; elapsed: number }> {
+	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number }> {
 		if (!activeChain) {
-			return { output: "No chain active", success: false, elapsed: 0 };
+			return { output: "No chain active", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
 		}
 
 		const chainStart = Date.now();
@@ -446,6 +499,8 @@ export default function (pi: ExtensionAPI) {
 		let input = task;
 		const originalPrompt = task;
 		const stepOutputs: string[] = [];
+		let lastFullOutput = "";
+		let lastFullOutputPath = "";
 
 		for (let i = 0; i < activeChain.steps.length; i++) {
 			const step = activeChain.steps[i];
@@ -470,6 +525,8 @@ export default function (pi: ExtensionAPI) {
 				updateWidget();
 				return {
 					output: `Error at step ${i + 1}: Agent "${step.agent}" not found. Available: ${Array.from(allAgents.keys()).join(", ")}`,
+					fullOutput: "",
+					fullOutputPath: "",
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
@@ -482,6 +539,8 @@ export default function (pi: ExtensionAPI) {
 				updateWidget();
 				return {
 					output: `Error at step ${i + 1} (${step.agent}): ${result.output}`,
+					fullOutput: result.fullOutput || "",
+					fullOutputPath: result.fullOutputPath || "",
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
@@ -492,9 +551,11 @@ export default function (pi: ExtensionAPI) {
 
 			stepOutputs.push(result.output);
 			input = result.output;
+			lastFullOutput = result.fullOutput || "";
+			lastFullOutputPath = result.fullOutputPath || "";
 		}
 
-		return { output: input, success: true, elapsed: Date.now() - chainStart };
+		return { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart };
 	}
 
 	// ── run_chain Tool ──────────────────────────
@@ -519,21 +580,19 @@ export default function (pi: ExtensionAPI) {
 
 			const result = await runChain(task, ctx);
 
-			const truncated = result.output.length > 8000
-				? result.output.slice(0, 8000) + "\n\n... [truncated]"
-				: result.output;
-
+			// result.output is already the composed precision-preserving index.
 			const status = result.success ? "done" : "error";
 			const summary = `[chain:${activeChain?.name}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
 			return {
-				content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
+				content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
 				details: {
 					chain: activeChain?.name,
 					task,
 					status,
 					elapsed: result.elapsed,
-					fullOutput: result.output,
+					fullOutput: result.fullOutput ?? "",
+					fullOutputPath: result.fullOutputPath ?? "",
 				},
 			};
 		},
@@ -584,6 +643,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Commands ─────────────────────────────────
+
+	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("chain", {
 		description: "Switch active chain",

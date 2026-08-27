@@ -38,6 +38,8 @@ import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
+import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -465,12 +467,14 @@ export default function (pi: ExtensionAPI) {
 		agentName: string,
 		task: string,
 		ctx: any,
-	): Promise<{ output: string; exitCode: number; elapsed: number; model: string }> {
+	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number; model: string }> {
 		const key = agentName.toLowerCase();
 		const state = agentStates.get(key);
 		if (!state) {
 			return Promise.resolve({
 				output: `Agent "${agentName}" not found. Available: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
+				fullOutput: "",
+				fullOutputPath: "",
 				exitCode: 1,
 				elapsed: 0,
 				model: "",
@@ -480,6 +484,8 @@ export default function (pi: ExtensionAPI) {
 		if (state.status === "running") {
 			return Promise.resolve({
 				output: `Agent "${displayName(state.def.name)}" is already running. Wait for it to finish.`,
+				fullOutput: "",
+				fullOutputPath: "",
 				exitCode: 1,
 				elapsed: 0,
 				model: "",
@@ -569,6 +575,27 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 
+		// Precision-preserving result contract — appended unconditionally so the
+		// parent receives a compact but complete result index, never a lossy one.
+		systemPrompt += buildAgentResultContractPrompt();
+
+		// Durable journal record — survives parent restarts (see /agents-status).
+		const journalId = runBaseName(agentKey, state.runCount);
+		journalAppend(sessionDir, {
+			version: 1,
+			id: journalId,
+			kind: "team",
+			agent: canonicalName,
+			task,
+			model,
+			cwd: runCwd,
+			sessionFile: state.sessionFile || undefined,
+			resumed: !!state.sessionFile,
+			status: "dispatched",
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+		});
+
 		const args = [
 			"--mode", "json",
 			"-p",
@@ -622,7 +649,13 @@ export default function (pi: ExtensionAPI) {
 
 				const elapsed = Date.now() - startTime;
 				if (runEpoch !== sessionEpoch) {
-					resolve({ output: full, exitCode: code ?? 1, elapsed, model });
+					journalUpdate(sessionDir, journalId, {
+						status: code === 0 ? "done" : "error",
+						exitCode: code,
+						elapsedMs: elapsed,
+						outputFile: "",
+					});
+					resolve({ output: full, fullOutput: full, fullOutputPath: "", exitCode: code ?? 1, elapsed, model });
 					return;
 				}
 
@@ -636,10 +669,38 @@ export default function (pi: ExtensionAPI) {
 					state.sessionFile = null;
 				}
 
+				// Persist the FULL transcript on disk (never lost), then compose the
+				// compact-but-complete result index for the parent context.
+				let fullOutputPath = "";
+				let composed = full;
+				try {
+					fullOutputPath = persistFullOutput(sessionDir, runBaseName(agentKey, state.runCount), full);
+					composed = composeAgentResult({
+						agent: canonicalName,
+						status: state.status,
+						exitCode: code,
+						elapsedMs: elapsed,
+						model,
+						outputText: full,
+						fullOutputPath,
+					}).content;
+				} catch (err: any) {
+					composed = full; // persistence failure must never lose the result itself
+					fullOutputPath = "";
+				}
+
 				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-				state.summary = state.lastWork;
+				state.summary = resultOneLiner(full, extractResultBlock(full).result) || state.lastWork;
 				state.summaryLines = full.split("\n").map((l: string) => l.trim()).filter(Boolean).slice(-3);
 				invalidateAgentWidget(state);
+
+				journalUpdate(sessionDir, journalId, {
+					status: state.status,
+					exitCode: code,
+					elapsedMs: state.elapsed,
+					sessionFile: state.sessionFile || undefined,
+					outputFile: fullOutputPath || undefined,
+				});
 
 				setTimeout(() => {
 					if (runEpoch === sessionEpoch && state.status !== "running") removeAgentWidget(state, ctx);
@@ -661,7 +722,7 @@ export default function (pi: ExtensionAPI) {
 					state.status === "done" ? "success" : "error"
 				);
 
-				resolve({ output: full, exitCode: code ?? 1, elapsed: state.elapsed, model });
+				resolve({ output: composed, fullOutput: full, fullOutputPath, exitCode: code ?? 1, elapsed: state.elapsed, model });
 			};
 
 			const handleStdoutLine = (line: string) => {
@@ -727,6 +788,7 @@ export default function (pi: ExtensionAPI) {
 				cwd: runCwd,
 			});
 			state.proc = proc;
+			journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
 
 			let buffer = "";
 			proc.stdout!.setEncoding("utf-8");
@@ -776,29 +838,28 @@ export default function (pi: ExtensionAPI) {
 
 				const result = await dispatchAgent(agent, task, ctx);
 
-				const truncated = result.output.length > 8000
-					? result.output.slice(0, 8000) + "\n\n... [truncated]"
-					: result.output;
-
+				// result.output is already the composed, precision-preserving index
+				// (status + ## RESULT block or tail/head fallback + full-output path).
 				const status = result.exitCode === 0 ? "done" : "error";
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
 				return {
-					content: [{ type: "text", text: `${summary}\n\n${truncated}` }],
+					content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
 					details: {
 						agent,
 						task,
 						status,
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
-						fullOutput: result.output,
+						fullOutput: result.fullOutput,
+						fullOutputPath: result.fullOutputPath,
 						model: result.model,
 					},
 				};
 			} catch (err: any) {
 				return {
 					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
-					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", model: defModel },
+					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", fullOutputPath: "", model: defModel },
 				};
 			}
 		},
@@ -854,6 +915,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Commands ─────────────────────────────────
+
+	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("agents-team", {
 		description: "Select a team to work with",
