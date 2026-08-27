@@ -87,7 +87,12 @@ function startResearchServer(title: string): Promise<{ port: number; server: Ser
 
 			// API: Get single session (full detail)
 			if (req.method === "GET" && url.pathname.startsWith("/api/sessions/")) {
-				const id = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
+				let id = "";
+				try { id = decodeURIComponent(url.pathname.slice("/api/sessions/".length)); } catch {
+					res.writeHead(400, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Invalid session id" }));
+					return;
+				}
 				const session = loadResearchSession(id);
 				if (session) {
 					res.writeHead(200, { "Content-Type": "application/json" });
