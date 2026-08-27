@@ -39,7 +39,7 @@ import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalUpdate, pruneRunArtifacts, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText, cleanupLaunchFiles, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -266,6 +266,7 @@ export default function (pi: ExtensionAPI) {
 		sessionDir = join(cwd, ".pi", "agent-sessions");
 		if (!existsSync(sessionDir)) {
 			mkdirSync(sessionDir, { recursive: true });
+		pruneRunArtifacts(sessionDir); // 7-day rolling retention (archives + journal)
 		}
 
 		// Load standard + toolkit model config, then scan agent .md files

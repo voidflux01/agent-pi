@@ -32,6 +32,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
 import { persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { pruneRunArtifacts } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
 	closeHerdrTab,
@@ -1054,6 +1055,7 @@ export default function (pi: ExtensionAPI) {
 		applyExtensionDefaults(import.meta.url, ctx);
 		const sessDir = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
 		cleanOldSessionFiles(sessDir, 7);
+		pruneRunArtifacts(path.join(ctx.cwd ?? process.cwd(), ".pi", "agent-sessions")); // 7-day retention
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
 			if (state.proc && state.status === "running") {

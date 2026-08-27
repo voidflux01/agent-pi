@@ -50,7 +50,7 @@ import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalUpdate, pruneRunArtifacts, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
@@ -181,6 +181,7 @@ export default function (pi: ExtensionAPI) {
 		sessionDir = join(cwd, ".pi", "agent-sessions");
 		if (!existsSync(sessionDir)) {
 			mkdirSync(sessionDir, { recursive: true });
+		pruneRunArtifacts(sessionDir); // 7-day rolling retention (archives + journal)
 		}
 
 		// Only project/user routing is explicit. Do not let this package's bundled

@@ -5,7 +5,7 @@
 // ABOUTME: resumable. Read-only by default: /agents-status shows the journal.
 // ABOUTME: Never auto-restarts or auto-re-dispatches anything.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export type TaskJournalStatus = "dispatched" | "running" | "done" | "error";
@@ -41,6 +41,57 @@ const MAX_TASK_CHARS = 4000;
 
 export function journalPath(sessionDir: string): string {
 	return join(sessionDir, JOURNAL_FILE);
+}
+
+/** Retention window for run artifacts (archive .txt files + journal rows). */
+export const RUN_ARTIFACT_RETENTION_DAYS = 7;
+
+/**
+ * Prune run artifacts older than `maxDays` from a session directory:
+ * - removes `outputs/*.txt` transcripts past the cutoff;
+ * - rewrites `task-journal.jsonl` dropping entries whose last update is
+ *   past the cutoff (corrupt lines are preserved as-is).
+ * Called at session start by the team/chain/pipeline/subagent entry
+ * points. Silent on any filesystem error — cleanup must never break
+ * startup or lose fresh data.
+ */
+export function pruneRunArtifacts(sessionDir: string, maxDays: number = RUN_ARTIFACT_RETENTION_DAYS): void {
+	const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000;
+
+	// 1) Archive transcripts
+	try {
+		const outputsDir = join(sessionDir, "outputs");
+		for (const name of readdirSync(outputsDir)) {
+			if (!name.endsWith(".txt")) continue;
+			const filePath = join(outputsDir, name);
+			try {
+				if (statSync(filePath).mtimeMs < cutoff) unlinkSync(filePath);
+			} catch {}
+		}
+	} catch {}
+
+	// 2) Journal rows (temp file + rename so a crash mid-write cannot
+	//    truncate the journal)
+	try {
+		const p = journalPath(sessionDir);
+		if (existsSync(p)) {
+			const raw = readFileSync(p, "utf8");
+			const kept: string[] = [];
+			for (const line of raw.split("\n")) {
+				if (!line.trim()) continue;
+				try {
+					const e = JSON.parse(line) as { updatedAt?: number; startedAt?: number };
+					const ts = e.updatedAt ?? e.startedAt ?? 0;
+					if (ts >= cutoff) kept.push(line);
+				} catch {
+					kept.push(line); // preserve unrecognized data
+				}
+			}
+			const tmp = p + ".tmp";
+			writeFileSync(tmp, kept.length ? kept.join("\n") + "\n" : "", "utf8");
+			renameSync(tmp, p);
+		}
+	} catch {}
 }
 
 /** Append a new dispatch record. */
