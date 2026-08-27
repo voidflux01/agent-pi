@@ -76,9 +76,9 @@ describe("fleet-mailbox", () => {
 describe("mailbox protocol preamble", () => {
 	test("builds worker instructions with exact inbox paths", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "fmb-pre-"));
-		const p = buildMailboxPreamble("OpenCode-Agent", cwd);
-		expect(p).toContain('worker "opencode-agent"');
-		expect(p).toContain("opencode-agent/inbox");
+		const p = buildMailboxPreamble("Omp-Agent", cwd);
+		expect(p).toContain('worker "omp-agent"');
+		expect(p).toContain("omp-agent/inbox");
 		expect(p).toContain('"kind":"question"');
 		expect(p).toContain('"to":"parent"');
 	});

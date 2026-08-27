@@ -16,7 +16,7 @@ all:
   - codex-agent
   - gemini-agent
   - qwen-agent
-  - opencode-agent
+  - omp-agent
   - prime-agent
   - groq-agent
   - droid-agent
@@ -28,7 +28,7 @@ toolkit:
   - codex-agent
   - gemini-agent
   - qwen-agent
-  - opencode-agent
+  - omp-agent
   - prime-agent
   - groq-agent
   - droid-agent

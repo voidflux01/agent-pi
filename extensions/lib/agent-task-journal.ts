@@ -18,7 +18,7 @@ export interface TaskJournalEntry {
 	id: string;
 	kind: "team" | "chain" | "pipeline" | "sa";
 	agent: string;
-	/** External runtime label (e.g. "opencode", "prime"); unset means pi. */
+	/** External runtime label (e.g. "omp", "prime"); unset means pi. */
 	runtime?: string;
 	/** The dispatched task prompt (bounded for disk hygiene; never shown in context). */
 	task: string;

@@ -11,7 +11,7 @@ export const TOOLKIT_CLI_AGENTS = new Set([
 	"codex-agent",
 	"gemini-agent",
 	"qwen-agent",
-	"opencode-agent",
+	"omp-agent",
 	"groq-agent",
 	"droid-agent",
 	"crush-agent",
@@ -112,16 +112,12 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				command: "qwen",
 				args: (task: string) => [task],
 			};
-		case "opencode-agent":
-			// Plain invocation first (user preference). If the local plugin/MCP
-			// layer races and the run dies with a server error, spawnToolkitWorker
-			// retries once with --pure below.
-			// --format json streams typed events ending in step_finish with usage;
-			// --auto approves permissions non-interactively.
+		case "omp-agent":
+			// pi-family CLI: -p prints and exits; --mode json emits message_end
+			// events carrying inline usage (same parser as prime-agent).
 			return {
-				command: "opencode",
-				args: (task: string) => ["run", "--format", "json", "--auto", task],
-				pureArgs: (task: string) => ["run", "--pure", "--format", "json", "--auto", task],
+				command: "omp",
+				args: (task: string) => ["-p", "--mode", "json", task],
 			};
 		case "prime-agent":
 			return {
@@ -239,7 +235,7 @@ export interface ToolkitUsage {
 /**
  * Parse a finished external-CLI run's raw stdout/stderr into an authoritative
  * result text plus optional token/cost usage. Knows the two JSON-streaming CLIs
- * (opencode `run --format json`, prime-agent `-p --mode json`); everything else
+ * (omp and prime-agent `-p --mode json`); everything else
  * falls back to the plain output tail. Never throws.
  */
 export function parseToolkitResult(
@@ -248,7 +244,7 @@ export function parseToolkitResult(
 ): { text: string; usage?: ToolkitUsage } {
 	const name = (agentName || "").toLowerCase();
 	try {
-		if (name === "opencode-agent") {
+		if (name === "prime-agent" || name === "omp-agent") {
 			let text = "";
 			let usage: ToolkitUsage | undefined;
 			for (const line of raw.split("\n")) {
@@ -256,35 +252,11 @@ export function parseToolkitResult(
 				if (!t.startsWith("{")) continue;
 				let ev: any;
 				try { ev = JSON.parse(t); } catch { continue; }
-				if (ev?.type === "text" && typeof ev?.part?.text === "string") {
-					text += ev.part.text;
-				} else if (ev?.type === "step_finish") {
-					const u = ev?.part?.tokens;
-					if (u) {
-						usage = {
-							input: u.input ?? 0,
-							output: u.output ?? 0,
-							cacheRead: u.cache?.read ?? 0,
-							cacheWrite: u.cache?.write ?? 0,
-							totalTokens: u.total ?? (u.input ?? 0) + (u.output ?? 0),
-							costUsd: Number(ev?.part?.cost ?? 0),
-						};
-					}
-				} else if (ev?.type === "error") {
-					const msg = ev?.error?.data?.message || ev?.error?.name || "unknown error";
-					text = (text ? text + "\n" : "") + `[opencode error] ${msg}`;
+				if (ev?.type === "error") {
+					const errMsg = ev?.error?.data?.message || ev?.error?.message || JSON.stringify(ev.error ?? ev);
+					text += `[${name} error] ${errMsg}`;
+					continue;
 				}
-			}
-			return { text, usage };
-		}
-		if (name === "prime-agent") {
-			let text = "";
-			let usage: ToolkitUsage | undefined;
-			for (const line of raw.split("\n")) {
-				const t = line.trim();
-				if (!t.startsWith("{")) continue;
-				let ev: any;
-				try { ev = JSON.parse(t); } catch { continue; }
 				if (ev?.type !== "message_end") continue;
 				if (ev?.message?.role && ev.message.role !== "assistant") continue;
 				const u = ev?.message?.usage;
@@ -311,7 +283,7 @@ export function parseToolkitResult(
 
 /** Short runtime label for journal rows ("pi" rows leave it unset). */
 /** Resolve a bare CLI name against PATH (node spawn on macOS GUI contexts
- *  may miss user-shell PATH entries like ~/.opencode/bin). Returns input
+ *  may miss user-shell PATH entries). Returns input
  *  unchanged when it already contains a path separator or no candidate found. */
 function resolveCommandPath(command: string): string {
 	if (command.includes("/")) return command;

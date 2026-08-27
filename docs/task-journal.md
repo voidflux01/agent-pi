@@ -152,14 +152,14 @@ Besides pi itself, named toolkit agents dispatch to external CLI runtimes. The f
 
 | Agent name | CLI invoked | Result text | Usage source |
 |---|---|---|---|
-| `opencode-agent` | `opencode run --format json --auto <task>` | Concatenated JSON text parts | Last `step_finish` tokens + cost |
+| `omp-agent` | `omp -p --mode json <task>` | Assistant-role `message_end` text (same parser as prime) | Inline message usage |
 | `prime-agent` | `prime-agent -p --mode json --no-session <task>` | Assistant-role `message_end` text | Inline message usage |
 | others (`cursor-agent`, `gemini-agent`, ...) | their plain CLIs | raw stdout tail (no structured parse) | not reported |
 
 When herdr is enabled, external-CLI dispatches run inside a herdr pane (label `ap-<id>`) so you can watch them work; their JSON event stream tee's to `<id>.raw` for authoritative parsing, then the pane closes. `/agents-status` marks such rows with a runtime tag:
 
 ```
-DONE  tm07-k9a1 [opencode]   12s 15,398tok (0% cached) $0.0035
+DONE  tm07-k9a1 [omp]   12s 15,398tok (0% cached) $0.0035
 ```
 
 (`[prime]` labels prime-agent rows; pi-runtime rows carry no tag.)

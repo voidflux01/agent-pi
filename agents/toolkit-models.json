@@ -20,10 +20,6 @@
       "provider": "anthropic",
       "model": "claude-haiku-4-5-20251001"
     },
-    "opencode-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
-    },
     "groq-agent": {
       "provider": "anthropic",
       "model": "claude-haiku-4-5-20251001"
@@ -33,6 +29,10 @@
       "model": "claude-haiku-4-5-20251001"
     },
     "droid-agent": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    "omp-agent": {
       "provider": "anthropic",
       "model": "claude-haiku-4-5-20251001"
     }

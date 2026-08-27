@@ -69,22 +69,20 @@ describe("agent model config split", () => {
 
 
 describe("external runtime result parsing", () => {
-	it("parses opencode JSON events into text and usage", () => {
+	it("parses omp assistant message_end into text and usage", () => {
 		const raw = [
-			'{"type":"step-start"}',
-			'{"type":"text","part":{"type":"text","text":"pon"}}',
-			'{"type":"text","part":{"type":"text","text":"g"}}',
-			'{"type":"step_finish","part":{"reason":"stop","tokens":{"total":10,"input":9,"output":1,"cache":{"read":4,"write":0}},"cost":0.5}}',
+			'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pon"}],"usage":{"input":9}}}',
+			'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"g"}],"usage":{"input":9,"output":1,"cacheRead":4,"cacheWrite":0,"totalTokens":10,"cost":{"total":0.5}}}}',
 		].join("\n");
-		const { text, usage } = parseToolkitResult("opencode-agent", raw);
+		const { text, usage } = parseToolkitResult("omp-agent", raw);
 		expect(text).toBe("pong");
 		expect(usage).toEqual({ input: 9, output: 1, cacheRead: 4, cacheWrite: 0, totalTokens: 10, costUsd: 0.5 });
 	});
 
-	it("surfaces opencode stream errors as result text", () => {
+	it("surfaces omp stream errors as result text", () => {
 		const raw = '{"type":"error","error":{"name":"UnknownError","data":{"message":"boom"}}}';
-		const { text } = parseToolkitResult("opencode-agent", raw);
-		expect(text).toContain("[opencode error] boom");
+		const { text } = parseToolkitResult("omp-agent", raw);
+		expect(text).toContain("[omp-agent error] boom");
 	});
 
 	it("parses prime-agent assistant message_end only (ignores echoed user message)", () => {
@@ -108,16 +106,16 @@ describe("external runtime result parsing", () => {
 
 describe("visible external runtime helpers", () => {
 	it("maps toolkit agent names to short runtime labels", () => {
-		expect(toolkitRuntimeName("opencode-agent")).toBe("opencode");
+		expect(toolkitRuntimeName("omp-agent")).toBe("omp");
 		expect(toolkitRuntimeName("prime-agent")).toBe("prime");
 		expect(toolkitRuntimeName("builder")).toBeUndefined();
 	});
 
-	it("builds a tee-redirecting visible command line for opencode", () => {
-		const argv = toolkitVisibleCommandLine("opencode-agent", "do it", "/tmp/x", "/tmp/x/out.raw");
+	it("builds a tee-redirecting visible command line for omp", () => {
+		const argv = toolkitVisibleCommandLine("omp-agent", "do it", "/tmp/x", "/tmp/x/out.raw");
 		expect(argv[0]).toBe("bash");
 		const script = argv[2];
-		expect(script).toContain("opencode run --format json --auto");
+		expect(script).toContain("omp -p --mode json");
 		expect(script).toContain("tee /tmp/x/out.raw");
 	});
 
