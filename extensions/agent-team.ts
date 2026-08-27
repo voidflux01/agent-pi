@@ -34,7 +34,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult } from "./lib/toolkit-cli.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
@@ -646,6 +646,7 @@ export default function (pi: ExtensionAPI) {
 				commanderSync((client) => preClaimTask(client, taskId, canonicalName));
 			}
 
+			let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
 			const finish = (code: number | null, stderrBuf: string, externalFull?: string) => {
 				clearInterval(timer);
 
@@ -705,7 +706,7 @@ export default function (pi: ExtensionAPI) {
 				state.summaryLines = full.split("\n").map((l: string) => l.trim()).filter(Boolean).slice(-3);
 				invalidateAgentWidget(state);
 
-				const tu = state.sessionFile ? sessionUsage(state.sessionFile) : null;
+				const tu = toolkitUsage ?? (state.sessionFile ? sessionUsage(state.sessionFile) : null);
 				journalUpdate(sessionDir, journalId, {
 					status: state.status,
 					exitCode: code,
@@ -794,7 +795,11 @@ export default function (pi: ExtensionAPI) {
 					env: spawnEnv,
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
-				}).then(({ exitCode }) => finish(exitCode, stderrBuf));
+				}).then(({ exitCode, output }) => {
+					const parsed = parseToolkitResult(state.def.name, output);
+					toolkitUsage = parsed.usage;
+					finish(exitCode, stderrBuf, parsed.text || undefined);
+				});
 				return;
 			}
 

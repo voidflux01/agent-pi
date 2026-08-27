@@ -30,7 +30,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult } from "./lib/toolkit-cli.ts";
 import { checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
@@ -334,7 +334,7 @@ export default function (pi: ExtensionAPI) {
 				}, state.maxDurationMs);
 			}
 
-			const finish = (code: number | null, externalFull?: string) => {
+			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }) => {
 				clearInterval(timer);
 				// Clear watchdog — agent exited normally before timeout
 				if (state.watchdogTimer) {
@@ -394,14 +394,14 @@ export default function (pi: ExtensionAPI) {
 				}
 				// Close the journal row opened at dispatch time.
 				try {
-					const saUsage = sessionUsage(state.sessionFile);
+					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
 						status: code === 0 ? "done" : "error",
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						outputFile: fullOutputPath || undefined,
 						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
-						usage: saUsage.assistantMessages > 0 ? {
+						usage: (externalUsage ?? saUsage).totalTokens > 0 ? {
 							input: saUsage.input,
 							output: saUsage.output,
 							cacheRead: saUsage.cacheRead,
@@ -473,8 +473,9 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				}).then(({ exitCode }) => {
-					finish(exitCode);
+				}).then(({ exitCode, output }) => {
+					const parsed = parseToolkitResult(state.name, output);
+					finish(exitCode, parsed.text || undefined, parsed.usage);
 				});
 				return;
 			}

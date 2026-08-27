@@ -14,6 +14,7 @@ export const TOOLKIT_CLI_AGENTS = new Set([
 	"groq-agent",
 	"droid-agent",
 	"crush-agent",
+	"prime-agent",
 ]);
 
 export const TOOLKIT_WORKER_MODEL = "anthropic/claude-haiku-4-5-20251001";
@@ -109,9 +110,19 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				args: (task: string) => [task],
 			};
 		case "opencode-agent":
+			// --pure skips local plugin/MCP startup, which can stall headless runs;
+			// --format json streams typed events ending in step_finish with usage;
+			// --auto approves permissions non-interactively.
 			return {
 				command: "opencode",
-				args: (task: string) => ["-p", task],
+				args: (task: string) => ["run", "--pure", "--format", "json", "--auto", task],
+			};
+		case "prime-agent":
+			return {
+				command: "prime-agent",
+				// -p prints a response and exits; json mode ends each message with
+				// a message_end event carrying inline usage.
+				args: (task: string) => ["-p", "--mode", "json", "--no-session", task],
 			};
 		case "groq-agent":
 			return {
@@ -189,4 +200,86 @@ export function spawnToolkitWorker(
 			});
 		});
 	});
+}
+
+export interface ToolkitUsage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	totalTokens: number;
+	costUsd: number;
+}
+
+/**
+ * Parse a finished external-CLI run's raw stdout/stderr into an authoritative
+ * result text plus optional token/cost usage. Knows the two JSON-streaming CLIs
+ * (opencode `run --format json`, prime-agent `-p --mode json`); everything else
+ * falls back to the plain output tail. Never throws.
+ */
+export function parseToolkitResult(
+	agentName: string | undefined,
+	raw: string,
+): { text: string; usage?: ToolkitUsage } {
+	const name = (agentName || "").toLowerCase();
+	try {
+		if (name === "opencode-agent") {
+			let text = "";
+			let usage: ToolkitUsage | undefined;
+			for (const line of raw.split("\n")) {
+				const t = line.trim();
+				if (!t.startsWith("{")) continue;
+				let ev: any;
+				try { ev = JSON.parse(t); } catch { continue; }
+				if (ev?.type === "text" && typeof ev?.part?.text === "string") {
+					text += ev.part.text;
+				} else if (ev?.type === "step_finish") {
+					const u = ev?.part?.tokens;
+					if (u) {
+						usage = {
+							input: u.input ?? 0,
+							output: u.output ?? 0,
+							cacheRead: u.cache?.read ?? 0,
+							cacheWrite: u.cache?.write ?? 0,
+							totalTokens: u.total ?? (u.input ?? 0) + (u.output ?? 0),
+							costUsd: Number(ev?.part?.cost ?? 0),
+						};
+					}
+				} else if (ev?.type === "error") {
+					const msg = ev?.error?.data?.message || ev?.error?.name || "unknown error";
+					text = (text ? text + "\n" : "") + `[opencode error] ${msg}`;
+				}
+			}
+			return { text, usage };
+		}
+		if (name === "prime-agent") {
+			let text = "";
+			let usage: ToolkitUsage | undefined;
+			for (const line of raw.split("\n")) {
+				const t = line.trim();
+				if (!t.startsWith("{")) continue;
+				let ev: any;
+				try { ev = JSON.parse(t); } catch { continue; }
+				if (ev?.type !== "message_end") continue;
+				if (ev?.message?.role && ev.message.role !== "assistant") continue;
+				const u = ev?.message?.usage;
+				if (u && typeof u.totalTokens === "number") {
+					usage = {
+						input: u.input ?? 0,
+						output: u.output ?? 0,
+						cacheRead: u.cacheRead ?? 0,
+						cacheWrite: u.cacheWrite ?? 0,
+						totalTokens: u.totalTokens,
+						costUsd: Number(u.cost?.total ?? 0),
+					};
+				}
+				for (const c of ev?.message?.content ?? []) {
+					if (c?.type === "text" && typeof c.text === "string") text += c.text;
+				}
+			}
+			return { text, usage };
+		}
+	} catch {}
+	// Plain-text CLIs and unparsable output: no structured extraction.
+	return { text: "" };
 }
