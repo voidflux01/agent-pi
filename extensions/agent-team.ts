@@ -35,6 +35,7 @@ import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName, toolkitVisibleCommandLine } from "./lib/toolkit-cli.ts";
+import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
@@ -799,7 +800,8 @@ export default function (pi: ExtensionAPI) {
 						const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
 						if (wsId) {
 							const rawPath = join(sessionDir, "outputs", `${journalId}.raw`);
-							const argvVisible = toolkitVisibleCommandLine(state.def.name, task, runCwd, rawPath);
+							const extTask = mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task;
+							const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
 							if (argvVisible.length > 0) {
 								const refs = writeLaunchScript({
 									dir: sessionDir,
@@ -832,7 +834,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 				spawnToolkitWorker(state.def, {
-					task,
+					task: mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task,
 					sessionFile: agentSessionFile,
 					cwd: runCwd,
 					env: spawnEnv,

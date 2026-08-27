@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fileAskAndWait, answerAsk, listAsks, type AskRecord } from "../ask-parent.ts";
-import { deliverMail, settleMail, listMail, readMail } from "../lib/fleet-mailbox.ts";
+import { deliverMail, settleMail, listMail, readMail, buildMailboxPreamble, mailboxPreambleEnabled } from "../lib/fleet-mailbox.ts";
 import { mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,5 +69,29 @@ describe("fleet-mailbox", () => {
 		const withCur = listMail(root, "parent", { includeAnswered: true }).map((x) => x.rec.id);
 		expect(openOnly).toEqual(["late"]);
 		expect(withCur).toEqual(["early", "late"]);
+	});
+});
+
+
+describe("mailbox protocol preamble", () => {
+	test("builds worker instructions with exact inbox paths", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "fmb-pre-"));
+		const p = buildMailboxPreamble("OpenCode-Agent", cwd);
+		expect(p).toContain('worker "opencode-agent"');
+		expect(p).toContain("opencode-agent/inbox");
+		expect(p).toContain('"kind":"question"');
+		expect(p).toContain('"to":"parent"');
+	});
+
+	test("env gate PI_FLEET_MAILBOX=0 disables preamble", () => {
+		const prev = process.env.PI_FLEET_MAILBOX;
+		process.env.PI_FLEET_MAILBOX = "0";
+		try {
+			expect(mailboxPreambleEnabled()).toBe(false);
+		} finally {
+			if (prev === undefined) delete process.env.PI_FLEET_MAILBOX;
+			else process.env.PI_FLEET_MAILBOX = prev;
+		}
+		expect(mailboxPreambleEnabled()).toBe(true);
 	});
 });

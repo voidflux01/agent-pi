@@ -24,6 +24,9 @@ export interface MailRecord {
 	updatedAt: number;
 }
 
+const PARENT_INBOX = "parent";
+const DEFAULT_POLL_HINT_S = 300;
+
 export function mailboxRoot(cwd = process.cwd()): string {
 	return join(cwd, ".pi", "agent-sessions", "mailbox");
 }
@@ -109,4 +112,30 @@ export function readMail(root: string, toAgent: string, id: string): MailRecord 
 		}
 	}
 	return null;
+}
+export const MAILBOX_PROTOCOL_VERSION = 1;
+
+/** Runtime-neutral env gate: PI_FLEET_MAILBOX=0 disables external participation. */
+export function mailboxPreambleEnabled(): boolean {
+	return process.env.PI_FLEET_MAILBOX !== "0";
+}
+
+/**
+ * Compact instructions prepended to an EXTERNAL-CLI worker's task so its
+ * model can file a blocking question into the shared mailbox using only
+ * shell tools. Keep it small: these workers bill real tokens.
+ */
+export function buildMailboxPreamble(agentName: string, cwd: string): string {
+	const root = mailboxRoot(cwd);
+	const inbox = join(root, "agents", PARENT_INBOX, "inbox");
+	return [
+		"[MAILBOX PROTOCOL v" + MAILBOX_PROTOCOL_VERSION + "]",
+		`You are worker "${agentName.toLowerCase()}". If — and only if — you are genuinely blocked on a decision only your captain can make (scope change, irreversible action, missing credential), you MAY ask one blocking question instead of guessing:`,
+		`1. mkdir -p ${join(root, "agents", agentName.toLowerCase(), "inbox", "cur")} ${inbox + "/new"} ${inbox + "/tmp"}`,
+		'2. Write ONE json file (atomic: write to tmp then rename into new/) named ask-<epoch36>-<rand>.json:',
+		'   {"schema":1,"id":"ask-...","kind":"question","from":"' + agentName.toLowerCase() + '","to":"parent","expectsReply":true,"subject":"<80 chars>","body":"<what you tried + your proposed default>","status":"open","createdAt":<ms>,"updatedAt":<ms>}',
+		`3. Poll ${inbox}/new and ${inbox}/cur every ~5s (up to ${DEFAULT_POLL_HINT_S}s total) for a file with the same id. When found and status=="answered", read .answer and proceed; delete nothing.`,
+		"If no answer in time, proceed with your stated reversible default and note the open question at the end of your result.",
+		"Do not use the mailbox for anything else. End of protocol.",
+	].join("\n");
 }

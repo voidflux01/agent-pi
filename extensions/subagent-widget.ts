@@ -31,6 +31,7 @@ import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-li
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
+import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
@@ -459,12 +460,14 @@ export default function (pi: ExtensionAPI) {
 			];
 
 			if (isToolkitCliAgent(state.name)) {
+				const extAgent = state.name;
+				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(extAgent, ctx?.cwd ?? process.cwd())}\n\n---\n\n${prompt}` : prompt;
 				spawnToolkitWorker({
 					name: state.name,
 					tools,
 					systemPrompt: [agentDef?.systemPrompt, ...systemPromptArgs.filter((_, i) => i % 2 === 1)].filter(Boolean).join("\n\n"),
 				}, {
-					task: prompt,
+					task: extTask0,
 					sessionFile: state.sessionFile,
 					env: spawnEnv,
 					onStdoutLine: (line: string) => processLine(state, line),
