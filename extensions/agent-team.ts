@@ -540,6 +540,7 @@ export default function (pi: ExtensionAPI) {
 		const tasksExtPath = join(extDir, "tasks.ts");
 		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const nudgeListenerExtPath = join(extDir, "nudge-listener.ts");
+		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
 		const commanderExtPath = join(extDir, "commander-mcp.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
@@ -613,9 +614,7 @@ export default function (pi: ExtensionAPI) {
 			updatedAt: Date.now(),
 		});
 
-		const args = [
-			"--mode", "json",
-			"-p",
+		const baseArgs = [
 			"--no-extensions",
 			"-e", tasksExtPath,
 			"-e", footerExtPath,
@@ -629,6 +628,9 @@ export default function (pi: ExtensionAPI) {
 			"--append-system-prompt", systemPrompt,
 			"--session", agentSessionFile,
 		];
+		// Headless JSON args for the invisible spawn paths; the herdr visible
+		// transport drops "--mode json"/"-p" so operators watch the real TUI.
+		let args = ["--mode", "json", "-p", ...baseArgs];
 
 		// Continue existing session if we have one
 		if (state.sessionFile) {
@@ -876,14 +878,34 @@ export default function (pi: ExtensionAPI) {
 					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
 					if (!wsId) return false;
 
+					// Watchable variant: this transport always launches pi children,
+					// so drop the headless "--mode json"/"-p" flags and let the pane
+					// show pi's real TUI instead of a raw JSON event stream. The
+					// authoritative result still comes from the session JSONL; a
+					// tiny agent_end extension writes the done marker as soon as the
+					// working turn ends (the process-exit done file stays as the
+					// fallback signal).
+					// args currently carry task text and possibly "-c"; strip only the
+					// headless markers so TUI mode still receives everything else.
+					const headlessStripped: string[] = [];
+					for (let ai = 0; ai < args.length; ai++) {
+						if (args[ai] === "--mode" && args[ai + 1] === "json") { ai++; continue; }
+						if (args[ai] === "-p") continue;
+						headlessStripped.push(args[ai]);
+					}
+					const mi = headlessStripped.indexOf("--model");
+					const tuiArgs = [
+						...headlessStripped.slice(0, mi === -1 ? headlessStripped.length : mi),
+						"-e", herdrDoneExtPath,
+						...headlessStripped.slice(mi === -1 ? headlessStripped.length : mi),
+					];
 					const refs = writeLaunchScript({
 						dir: sessionDir,
 						id: journalId,
 						cwd: runCwd,
-						command: ["pi", ...args],
-						env: { ...spawnEnv, PI_SUBAGENT: "1" },
+						command: ["pi", ...tuiArgs],
+						env: { ...spawnEnv, PI_SUBAGENT: "1", HERDR_DONE_PATH: join(sessionDir, `herdr-launch-${journalId}.done`) },
 					});
-
 					tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
 					if (!tab) {
 						cleanupLaunchFiles(refs);
