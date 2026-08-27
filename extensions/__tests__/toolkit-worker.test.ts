@@ -7,6 +7,8 @@ import {
 	TOOLKIT_WORKER_MODEL,
 	getToolkitWorkerArgs,
 	parseToolkitResult,
+	toolkitRuntimeName,
+	toolkitVisibleCommandLine,
 } from "../lib/toolkit-cli.ts";
 import { resolveAgentModelString, type AgentModelsConfig } from "../lib/agent-defs.ts";
 
@@ -100,5 +102,26 @@ describe("external runtime result parsing", () => {
 		const { text, usage } = parseToolkitResult("cursor-agent", "hello\nworld\n");
 		expect(text).toBe("");
 		expect(usage).toBeUndefined();
+	});
+});
+
+
+describe("visible external runtime helpers", () => {
+	it("maps toolkit agent names to short runtime labels", () => {
+		expect(toolkitRuntimeName("opencode-agent")).toBe("opencode");
+		expect(toolkitRuntimeName("prime-agent")).toBe("prime");
+		expect(toolkitRuntimeName("builder")).toBeUndefined();
+	});
+
+	it("builds a tee-redirecting visible command line for opencode", () => {
+		const argv = toolkitVisibleCommandLine("opencode-agent", "do it", "/tmp/x", "/tmp/x/out.raw");
+		expect(argv[0]).toBe("bash");
+		const script = argv[2];
+		expect(script).toContain("opencode run --pure --format json --auto");
+		expect(script).toContain("tee /tmp/x/out.raw");
+	});
+
+	it("returns empty command for unknown agents (falls back headless)", () => {
+		expect(toolkitVisibleCommandLine("mystery-agent", "t", undefined, "/tmp/o.raw")).toEqual([]);
 	});
 });

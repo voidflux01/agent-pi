@@ -18,6 +18,8 @@ export interface TaskJournalEntry {
 	id: string;
 	kind: "team" | "chain" | "pipeline" | "sa";
 	agent: string;
+	/** External runtime label (e.g. "opencode", "prime"); unset means pi. */
+	runtime?: string;
 	/** The dispatched task prompt (bounded for disk hygiene; never shown in context). */
 	task: string;
 	model?: string;
@@ -281,7 +283,8 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 		const cachePct = u.input + u.cacheRead > 0 ? Math.round((u.cacheRead / (u.input + u.cacheRead)) * 100) : 0;
 		usage = ` ${u.totalTokens.toLocaleString()}tok (${cachePct}% cached) ${cost}`;
 	}
-	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${alive}${elapsed}${usage}${resumed}${session}${note}`;
+	const runtime = e.runtime ? ` [${e.runtime}]` : "";
+	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${runtime}${alive}${elapsed}${usage}${resumed}${session}${note}`;
 }
 
 /** Aggregate usage across finished rows — the fleet total under /agents-status. */

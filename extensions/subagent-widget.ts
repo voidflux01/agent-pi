@@ -30,7 +30,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
@@ -249,6 +249,7 @@ export default function (pi: ExtensionAPI) {
 			id: saBase,
 			kind: "sa",
 			agent: state.name.toLowerCase(),
+			runtime: toolkitRuntimeName(state.name),
 			task: prompt,
 			model: state.model || undefined,
 			sessionFile: state.sessionFile,

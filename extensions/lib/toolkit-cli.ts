@@ -283,3 +283,32 @@ export function parseToolkitResult(
 	// Plain-text CLIs and unparsable output: no structured extraction.
 	return { text: "" };
 }
+
+/** Short runtime label for journal rows ("pi" rows leave it unset). */
+function shellQuote(s: string): string {
+	return /^[A-Za-z0-9_\-./:=@%^+]+$/.test(s) ? s : `'` + s.replace(/'/g, `'\\''`) + `'`;
+}
+
+export function toolkitRuntimeName(agentName: string | undefined | null): string | undefined {
+	const n = (agentName || "").toLowerCase();
+	if (!TOOLKIT_CLI_AGENTS.has(n)) return undefined;
+	return n.endsWith("-agent") ? n.slice(0, -"-agent".length) : n;
+}
+
+/**
+ * Shell command line that runs an external CLI visibly inside a herdr pane:
+ * stdout AND stderr stream live in the pane while tee'ing the JSON event
+ * stream (or plain output) to rawOutPath for authoritative result parsing.
+ */
+export function toolkitVisibleCommandLine(
+	agentName: string,
+	task: string,
+	cwd: string | undefined,
+	rawOutPath: string,
+): string[] {
+	const cli = getToolkitCliCommand(agentName);
+	if (!cli) return [];
+	const argv = cli.args(task, cwd);
+	const cmd = [cli.command, ...argv].map(shellQuote).join(" ");
+	return ["bash", "-c", `${cmd} 2>&1 | tee ${shellQuote(rawOutPath)}`];
+}

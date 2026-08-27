@@ -26,7 +26,7 @@ import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { spawn } from "child_process";
-import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
+import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
@@ -34,7 +34,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName, toolkitVisibleCommandLine } from "./lib/toolkit-cli.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
@@ -591,6 +591,7 @@ export default function (pi: ExtensionAPI) {
 			id: journalId,
 			kind: "team",
 			agent: canonicalName,
+			runtime: isToolkitCliAgent(canonicalName) ? toolkitRuntimeName(canonicalName) : undefined,
 			task,
 			model,
 			cwd: runCwd,
@@ -788,6 +789,48 @@ export default function (pi: ExtensionAPI) {
 
 			let stderrBuf = "";
 			if (isToolkitCliAgent(state.def.name)) {
+				// ── Visible herdr transport for external runtimes ──
+				// Runs the CLI inside a herdr pane so the operator can watch it
+				// work; output tee's to a raw file that we parse for the
+				// authoritative result text and usage. Falls back to the plain
+				// child-process spawn when herdr is unavailable.
+				if (herdrEnabled()) {
+					try {
+						const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
+						if (wsId) {
+							const rawPath = join(sessionDir, "outputs", `${journalId}.raw`);
+							const argvVisible = toolkitVisibleCommandLine(state.def.name, task, runCwd, rawPath);
+							if (argvVisible.length > 0) {
+								const refs = writeLaunchScript({
+									dir: sessionDir,
+									id: journalId,
+									cwd: runCwd,
+									command: argvVisible,
+									env: { ...spawnEnv, PI_SUBAGENT: "1" },
+								});
+								const tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
+								if (tab) {
+									state.proc = { kill: () => { try { closeHerdrTab(tab); } catch {} } };
+									void pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000).then((rc) => {
+										cleanupLaunchFiles(refs);
+										try { closeHerdrTab(tab); } catch {}
+										let rawOut = "";
+										try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
+										try { rmSync(rawPath, { force: true }); } catch {}
+										const parsed = parseToolkitResult(state.def.name, rawOut);
+										toolkitUsage = parsed.usage;
+										if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
+										finish(rc ?? 1, stderrBuf, parsed.text || undefined);
+									});
+									return;
+								}
+								cleanupLaunchFiles(refs);
+							}
+						}
+					} catch {
+						// fall through to headless spawn below
+					}
+				}
 				spawnToolkitWorker(state.def, {
 					task,
 					sessionFile: agentSessionFile,
