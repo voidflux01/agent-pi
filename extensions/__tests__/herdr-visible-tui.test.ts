@@ -128,6 +128,11 @@ describe("launch marker paths", () => {
 			expect(refs.donePath).toBe(launchDonePath(dir, "sa7"));
 			// HERDR_DONE_PATH must point at the same file the script writes on exit
 			expect(readFileSync(refs.scriptPath, "utf8")).toContain(launchDonePath(dir, "sa7"));
+		expect(() => launchDonePath(dir, "../escape")).toThrow("Invalid Herdr launch id");
+		writeLaunchScript({ dir, id: "safe", cwd: dir, command: ["true"], env: { "BAD;KEY": "x", SAFE_KEY: "quoted'value" } });
+		const safeScript = readFileSync(join(dir, "herdr-launch-safe.sh"), "utf8");
+		expect(safeScript).not.toContain("BAD;KEY");
+		expect(safeScript).toContain("export SAFE_KEY='quoted'\\''value'");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

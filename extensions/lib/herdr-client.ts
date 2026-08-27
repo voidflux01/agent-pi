@@ -262,7 +262,10 @@ export interface LaunchScriptRefs {
 
 /** Marker-file path for a launch id. Same naming writeLaunchScript() uses, so
  *  callers can point HERDR_DONE_PATH at it before the refs exist. */
+const SAFE_LAUNCH_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
 export function launchDonePath(dir: string, id: string): string {
+	if (!SAFE_LAUNCH_ID.test(id)) throw new Error("Invalid Herdr launch id");
 	return join(dir, `herdr-launch-${id}.done`);
 }
 
@@ -276,7 +279,7 @@ export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	// launch inherit that stale completion signal.
 	rmSync(donePath, { force: true });
 	const envAssign = Object.entries(opts.env || {})
-		.filter(([, v]) => v !== undefined)
+		.filter(([k, v]) => v !== undefined && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
 		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)
 		.join("\n");
 	const quoted = opts.command.map(shellQuote).join(" ");
