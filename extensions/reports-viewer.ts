@@ -4,20 +4,21 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { execSync } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { generateReportsViewerHTML } from "./lib/reports-viewer-html.ts";
 import { loadReportIndex } from "./lib/report-index.ts";
 
 function openBrowser(url: string): void {
-	try { execSync(`open "${url}"`, { stdio: "ignore" }); } catch {
-		try { execSync(`xdg-open "${url}"`, { stdio: "ignore" }); } catch {
-			try { execSync(`start "${url}"`, { stdio: "ignore" }); } catch {}
+	try { execFileSync("open", [url], { stdio: "ignore" }); } catch {
+		try { execFileSync("xdg-open", [url], { stdio: "ignore" }); } catch {
+			try { execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" }); } catch {}
 		}
 	}
 }
@@ -30,25 +31,25 @@ function openOriginalReport(entry: any): void {
 	const target = entry.viewerPath || entry.sourcePath;
 	if (!target) throw new Error("No source path available for this report");
 	const path = String(target);
+	const route = entry.category === "spec" ? "/spec" : "/show-file";
 
 	if (process.platform === "darwin") {
-		if (entry.category === "spec") {
-			execSync(`open -na Terminal --args bash -lc ${quoteArg(`cd ${quoteArg(process.cwd())} && pi /spec ${quoteArg(path)}`)}`, { stdio: "ignore", shell: true });
-		} else {
-			execSync(`open -na Terminal --args bash -lc ${quoteArg(`cd ${quoteArg(process.cwd())} && pi /show-file ${quoteArg(path)}`)}`, { stdio: "ignore", shell: true });
-		}
+		// Terminal still needs a shell command, so quote every interpolated value.
+		const command = `cd ${quoteArg(process.cwd())} && exec pi ${route} ${quoteArg(path)}`;
+		const child = spawn("open", ["-na", "Terminal", "--args", "bash", "-lc", command], {
+			detached: true, stdio: "ignore",
+		});
+		child.unref();
 		return;
 	}
 
-	if (entry.category === "spec") {
-		execSync(`bash -lc ${quoteArg(`cd ${quoteArg(process.cwd())} && pi /spec ${quoteArg(path)} >/dev/null 2>&1 &`)}`, { stdio: "ignore", shell: true });
-	} else {
-		execSync(`bash -lc ${quoteArg(`cd ${quoteArg(process.cwd())} && pi /show-file ${quoteArg(path)} >/dev/null 2>&1 &`)}`, { stdio: "ignore", shell: true });
-	}
+	const child = spawn("pi", [route, path], { cwd: process.cwd(), detached: true, stdio: "ignore" });
+	child.unref();
 }
 
-function startReportsServer(title: string): Promise<{ port: number; server: Server; waitForResult: () => Promise<void> }> {
+function startReportsServer(title: string): Promise<{ port: number; server: Server; waitForResult: () => Promise<void>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
+		const auth = createLocalServerAuth();
 		let resolveResult: () => void;
 		const resultPromise = new Promise<void>((res) => { resolveResult = res; });
 		let lastHeartbeat = Date.now();
@@ -60,11 +61,8 @@ function startReportsServer(title: string): Promise<{ port: number; server: Serv
 		}, 5_000);
 
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-			if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 			const url = new URL(req.url || "/", "http://localhost");
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			if (req.method === "GET" && url.pathname === "/") {
 				const port = (server.address() as any)?.port || 0;
@@ -130,6 +128,7 @@ function startReportsServer(title: string): Promise<{ port: number; server: Serv
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise.finally(() => clearInterval(heartbeatCheck)),
+				auth,
 			});
 		});
 	});
@@ -150,10 +149,11 @@ export default function (pi: ExtensionAPI) {
 
 	async function runViewer(ctx: ExtensionContext, title: string) {
 		cleanupServer();
-		const { port, server, waitForResult } = await startReportsServer(title);
+		const { port, server, waitForResult, auth } = await startReportsServer(title);
 		activeServer = server;
 		const url = `http://127.0.0.1:${port}`;
-		openBrowser(url);
+		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
+		openBrowser(launchUrl);
 		if (ctx.hasUI) ctx.ui.notify(`Reports opened at ${url}`, "info");
 		try {
 			await waitForResult();

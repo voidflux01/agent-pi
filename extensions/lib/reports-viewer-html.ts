@@ -7,6 +7,10 @@ function escapeForScript(str: string): string {
 	return str.replace(/<\/(script|style)/gi, "<\\/$1").replace(/<!--/g, "<\\!--");
 }
 
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
+
 export function generateReportsViewerHTML(opts: {
 	title: string;
 	port: number;
@@ -20,7 +24,7 @@ export function generateReportsViewerHTML(opts: {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title}</title>
+<title>${escapeHtml(title)}</title>
 <style>
   :root {
     --bg: #1a1d23;
@@ -391,7 +395,7 @@ export function generateReportsViewerHTML(opts: {
 <body>
 <div class="header">
   <span class="badge">REPORTS</span>
-  <span class="title">${title}</span>
+  <span class="title">${escapeHtml(title)}</span>
   <img src="/logo.png" alt="agent" class="header-logo">
 </div>
 
@@ -452,7 +456,10 @@ export function generateReportsViewerHTML(opts: {
     try { return new Date(value).toLocaleString(); } catch { return value || ""; }
   }
   function escapeHtml(str) {
-    return String(str || "").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+     return String(str || "").replace(/[&<>"']/g, function(ch) { return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;" })[ch] || ch; });
+  }
+  function quoteAttr(value) {
+    return escapeHtml(JSON.stringify(String(value)).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026'));
   }
   function matches(entry) {
     const text = (entry.searchText || "").toLowerCase();
@@ -486,8 +493,8 @@ export function generateReportsViewerHTML(opts: {
     document.getElementById('tableCount').textContent = rows.length + ' result' + (rows.length === 1 ? '' : 's');
     const tbody = document.getElementById('tableBody');
     tbody.innerHTML = rows.length ? rows.map((entry) =>
-      '<tr data-clickable="true" onclick="openFromTable(\\'' + entry.id + '\\')">' +
-        '<td><div class="row-title">' + escapeHtml(entry.title) + '</div><span class="pill ' + entry.category + '">' + escapeHtml(entry.category) + '</span></td>' +
+      '<tr data-clickable="true" onclick="openFromTable(' + quoteAttr(entry.id) + ')">' +
+        '<td><div class="row-title">' + escapeHtml(entry.title) + '</div><span class="pill ' + escapeHtml(entry.category) + '">' + escapeHtml(entry.category) + '</span></td>' +
         '<td>' + escapeHtml(entry.summary || '—') + '</td>' +
         '<td>' + escapeHtml(entry.sourceLabel || entry.viewerLabel || 'Viewer') + '</td>' +
         '<td>' + escapeHtml(fmtDate(entry.updatedAt)) + '</td>' +
@@ -544,7 +551,7 @@ export function generateReportsViewerHTML(opts: {
         '</div>' +
         (recent.length ?
           '<div class="cards">' + recent.map((entry) =>
-            '<div class="report-card" onclick="openFromTable(\\'' + entry.id + '\\')">' +
+            '<div class="report-card" onclick="openFromTable(' + quoteAttr(entry.id) + ')">' +
               '<h3>' + escapeHtml(entry.title) + '</h3>' +
               '<p>' + escapeHtml(entry.summary || 'No summary available.') + '</p>' +
               '<div class="meta"><span>' + escapeHtml(fmtDate(entry.updatedAt)) + '</span><span>' + escapeHtml(entry.sourceLabel || entry.viewerLabel || 'Viewer') + '</span><span class="open">Open ↗</span></div>' +
