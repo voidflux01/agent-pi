@@ -78,6 +78,18 @@ per-run environment hardening and full-transcript archiving for SA runs.
 dispatch/session-start (mtime-based), with corrupt journal lines preserved
 verbatim. Removes session-dir bloat without touching anything recent.
 
+### Per-Run Token & Cost Accounting
+
+Every dispatch path now records what it cost:
+
+- `sessionUsage()` sums tokens + cost across all assistant messages in the
+  run's pi session file (cache-aware, corruption-tolerant)
+- Journal rows gain a `usage` block (input / output / cacheRead /
+  cacheWrite / totalTokens / costUsd)
+- `/agents-status` renders per-row `<tokens> (<pct>% cached) $<cost>` plus a
+  TOTAL footer over the recent window
+- Zero-usage rows render exactly as before
+
 ### Docs & Policy Accuracy
 
 - CLAUDE.md remotes section rewritten to match reality (single public origin)
