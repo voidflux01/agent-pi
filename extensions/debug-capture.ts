@@ -30,6 +30,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
 import { execFileSync, spawn } from "child_process";
+import { childEnvironment } from "./lib/child-runtime.ts";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -293,6 +294,7 @@ function runVhs(tapePath: string, cwd: string, ts: string): Promise<CaptureResul
 		const proc = spawn("vhs", [tapePath], {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: childEnvironment(),
 		});
 
 		let stdout = "";

@@ -44,6 +44,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { validatePublicUrl } from "./lib/remote-url-safety.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 
 // ── Constants ────────────────────────────────────
 
@@ -147,7 +148,7 @@ function deployWorker(): { success: boolean; url?: string; error?: string } {
 
 	if (!existsSync(join(workerDir, "node_modules"))) {
 		try {
-			execFileSync("npm", ["ci", "--ignore-scripts"], { cwd: workerDir, stdio: "ignore", timeout: 60000 });
+			execFileSync("npm", ["ci", "--ignore-scripts"], { cwd: workerDir, stdio: "ignore", timeout: 60000, env: childEnvironment() });
 		} catch (e: any) {
 			return { success: false, error: `npm install failed: ${e.message}` };
 		}
@@ -159,6 +160,11 @@ function deployWorker(): { success: boolean; url?: string; error?: string } {
 			cwd: workerDir,
 			encoding: "utf-8",
 			timeout: 60000,
+			env: childEnvironment({
+				CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
+				CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
+				CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+			}),
 		});
 
 		// Extract URL from deploy output

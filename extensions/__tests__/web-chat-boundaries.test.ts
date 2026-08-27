@@ -18,6 +18,7 @@ describe("web chat boundaries", () => {
 		expect(html).toContain("const attrHref = escapeHtml(safeHref)");
 		expect(source).toContain("timingSafeEqual");
 		expect(source).toContain('execFileSync("which", ["cloudflared"]');
+		expect(source).toContain("env: childEnvironment()");
 		expect(source).not.toContain("execSync(");
 	});
 });

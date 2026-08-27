@@ -16,5 +16,7 @@ describe("web test network and resource boundaries", () => {
 		expect(source).toContain("Request body too large");
 		expect(source).toContain("validatePublicUrl");
 		expect(source).toContain("validateResolvedHost");
+		const clientSource = readFileSync(new URL("../web-test.ts", import.meta.url), "utf8");
+		expect(clientSource).toContain("env: childEnvironment()");
 	});
 });

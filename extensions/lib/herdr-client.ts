@@ -25,6 +25,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { childEnvironment } from "./child-runtime.ts";
 
 // ── detection ─────────────────────────────────────
 
@@ -45,7 +46,7 @@ export function detectHerdr(forceEnvCheck = true): HerdrInfo {
 		// Respect the active named session (default-session check would miss it).
 		const session = process.env.HERDR_SESSION || "";
 		const cmd = ["herdr", ...(session ? ["--session", session] : []), "status", "--json"];
-		const out = execFileSync(cmd[0], cmd.slice(1), { encoding: "utf8", timeout: 10_000 });
+		const out = execFileSync(cmd[0], cmd.slice(1), { encoding: "utf8", timeout: 10_000, env: childEnvironment() });
 		const d = JSON.parse(out);
 		const server = d.server || {};
 		const client = d.client || {};
@@ -85,6 +86,7 @@ export function herdrCli(args: string[], opts: { timeoutMs?: number; session?: s
 			encoding: "utf8",
 			timeout: opts.timeoutMs ?? 30_000,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: childEnvironment(),
 		});
 		return { stdout: out, stderr: "", code: 0 };
 	} catch (err: any) {

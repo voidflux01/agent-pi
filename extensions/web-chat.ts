@@ -17,6 +17,7 @@ import qrTerminal from "qrcode-terminal";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateWebChatHTML } from "./lib/web-chat-html.ts";
+import { childEnvironment } from "./lib/child-runtime.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ function startTunnel(localPort: number): Promise<{ url: string; proc: ChildProce
 			"--url", `http://127.0.0.1:${localPort}`,
 		], {
 			stdio: ["ignore", "pipe", "pipe"],
+			env: childEnvironment(),
 		});
 
 		let resolved = false;

@@ -13,5 +13,6 @@ describe("debug capture boundaries", () => {
 		const source = readFileSync(new URL("../debug-capture.ts", import.meta.url), "utf8");
 		expect(source).toContain("shellQuote(prompt.slice(0, 4000))");
 		expect(source).toContain("safeVhsText(terminalCommand, 5000)");
+		expect(source).toContain("env: childEnvironment()");
 	});
 });
