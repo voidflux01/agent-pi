@@ -73,17 +73,28 @@ function extractCveIds(...values: string[]): string[] {
   return [...matches];
 }
 
+const MAX_FEED_BYTES = 5 * 1024 * 1024;
+
+async function boundedResponseText(resp: Response, url: string): Promise<string> {
+  const declared = Number(resp.headers.get("content-length") || 0);
+  if (Number.isFinite(declared) && declared > MAX_FEED_BYTES) throw new Error(`Response too large for ${url}`);
+  const text = await resp.text();
+  if (Buffer.byteLength(text, "utf8") > MAX_FEED_BYTES) throw new Error(`Response too large for ${url}`);
+  return text;
+}
+
 async function fetchJson(url: string): Promise<any> {
   const resp = await fetch(url, {
     headers: {
       "User-Agent": "pi-agent-security-news/1.0",
       "Accept": "application/json, text/plain;q=0.9, */*;q=0.8",
     },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!resp.ok) {
     throw new Error(`Fetch failed (${resp.status}) for ${url}`);
   }
-  return resp.json();
+  return JSON.parse(await boundedResponseText(resp, url));
 }
 
 async function fetchText(url: string): Promise<string> {
@@ -92,11 +103,12 @@ async function fetchText(url: string): Promise<string> {
       "User-Agent": "pi-agent-security-news/1.0",
       "Accept": "text/html, text/plain;q=0.9, */*;q=0.8",
     },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!resp.ok) {
     throw new Error(`Fetch failed (${resp.status}) for ${url}`);
   }
-  return resp.text();
+  return boundedResponseText(resp, url);
 }
 
 async function fetchCisaKev(query?: string): Promise<SecurityNewsItem[]> {

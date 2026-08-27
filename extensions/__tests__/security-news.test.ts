@@ -28,6 +28,19 @@ describe("security_news", () => {
     expect(text).toContain("CVE / MITRE");
   });
 
+  it("bounds trusted feed responses", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("x".repeat(5 * 1024 * 1024 + 1), { status: 200 })) as typeof fetch;
+    try {
+      const pi = createPiMock();
+      securityNewsExt(pi as any);
+      const result = await pi.getTool().execute("1", { action: "latest", source: "cisa" });
+      expect(result.details.error).toContain("Response too large");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("rejects invalid cve lookup input", async () => {
     const pi = createPiMock();
     securityNewsExt(pi as any);
