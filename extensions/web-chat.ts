@@ -8,10 +8,10 @@ import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, WebSocket as WS } from "ws";
 import qrTerminal from "qrcode-terminal";
 import { outputLine } from "./lib/output-box.ts";
@@ -45,14 +45,14 @@ function getLanIP(): string {
 			}
 		}
 	}
-	return "0.0.0.0";
+	return "127.0.0.1";
 }
 
 // ── Cloudflare Tunnel ────────────────────────────────────────────────
 
 function isCloudflaredAvailable(): boolean {
 	try {
-		execSync("which cloudflared", { stdio: "ignore" });
+		execFileSync("which", ["cloudflared"], { stdio: "ignore" });
 		return true;
 	} catch {
 		return false;
@@ -426,22 +426,31 @@ function startChatServer(
 		const logoDataUri = loadLogoBase64();
 		// Single-user lock: only one authenticated session at a time
 		let activeToken: string | null = null;
+		const authFailures = new Map<string, { attempts: number; lockedUntil: number }>();
+		const MAX_PIN_ATTEMPTS = 5;
+		const MAX_GLOBAL_PIN_ATTEMPTS = 20;
+		const PIN_LOCKOUT_MS = 60_000;
+		let globalAuthFailure = { attempts: 0, lockedUntil: 0 };
 
 		function makeToken(): string {
-			// Revoke any previous token — only one user at a time
-			const t = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+			// Revoke any previous token and close old streams — only one user at a time.
+			for (const client of wsClients.values()) {
+				try { client.ws.close(1008, "Re-authenticated"); } catch {}
+			}
+			wsClients.clear();
+			const t = randomBytes(32).toString("hex");
 			activeToken = t;
 			return t;
 		}
 
-		function isAuthed(req: IncomingMessage, url: URL): boolean {
+		function isAuthed(req: IncomingMessage, _url: URL): boolean {
 			if (!activeToken) return false;
 			const cookies = req.headers.cookie || "";
-			const match = cookies.match(/pi_token=([^;]+)/);
-			if (match && match[1] === activeToken) return true;
-			const qToken = url.searchParams.get("token");
-			if (qToken && qToken === activeToken) return true;
-			return false;
+			const match = cookies.match(/(?:^|;)\s*pi_token=([^;]+)/);
+			if (!match) return false;
+			const candidate = Buffer.from(match[1]);
+			const expected = Buffer.from(activeToken);
+			return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 		}
 
 		// Auto-shutdown timer: close server if no clients for 2 minutes
@@ -457,17 +466,21 @@ function startChatServer(
 		}
 
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", `http://localhost`);
+			if (req.method === "POST") {
+				const contentLength = Number(req.headers["content-length"] || 0);
+				if (!Number.isFinite(contentLength) || contentLength > 64 * 1024) {
+					res.writeHead(413, { "Content-Type": "application/json" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				if (typeof req.setTimeout === "function") req.setTimeout(15_000, () => req.destroy());
+				let received = 0;
+				req.on("data", (chunk) => {
+					received += Buffer.byteLength(chunk);
+					if (received > 64 * 1024) req.destroy();
+				});
+			}
 
 			if (url.pathname === "/favicon.ico") {
 				res.writeHead(204);
@@ -481,13 +494,36 @@ function startChatServer(
 				req.on("data", (chunk) => { body += chunk; });
 				req.on("end", () => {
 					try {
+						const ip = req.socket.remoteAddress || "unknown";
+						const now = Date.now();
+						const failure = authFailures.get(ip) || { attempts: 0, lockedUntil: 0 };
+						if (failure.lockedUntil > now || globalAuthFailure.lockedUntil > now) {
+							const retryAt = Math.max(failure.lockedUntil, globalAuthFailure.lockedUntil);
+							res.setHeader("Retry-After", String(Math.max(1, Math.ceil((retryAt - now) / 1000))));
+							res.writeHead(429, { "Content-Type": "application/json" });
+							res.end(JSON.stringify({ ok: false, error: "Too many attempts. Try again later." }));
+							return;
+						}
 						const data = JSON.parse(body || "{}");
 						if (String(data.pin) === pin) {
+							authFailures.delete(ip);
+							globalAuthFailure = { attempts: 0, lockedUntil: 0 };
 							const token = makeToken();
 							res.setHeader("Set-Cookie", `pi_token=${token}; Path=/; HttpOnly; SameSite=Strict`);
 							res.writeHead(200, { "Content-Type": "application/json" });
-							res.end(JSON.stringify({ ok: true, token }));
+							res.end(JSON.stringify({ ok: true }));
 						} else {
+							failure.attempts += 1;
+							globalAuthFailure.attempts += 1;
+							if (failure.attempts >= MAX_PIN_ATTEMPTS) {
+								failure.lockedUntil = now + PIN_LOCKOUT_MS;
+								failure.attempts = 0;
+							}
+							if (globalAuthFailure.attempts >= MAX_GLOBAL_PIN_ATTEMPTS) {
+								globalAuthFailure.lockedUntil = now + PIN_LOCKOUT_MS;
+								globalAuthFailure.attempts = 0;
+							}
+							authFailures.set(ip, failure);
 							res.writeHead(401, { "Content-Type": "application/json" });
 							res.end(JSON.stringify({ ok: false, error: "Invalid PIN" }));
 						}
@@ -591,11 +627,12 @@ function startChatServer(
 			}
 			// Validate auth token
 			if (!activeToken) { socket.destroy(); return; }
-			const qToken = url.searchParams.get("token");
 			const cookies = req.headers.cookie || "";
-			const match = cookies.match(/pi_token=([^;]+)/);
+			const match = cookies.match(/(?:^|;)\s*pi_token=([^;]+)/);
 			const cookieToken = match ? match[1] : null;
-			if (qToken !== activeToken && cookieToken !== activeToken) {
+			const candidate = cookieToken ? Buffer.from(cookieToken) : null;
+			const expected = activeToken ? Buffer.from(activeToken) : null;
+			if (!candidate || !expected || candidate.length !== expected.length || !timingSafeEqual(candidate, expected)) {
 				socket.destroy();
 				return;
 			}
@@ -663,13 +700,13 @@ function startChatServer(
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}

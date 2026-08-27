@@ -446,7 +446,7 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
 <script>
 (function() {
   // ── Auth state ──────────────────────────────────────
-  let authToken = null;
+  let authenticated = false;
   const pinScreen = document.getElementById('pin-screen');
   const chatScreen = document.getElementById('chat-screen');
   const pinError = document.getElementById('pin-error');
@@ -454,14 +454,12 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
                      document.getElementById('p3'), document.getElementById('p4'),
                      document.getElementById('p5'), document.getElementById('p6')];
 
-  // Check for saved token
-  const saved = document.cookie.match(/pi_token=([^;]+)/);
-  if (saved) {
-    authToken = saved[1];
-    showChat();
-  } else {
-    pinInputs[0].focus();
-  }
+  // HttpOnly cookies cannot be read by JavaScript. Probe an authenticated API
+  // instead of exposing the bearer token to page scripts.
+  fetch('/status').then(res => {
+    if (res.ok) { authenticated = true; showChat(); }
+    else pinInputs[0].focus();
+  }).catch(() => pinInputs[0].focus());
 
   // PIN input auto-advance
   pinInputs.forEach((inp, i) => {
@@ -501,7 +499,7 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
       });
       const data = await res.json();
       if (data.ok) {
-        authToken = data.token;
+        authenticated = true;
         showChat();
       } else {
         pinError.textContent = 'Wrong PIN. Try again.';
@@ -521,16 +519,9 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
     inputEl.focus();
   }
 
-  // ── Fetch helper (adds auth token) ──────────────────
+  // ── Fetch helper (credentials are carried by the HttpOnly cookie) ─────
   function authedFetch(url, opts) {
-    opts = opts || {};
-    opts.headers = opts.headers || {};
-    if (authToken) {
-      // Token is in cookie (HttpOnly), but also send as query param fallback
-      const sep = url.includes('?') ? '&' : '?';
-      url = url + sep + 'token=' + encodeURIComponent(authToken);
-    }
-    return fetch(url, opts);
+    return fetch(url, opts || {});
   }
 
   // ── Chat state ──────────────────────────────────────
@@ -742,7 +733,12 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
     html = html.replace(/^[\\s]*\\d+\\.\\s+(.+)$/gm, '<li>$1</li>');
     html = html.replace(/^&gt;\\s*(.+)$/gm, '<blockquote>$1</blockquote>');
     html = html.replace(/<\\/blockquote>\\n<blockquote>/g, '<br>');
-    html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (_, label, href) => {
+      const candidate = String(href).trim();
+      const safeHref = /^(?:https?:\\/\\/|mailto:|#|\\/)/i.test(candidate) ? candidate : '#';
+      const attrHref = safeHref.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      return '<a href="' + attrHref + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+    });
     html = html.replace(/^(?!<[hupbol]|<li|<blockquote|<pre|<hr)(.+)$/gm, '<p>$1</p>');
     html = html.replace(/<p><\\/p>/g, '');
     return html;
@@ -894,8 +890,7 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
   function connectWS() {
     if (ws) { try { ws.close(); } catch {} }
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const tokenParam = authToken ? '?token=' + encodeURIComponent(authToken) : '';
-    ws = new WebSocket(proto + '//' + location.host + '/ws' + tokenParam);
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
     
     ws.onopen = function() {
       connected = true; reconnectDelay = 1000;
