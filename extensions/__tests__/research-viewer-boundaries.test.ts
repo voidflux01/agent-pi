@@ -8,5 +8,8 @@ describe("research viewer boundaries", () => {
 		expect(source).toContain('execFileSync("open", [url]');
 		expect(source).not.toContain("Access-Control-Allow-Origin");
 		expect(source).not.toContain("execSync(");
+		const html = readFileSync(new URL("../lib/research-viewer-html.ts", import.meta.url), "utf8");
+		expect(html).toContain("escapeHtmlJS(formatDate(s.implementation.startedAt))");
+		expect(html).toContain("escapeHtmlJS(formatDate(s.implementation.completedAt))");
 	});
 });

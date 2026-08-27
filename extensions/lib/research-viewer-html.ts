@@ -656,8 +656,8 @@ function renderDetail(s) {
   // Implementation
   if (s.implementation && (s.implementation.startedAt || s.implementation.summary)) {
     html += '<div class="detail-section"><h3>Implementation</h3>';
-    if (s.implementation.startedAt) html += '<div class="card-metric" style="margin-bottom:8px">Started: <span>' + formatDate(s.implementation.startedAt) + '</span></div>';
-    if (s.implementation.completedAt) html += '<div class="card-metric" style="margin-bottom:8px">Completed: <span>' + formatDate(s.implementation.completedAt) + '</span></div>';
+    if (s.implementation.startedAt) html += '<div class="card-metric" style="margin-bottom:8px">Started: <span>' + escapeHtmlJS(formatDate(s.implementation.startedAt)) + '</span></div>';
+    if (s.implementation.completedAt) html += '<div class="card-metric" style="margin-bottom:8px">Completed: <span>' + escapeHtmlJS(formatDate(s.implementation.completedAt)) + '</span></div>';
     if (s.implementation.teamUsed) html += '<div class="card-metric" style="margin-bottom:8px">Team: <span>' + escapeHtmlJS(s.implementation.teamUsed) + '</span></div>';
     if (s.implementation.tasksCreated) html += '<div class="card-metric" style="margin-bottom:8px">Tasks: <span>' + numberText(s.implementation.tasksCreated) + '</span></div>';
     if (s.implementation.summary) html += '<pre style="margin-top:8px">' + escapeHtmlJS(s.implementation.summary) + '</pre>';
