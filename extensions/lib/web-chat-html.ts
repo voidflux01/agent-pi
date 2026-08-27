@@ -736,7 +736,7 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
     html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (_, label, href) => {
       const candidate = String(href).trim();
       const safeHref = /^(?:https?:\\/\\/|mailto:|#|\\/)/i.test(candidate) ? candidate : '#';
-      const attrHref = safeHref.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      const attrHref = escapeHtml(safeHref);
       return '<a href="' + attrHref + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
     });
     html = html.replace(/^(?!<[hupbol]|<li|<blockquote|<pre|<hr)(.+)$/gm, '<p>$1</p>');

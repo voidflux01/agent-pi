@@ -15,6 +15,7 @@ describe("web chat boundaries", () => {
 		const source = readFileSync(new URL("../web-chat.ts", import.meta.url), "utf8");
 		expect(html).toContain("https?:\\/\\/");
 		expect(html).toContain("noopener noreferrer");
+		expect(html).toContain("const attrHref = escapeHtml(safeHref)");
 		expect(source).toContain("timingSafeEqual");
 		expect(source).toContain('execFileSync("which", ["cloudflared"]');
 		expect(source).not.toContain("execSync(");
