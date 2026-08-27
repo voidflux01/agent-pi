@@ -50,6 +50,21 @@ import { stripLeadingNumber } from "./lib/task-list-render.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
 
+// Pure decision helper (exported for tests): what should the tasks gate do?
+export function decideGateClaim(all: Array<{ id: number; status: string }>): { block: boolean; reason?: string; claimId?: number } {
+	const pending = all.filter((t) => t.status !== "done");
+	const active = all.filter((t) => t.status === "inprogress");
+	if (all.length === 0) return { block: false };
+	if (active.length === 0 && pending.length > 0) {
+		const newest = [...all].reverse().find((t) => t.status !== "done" && t.status !== "inprogress");
+		return { block: false, claimId: newest?.id };
+	}
+	if (pending.length === 0) return { block: false };
+	return { block: false };
+}
+
+	// ── Blocking gate ──────────────────────────────────────────────────
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 type TaskStatus = "idle" | "inprogress" | "done";
@@ -301,7 +316,28 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Blocking gate ──────────────────────────────────────────────────
 
-	pi.on("tool_call", async (event, _ctx) => {
+
+	// Gate behavior: hard blocks created dead-end loops ("command failed" every
+	// call until the model toggled ceremony). Now the gate self-serves:
+	//   - no in-progress task -> auto-claim newest pending and ALLOW
+	//   - all done            -> allow + soft reminder to start a fresh list
+	//   - PI_TASKS_GATE=0 or /tasks-gate off disables gating entirely
+	let gateEnabled = process.env.PI_TASKS_GATE !== "0";
+
+	function toggleTaskToActive(): Task | undefined {
+		const decision = decideGateClaim(tasks);
+		return decision.claimId ? tasks.find((t) => t.id === decision.claimId) : undefined;
+	}
+
+	function persistGateClaim(ctx: any): void {
+		try {
+			const nowActive = tasks.find((t) => t.status === "inprogress");
+			ctx?.ui?.notify?.(`📋 Auto-claimed task #${nowActive?.id} (no task was in progress)`, "info");
+			refreshUI(ctx);
+		} catch {}
+	}
+
+	pi.on("tool_call", async (event, ctx) => {
 		// Sub-agents manage their own task discipline — don't gate them
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		if (event.toolName === "tasks") return { block: false };
@@ -313,6 +349,8 @@ export default function (pi: ExtensionAPI) {
 		const readOnlyTools = ["read", "grep", "find", "ls", "glob"];
 		if (readOnlyTools.includes(event.toolName)) return { block: false };
 
+		if (!gateEnabled) return { block: false };
+
 		const pending = tasks.filter((t) => t.status !== "done");
 		const active = tasks.filter((t) => t.status === "inprogress");
 
@@ -320,20 +358,32 @@ export default function (pi: ExtensionAPI) {
 		if (tasks.length === 0) {
 			return { block: false };
 		}
+		if (active.length === 0 && pending.length > 0) {
+			const claimed = toggleTaskToActive();
+			if (claimed) {
+				persistGateClaim(ctx);
+				return { block: false }; // claim made transparently; tool proceeds
+			}
+			return { block: false };
+		}
 		if (pending.length === 0) {
-			return {
-				block: true,
-				reason: "All tasks are done. You MUST use `tasks add` for new tasks or `tasks new-list` to start a fresh list before using any other tools.",
-			};
+			// All done — do not dead-end the session; remind softly instead.
+			try { ctx?.ui?.notify?.(`✅ All ${tasks.length} tasks are done — consider \`tasks new-list\` for the next batch`, "info"); } catch {}
+			return { block: false };
 		}
-		if (active.length === 0) {
-			return {
-				block: true,
-				reason: "No task is in progress. You MUST use `tasks toggle` to mark a task as inprogress before doing any work.",
-			};
-		}
-
 		return { block: false };
+	});
+
+	pi.registerCommand("tasks-gate", {
+		description: "Toggle the tasks tool gate: /tasks-gate [on|off]",
+		handler: async (args: string, ctx: any) => {
+			const v = args.trim().toLowerCase();
+			if (v === "on") gateEnabled = true;
+			else if (v === "off") gateEnabled = false;
+			else if (v === "status") { ctx?.ui?.notify?.(`tasks gate: ${gateEnabled ? "on" : "off"}`, "info"); return; }
+			else { gateEnabled = !gateEnabled; }
+			ctx?.ui?.notify?.(`tasks gate: ${gateEnabled ? "on" : "off"}`, "success");
+		},
 	});
 
 	// ── Auto-nudge on agent_end ────────────────────────────────────────
