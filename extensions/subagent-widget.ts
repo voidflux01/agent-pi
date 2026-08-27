@@ -31,6 +31,19 @@ import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-li
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
+import {
+	cleanupLaunchFiles,
+	closeHerdrTab,
+	createHerdrTaskTab,
+	ensureHerdrWorkspace,
+	herdrEnabled,
+	pollDoneFileAsync,
+	readLastAssistantText,
+	sendCommandToPane,
+	shellQuote,
+	writeLaunchScript,
+	type HerdrTabRef,
+} from "./lib/herdr-client.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -294,7 +307,7 @@ export default function (pi: ExtensionAPI) {
 				}, state.maxDurationMs);
 			}
 
-			const finish = (code: number | null) => {
+			const finish = (code: number | null, externalFull?: string) => {
 				clearInterval(timer);
 				// Clear watchdog — agent exited normally before timeout
 				if (state.watchdogTimer) {
@@ -331,7 +344,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
-				const result = state.textChunks.join("");
+				const result = externalFull ?? state.textChunks.join("");
 
 				// Standby spawns (warmup) suppress notification and follow-up message
 				if (!state.standby) {
@@ -364,6 +377,20 @@ export default function (pi: ExtensionAPI) {
 				resolve();
 			};
 
+			// Shared argv — both transports run byte-identical semantics.
+			const argv = [
+				"--mode", "json",
+				"-p",
+				"--session", state.sessionFile,
+				"--no-extensions",
+				...extensions,
+				"--model", model,
+				"--tools", tools,
+				"--thinking", "off",
+				...systemPromptArgs,
+				prompt,
+			];
+
 			if (isToolkitCliAgent(state.name)) {
 				spawnToolkitWorker({
 					name: state.name,
@@ -386,52 +413,144 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const proc = spawn("pi", [
-				"--mode", "json",
-				"-p",
-				"--session", state.sessionFile,
-				"--no-extensions",
-				...extensions,
-				"--model", model,
-				"--tools", tools,
-				"--thinking", "off",
-				...systemPromptArgs,
-				prompt,
-			], {
-				stdio: ["ignore", "pipe", "pipe"],
-				env: spawnEnv,
-			});
+			let ownedByHerdr = false;
+			let herdrCancelled = false;
 
-			state.proc = proc;
-			let buffer = "";
+			// ── Herdr transport ────────────────────────────────────────────
+			// Runs the same headless pi command inside a Herdr pane: visible,
+			// persistent across parent restarts, resumable via the session
+			// file. Completion is signalled by a marker file; authoritative
+			// result text is read from pi's session JSONL. Standby (warmup)
+			// spawns stay headless — they are an invisible pre-optimization.
+			const runHerdrTransport = async (): Promise<boolean> => {
+				if (state.standby) return false;
+				if (!herdrEnabled()) return false;
+				let tab: HerdrTabRef | null = null;
+				try {
+					const runCwd = process.cwd();
+					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
+					if (!wsId) return false;
 
-			proc.stdout!.setEncoding("utf-8");
-			proc.stdout!.on("data", (chunk: string) => {
-				buffer += chunk;
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-				for (const line of lines) processLine(state, line);
-			});
+					const launchId = `sa${state.id}`;
+					const refs = writeLaunchScript({
+						dir: path.dirname(state.sessionFile),
+						id: launchId,
+						cwd: runCwd,
+						command: ["pi", ...argv],
+						env: spawnEnv,
+					});
 
-			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", (chunk: string) => {
-				if (chunk.trim()) {
-					state.textChunks.push(chunk);
-					invalidateWidget(state.id);
+					tab = createHerdrTaskTab(wsId, runCwd, `ap-${launchId}`);
+					if (!tab) {
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+
+					// Duck-typed process handle: escape-cancel / watchdog /
+					// /subrm all funnel through kill() → close the pane.
+					state.proc = {
+						kill: () => {
+							herdrCancelled = true;
+							closeHerdrTab(tab!);
+						},
+						once: () => {},
+						removeListener: () => {},
+					} as any;
+
+					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					if (!sent) {
+						state.proc = undefined;
+						closeHerdrTab(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+					ownedByHerdr = true;
+
+					// Live dashboard: poll the session JSONL for latest text.
+					const liveTimer = setInterval(() => {
+						if (herdrCancelled) return;
+						try {
+							const { text } = readLastAssistantText(state.sessionFile);
+							if (text) {
+								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+								if (last && state.summary !== last) {
+									state.summary = last;
+									invalidateWidget(state.id);
+								}
+							}
+						} catch {}
+					}, 3000);
+
+					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => herdrCancelled);
+					clearInterval(liveTimer);
+					cleanupLaunchFiles(refs);
+
+					if (herdrCancelled) {
+						finish(130);
+						return true;
+					}
+					if (exitCode === null) {
+						finish(1);
+						return true;
+					}
+
+					// Authoritative result text from the session JSONL.
+					const { text } = readLastAssistantText(state.sessionFile);
+					finish(exitCode, text || undefined);
+					closeHerdrTab(tab);
+					return true;
+				} catch {
+					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					// Already driving this agent in a pane — never double-run headless.
+					if (ownedByHerdr && !herdrCancelled) {
+						finish(1);
+						return true;
+					}
+					return false;
 				}
-			});
+			};
 
-			proc.on("close", (code) => {
-				if (buffer.trim()) processLine(state, buffer);
-				finish(code);
-			});
+			const runHeadless = () => {
+				const proc = spawn("pi", argv, {
+					stdio: ["ignore", "pipe", "pipe"],
+					env: spawnEnv,
+				});
 
-			proc.on("error", (err) => {
-				state.textChunks.push(`Error: ${err.message}`);
-				finish(1);
-			});
+				state.proc = proc;
+				let buffer = "";
 
-			proc.on("exit", () => { clearInterval(timer); });
+				proc.stdout!.setEncoding("utf-8");
+				proc.stdout!.on("data", (chunk: string) => {
+					buffer += chunk;
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+					for (const line of lines) processLine(state, line);
+				});
+
+				proc.stderr!.setEncoding("utf-8");
+				proc.stderr!.on("data", (chunk: string) => {
+					if (chunk.trim()) {
+						state.textChunks.push(chunk);
+						invalidateWidget(state.id);
+					}
+				});
+
+				proc.on("close", (code) => {
+					if (buffer.trim()) processLine(state, buffer);
+					finish(code);
+				});
+
+				proc.on("error", (err) => {
+					state.textChunks.push(`Error: ${err.message}`);
+					finish(1);
+				});
+
+				proc.on("exit", () => { clearInterval(timer); });
+			};
+
+			runHerdrTransport().then((ok) => {
+				if (!ok) runHeadless();
+			});
 		});
 	}
 

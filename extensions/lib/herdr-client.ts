@@ -163,8 +163,9 @@ export interface LaunchScriptOpts {
 	cwd: string;
 	/** argv for the command (e.g. ["pi", "--mode", "json", ...]). */
 	command: string[];
-	/** Extra env vars for the command, e.g. PI_SUBAGENT=1. */
-	env?: Record<string, string>;
+	/** Extra env vars for the command, e.g. PI_SUBAGENT=1.
+	 *  Undefined values are skipped (never serialized). */
+	env?: Record<string, string | undefined>;
 }
 
 export interface LaunchScriptRefs {
@@ -179,7 +180,8 @@ export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	const scriptPath = join(opts.dir, `herdr-launch-${opts.id}.sh`);
 	const donePath = join(opts.dir, `herdr-launch-${opts.id}.done`);
 	const envAssign = Object.entries(opts.env || {})
-		.map(([k, v]) => `export ${k}=${shellQuote(v)}`)
+		.filter(([, v]) => v !== undefined)
+		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)
 		.join("\n");
 	const quoted = opts.command.map(shellQuote).join(" ");
 	const script = `#!/bin/bash\n${envAssign}\ncd ${shellQuote(opts.cwd)} || exit 9\n${quoted}\nrc=$?\necho "$rc" > ${shellQuote(donePath)}\nexit $rc\n`;
