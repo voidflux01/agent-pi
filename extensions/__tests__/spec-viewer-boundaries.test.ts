@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { isWithinDirectory } from "../lib/path-safety.ts";
 import { generateSpecViewerHTML } from "../lib/spec-viewer-html.ts";
 
@@ -14,5 +15,8 @@ describe("spec viewer boundaries", () => {
 		expect(html).toContain("&lt;img&gt;");
 		expect(html).toContain("function sanitizeMarkdownHtml(html)");
 		expect(html).toContain("<\\/script>");
+		const source = readFileSync(new URL("../spec-viewer.ts", import.meta.url), "utf8");
+		expect(source).toContain("allowedDocument");
+		expect(source).toContain('typeof content !== "string"');
 	});
 });

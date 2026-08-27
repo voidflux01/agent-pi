@@ -446,6 +446,8 @@ export default function (pi: ExtensionAPI) {
 			if (result.modified && result.markdownChanges) {
 				for (const [relPath, content] of Object.entries(result.markdownChanges)) {
 					try {
+						const allowedDocument = documents.some((doc) => !doc.isVisuals && doc.filePath === relPath);
+						if (!allowedDocument || typeof content !== "string") continue;
 						const absPath = resolve(folderPath, relPath);
 						if (isWithinDirectory(folderPath, absPath)) {
 							const realPath = realpathSync(absPath);
