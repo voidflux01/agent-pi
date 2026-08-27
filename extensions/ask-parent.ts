@@ -6,13 +6,15 @@
 // ABOUTME: in-process, and in herdr panes alike.
 // ABOUTME: Parent side provides visibility commands; nothing here blocks the parent.
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
+import { deliverMail, listMail, readMail, settleMail, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
 
-const ASKS_DIR = join(process.cwd(), ".pi", "agent-sessions", "asks");
 const DEFAULT_TIMEOUT_S = Number(process.env.PI_ASK_PARENT_TIMEOUT_S || 600);
+// Legacy flat dir kept readable so /asks still shows pre-migration questions.
+const LEGACY_ASKS_DIR = join(process.cwd(), ".pi", "agent-sessions", "asks");
 
 export interface AskRecord {
 	id: string;
@@ -26,43 +28,76 @@ export interface AskRecord {
 	updatedAt: number;
 }
 
-export function asksDir(cwd = process.cwd()): string {
-	return join(cwd, ".pi", "agent-sessions", "asks");
+export /** One mailbox per side: questions land in "parent"'s inbox; answers go to the child's. */
+const PARENT = "parent";
+
+function toMail(rec: AskRecord): MailRecord {
+	return {
+		schema: 1,
+		id: rec.id,
+		kind: "question",
+		from: rec.agent,
+		to: PARENT,
+		expectsReply: true,
+		subject: rec.question.slice(0, 80),
+		body: rec.question,
+		options: rec.options,
+		status: rec.status,
+		answer: rec.answer,
+		createdAt: rec.createdAt,
+		updatedAt: rec.updatedAt,
+	};
 }
 
-function askPath(id: string, cwd = process.cwd()): string {
-	return join(asksDir(cwd), `${id}.json`);
+function fromMail(m: MailRecord, sessionFile?: string): AskRecord {
+	return {
+		id: m.id,
+		agent: m.from,
+		sessionFile,
+		question: m.body ?? "",
+		options: m.options,
+		status: m.status,
+		answer: m.answer,
+		createdAt: m.createdAt,
+		updatedAt: m.updatedAt,
+	};
 }
 
-function readAsk(id: string, cwd = process.cwd()): AskRecord | null {
+
+function readAsk(id: string, cwd: string | undefined, agentHint?: string): AskRecord | null {
+	const root = mailboxRoot(cwd ?? process.cwd());
+	if (agentHint) {
+		const m = readMail(root, agentHint, id);
+		if (m) return fromMail(m);
+	}
+	// Parent-side lookup: scan every inbox for the id.
+	const agentsDir = join(root, "agents");
+	if (!existsSync(agentsDir)) return null;
+	for (const dir of readdirSync(agentsDir)) {
+		const m = readMail(root, dir, id);
+		if (m && m.kind === "question") return fromMail(m);
+	}
+	return null;
+}
+
+function writeQuestion(rec: AskRecord, cwd?: string): void {
+	deliverMail(mailboxRoot(cwd ?? process.cwd()), PARENT, toMail(rec));
+}
+
+function writeAnswerToChild(id: string, answer: string, cwd?: string): boolean {
+	const root = mailboxRoot(cwd ?? process.cwd());
+	const q = readAsk(id, cwd);
+	if (!q || q.status !== "open") return false;
+	const settled = settleMail(root, PARENT, id, (m) => ({ ...m, status: "answered", answer: answer.slice(0, 4000) }));
+	if (!settled) return false;
+	// Mirror the answered record into the asking child's inbox so a polling
+	// child (possibly another runtime) sees the answer without scanning all boxes.
 	try {
-		return JSON.parse(readFileSync(askPath(id, cwd), "utf8")) as AskRecord;
-	} catch {
-		return null;
-	}
+		settleMail(root, q.agent, id, (m) => ({ ...m, status: "answered", answer: settled.answer }));
+	} catch {}
+	return true;
 }
 
-function writeAsk(rec: AskRecord, cwd = process.cwd()): void {
-	const p = askPath(rec.id, cwd);
-	const payload = JSON.stringify(rec, null, "\t") + "\n";
-	for (let attempt = 0; attempt < 10; attempt++) {
-		mkdirSync(dirname(p), { recursive: true });
-		try {
-			writeFileSync(p, payload);
-			if (readFileSync(p, "utf8") === payload) return;
-		} catch {}
-		// A worker whose module registry was previously poisoned by a node:fs
-		// mock, or transient fs pressure, can leave early writes no-op'd; a
-		// short verified retry keeps ask_parent reliable for real sub-agents.
-		await0(20 * (attempt + 1));
-	}
-	throw new Error(`writeAsk could not persist ${p}`);
-}function await0(ms: number): void {
-	const until = Date.now() + ms;
-	while (Date.now() < until) {}
-}
-
-/** Child-side API: file a blocking question, then wait for an answer. */
 export async function fileAskAndWait(
 	question: string,
 	opts: { agent: string; sessionFile?: string; options?: string[]; timeoutMs?: number; cwd?: string } ,
@@ -78,56 +113,58 @@ export async function fileAskAndWait(
 		createdAt: Date.now(),
 		updatedAt: Date.now(),
 	};
-	writeAsk(rec, opts.cwd);
+	writeQuestion(rec, opts.cwd);
 	const deadline = Date.now() + Math.min(opts.timeoutMs ?? DEFAULT_TIMEOUT_S * 1000, 30 * 60_000);
 	while (Date.now() < deadline) {
 		await new Promise((r) => setTimeout(r, 2000));
-		const cur = readAsk(id, opts.cwd);
+		const cur = readAsk(id, opts.cwd, opts.agent);
 		if (!cur) break; // deleted => treat as cancel
 		if (cur.status === "answered") return { answered: true, answer: cur.answer ?? "" };
 		if (cur.status === "cancelled" || cur.status === "expired") return { answered: false, answer: "" };
 	}
 	for (let w = 0; w < 5; w++) {
-		const cur = readAsk(id, opts.cwd);
+		const cur = readAsk(id, opts.cwd, opts.agent);
 		if (!cur || cur.status !== "open") break;
-		cur.status = "expired";
-		cur.updatedAt = Date.now();
-		writeAsk(cur, opts.cwd);
+		try {
+			settleMail(mailboxRoot(opts.cwd ?? process.cwd()), PARENT, id, (m) => ({ ...m, status: "expired" }));
+		} catch {}
 		await new Promise((r) => setTimeout(r, 200));
 	}
+	return { answered: false, answer: "" };
 	return { answered: false, answer: "" };
 }
 
 /** Parent/user-side: answer an open ask by id. */
 export function answerAsk(id: string, answer: string, cwd = process.cwd()): boolean {
-	const rec = readAsk(id, cwd);
-	if (!rec || rec.status !== "open") return false;
-	rec.status = "answered";
-	rec.answer = answer.slice(0, 4000);
-	rec.updatedAt = Date.now();
-	writeAsk(rec, cwd);
-	return true;
+	return writeAnswerToChild(id, answer, cwd);
 }
 
 export function listAsks(statusFilter?: AskRecord["status"], cwd = process.cwd()): AskRecord[] {
-	const dir = asksDir(cwd);
-	if (!existsSync(dir)) return [];
+	const root = mailboxRoot(cwd ?? process.cwd());
 	const out: AskRecord[] = [];
 	try {
-		for (const f of readdirSorted(dir)) {
-			const rec = readAsk(f.replace(/\.json$/, ""), cwd);
-			if (rec && (!statusFilter || rec.status === statusFilter)) out.push(rec);
+		const agentsDir = join(root, "agents");
+		if (existsSync(agentsDir)) {
+			for (const dir of readdirSync(agentsDir)) {
+				for (const { rec: m } of listMail(root, dir, { includeAnswered: true })) {
+					if (m.kind !== "question") continue;
+					const r0 = fromMail(m);
+					if (!statusFilter || r0.status === statusFilter) out.push(r0);
+				}
+			}
+		}
+		// Legacy flat-dir questions asked before the mailbox migration.
+		if (existsSync(LEGACY_ASKS_DIR)) {
+			for (const f of readdirSync(LEGACY_ASKS_DIR).sort()) {
+				if (!f.endsWith(".json")) continue;
+				try {
+					const r1 = JSON.parse(readFileSync(join(LEGACY_ASKS_DIR, f), "utf8")) as AskRecord;
+					if (!statusFilter || r1.status === statusFilter) out.push(r1);
+				} catch {}
+			}
 		}
 	} catch {}
 	return out.sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
-}
-
-function readdirSorted(dir: string): string[] {
-	try {
-		return require("node:fs").readdirSync(dir).filter((f: string) => f.endsWith(".json")).sort();
-	} catch {
-		return [];
-	}
 }
 
 export default function (pi: ExtensionAPI) {

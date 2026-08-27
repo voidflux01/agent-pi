@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { fileAskAndWait, answerAsk, listAsks, asksDir, type AskRecord } from "../ask-parent.ts";
+import { fileAskAndWait, answerAsk, listAsks, type AskRecord } from "../ask-parent.ts";
+import { deliverMail, settleMail, listMail, readMail } from "../lib/fleet-mailbox.ts";
 import { mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,4 +38,36 @@ describe("ask_parent mailbox", () => {
 		const expired = listAsks("expired", cwd);
 		expect(expired.length).toBe(1);
 	}, 20_000);
+});
+
+
+describe("fleet-mailbox", () => {
+	test("deliver is atomic + idempotent on same payload, collides on different payload", () => {
+		const root = join(mkdtempSync(join(tmpdir(), "fmb-")), "root");
+		const base = { schema: 1 as const, kind: "question" as const, from: "scout", to: "parent", expectsReply: true, status: "open" as const, createdAt: 1, updatedAt: 1 };
+		const a = { ...base, id: "m1", body: "one" };
+		expect(() => deliverMail(root, "parent", a)).not.toThrow();
+		const path = deliverMail(root, "parent", { ...base, id: "m1", body: "one" });
+		expect(existsSync(path)).toBe(true);
+		expect(() => deliverMail(root, "parent", { ...base, id: "m1", body: "different" })).toThrow(/collision/);
+	});
+
+	test("settle moves new -> cur and readMail finds it in either", () => {
+		const root = join(mkdtempSync(join(tmpdir(), "fmb-")), "root");
+		deliverMail(root, "builder", { schema: 1, kind: "question", from: "scout", to: "parent", status: "open", createdAt: 2, updatedAt: 2, id: "m2", body: "q" });
+		const settled = settleMail(root, "builder", "m2", (r) => ({ ...r, status: "answered", answer: "yes" }));
+		expect(settled?.status).toBe("answered");
+		expect(readMail(root, "builder", "m2")?.answer).toBe("yes");
+	});
+
+	test("listMail sorts by createdAt and filters cur by default", () => {
+		const root = join(mkdtempSync(join(tmpdir(), "fmb-")), "root");
+		deliverMail(root, "parent", { schema: 1, kind: "question", from: "a", to: "parent", status: "open", createdAt: 5, updatedAt: 5, id: "late", body: "" });
+		deliverMail(root, "parent", { schema: 1, kind: "question", from: "a", to: "parent", status: "open", createdAt: 3, updatedAt: 3, id: "early", body: "" });
+		settleMail(root, "parent", "early", (r) => ({ ...r, status: "answered" }));
+		const openOnly = listMail(root, "parent").map((x) => x.rec.id);
+		const withCur = listMail(root, "parent", { includeAnswered: true }).map((x) => x.rec.id);
+		expect(openOnly).toEqual(["late"]);
+		expect(withCur).toEqual(["early", "late"]);
+	});
 });
