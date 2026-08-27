@@ -63,6 +63,7 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 	const tasksExtPath = join(extensionsDir, "tasks.ts");
 	const footerExtPath = join(extensionsDir, "footer.ts");
 	const memoryCycleExtPath = join(extensionsDir, "memory-cycle.ts");
+	const nudgeListenerExtPath = join(extensionsDir, "nudge-listener.ts");
 
 	const args = [
 		"--mode", "json",
@@ -71,6 +72,7 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 		"-e", tasksExtPath,
 		"-e", footerExtPath,
 		"-e", memoryCycleExtPath,
+		"-e", nudgeListenerExtPath,
 		"--model", TOOLKIT_WORKER_MODEL,
 		"--tools", agentDef.tools,
 		"--thinking", "off",
