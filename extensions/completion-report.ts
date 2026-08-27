@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { outputLine } from "./lib/output-box.ts";
@@ -16,6 +16,7 @@ import { generateCompletionReportHTML, type ReportData, type ChangedFile } from 
 import { createCompletionReportStandaloneExport, saveStandaloneExport } from "./lib/viewer-standalone-export.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -26,16 +27,16 @@ interface ReportResult {
 
 // ── Git Helpers ──────────────────────────────────────────────────────
 
-function execGit(cmd: string, cwd: string): string {
+export function execGit(args: string[], cwd: string): string {
 	try {
-		return execSync(cmd, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }).trim();
+		return execFileSync("git", args, { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] }).trim();
 	} catch {
 		return "";
 	}
 }
 
 function isGitRepo(cwd: string): boolean {
-	return execGit("git rev-parse --is-inside-work-tree", cwd) === "true";
+	return execGit(["rev-parse", "--is-inside-work-tree"], cwd) === "true";
 }
 
 /**
@@ -49,7 +50,7 @@ function resolveBaseRef(cwd: string, explicitRef?: string): string {
 	if (explicitRef) return explicitRef;
 
 	// Check if there are uncommitted changes (staged or unstaged)
-	const status = execGit("git status --porcelain", cwd);
+	const status = execGit(["status", "--porcelain"], cwd);
 	if (status.length > 0) {
 		return "HEAD";
 	}
@@ -83,7 +84,7 @@ function getFileStatuses(cwd: string, baseRef: string): Map<string, { status: Ch
 	// For uncommitted changes
 	if (baseRef === "HEAD") {
 		// Unstaged changes
-		const unstaged = execGit("git diff --name-status", cwd);
+		const unstaged = execGit(["diff", "--name-status"], cwd);
 		for (const line of unstaged.split("\n").filter(Boolean)) {
 			const [status, ...parts] = line.split("\t");
 			const filePath = parts[parts.length - 1];
@@ -99,7 +100,7 @@ function getFileStatuses(cwd: string, baseRef: string): Map<string, { status: Ch
 		}
 
 		// Staged changes
-		const staged = execGit("git diff --cached --name-status", cwd);
+		const staged = execGit(["diff", "--cached", "--name-status"], cwd);
 		for (const line of staged.split("\n").filter(Boolean)) {
 			const [status, ...parts] = line.split("\t");
 			const filePath = parts[parts.length - 1];
@@ -117,7 +118,7 @@ function getFileStatuses(cwd: string, baseRef: string): Map<string, { status: Ch
 		}
 
 		// Untracked files
-		const untracked = execGit("git ls-files --others --exclude-standard", cwd);
+		const untracked = execGit(["ls-files", "--others", "--exclude-standard"], cwd);
 		for (const filePath of untracked.split("\n").filter(Boolean)) {
 			if (!statusMap.has(filePath)) {
 				statusMap.set(filePath, { status: "added" });
@@ -125,7 +126,7 @@ function getFileStatuses(cwd: string, baseRef: string): Map<string, { status: Ch
 		}
 	} else {
 		// Committed changes
-		const output = execGit(`git diff --name-status ${baseRef}`, cwd);
+		const output = execGit(["diff", "--name-status", "--end-of-options", baseRef], cwd);
 		for (const line of output.split("\n").filter(Boolean)) {
 			const [status, ...parts] = line.split("\t");
 			const filePath = parts[parts.length - 1];
@@ -169,11 +170,11 @@ function gatherReportData(cwd: string, title: string, summary: string, baseRef: 
 	let numstatOutput: string;
 	if (resolvedRef === "HEAD") {
 		// Combine staged + unstaged + untracked
-		const unstaged = execGit("git diff --numstat", cwd);
-		const staged = execGit("git diff --cached --numstat", cwd);
+		const unstaged = execGit(["diff", "--numstat"], cwd);
+		const staged = execGit(["diff", "--cached", "--numstat"], cwd);
 		numstatOutput = [unstaged, staged].filter(Boolean).join("\n");
 	} else {
-		numstatOutput = execGit(`git diff --numstat ${resolvedRef}`, cwd);
+		numstatOutput = execGit(["diff", "--numstat", "--end-of-options", resolvedRef], cwd);
 	}
 
 	const stats = parseNumstat(numstatOutput);
@@ -188,12 +189,12 @@ function gatherReportData(cwd: string, title: string, summary: string, baseRef: 
 
 		if (resolvedRef === "HEAD") {
 			// Try unstaged first, then staged
-			diff = execGit(`git diff -- "${stat.path}"`, cwd);
+			diff = execGit(["diff", "--", stat.path], cwd);
 			if (!diff) {
-				diff = execGit(`git diff --cached -- "${stat.path}"`, cwd);
+				diff = execGit(["diff", "--cached", "--", stat.path], cwd);
 			}
 		} else {
-			diff = execGit(`git diff ${resolvedRef} -- "${stat.path}"`, cwd);
+			diff = execGit(["diff", "--end-of-options", resolvedRef, "--", stat.path], cwd);
 		}
 
 		files.push({
@@ -208,7 +209,7 @@ function gatherReportData(cwd: string, title: string, summary: string, baseRef: 
 
 	// Also add untracked files if diffing against HEAD
 	if (resolvedRef === "HEAD") {
-		const untracked = execGit("git ls-files --others --exclude-standard", cwd);
+		const untracked = execGit(["ls-files", "--others", "--exclude-standard"], cwd);
 		for (const filePath of untracked.split("\n").filter(Boolean)) {
 			if (!files.some((f) => f.path === filePath)) {
 				if (shouldSuppressReportFile(filePath)) {
@@ -274,8 +275,9 @@ function gatherReportData(cwd: string, title: string, summary: string, baseRef: 
 function startReportServer(
 	report: ReportData,
 	cwd: string,
-): Promise<{ port: number; server: Server; waitForResult: () => Promise<ReportResult> }> {
+): Promise<{ port: number; server: Server; waitForResult: () => Promise<ReportResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
+		const auth = createLocalServerAuth();
 		let resolveResult: (result: ReportResult) => void;
 		let settled = false;
 		const settle = (result: ReportResult) => {
@@ -288,17 +290,8 @@ function startReportServer(
 		});
 
 		const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-			res.setHeader("Access-Control-Allow-Origin", "*");
-			res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-			res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-			if (req.method === "OPTIONS") {
-				res.writeHead(204);
-				res.end();
-				return;
-			}
-
 			const url = new URL(req.url || "/", `http://localhost`);
+			if (!authorizeLocalServerRequest(req, res, auth, url)) return;
 
 			// Serve the main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
@@ -330,18 +323,22 @@ function startReportServer(
 				req.on("end", () => {
 					try {
 						const data = JSON.parse(body);
-						const files: string[] = data.files || [];
-						const baseRef: string = data.baseRef || "HEAD";
+						const files: string[] = Array.isArray(data.files)
+							? data.files.filter((filePath: unknown): filePath is string => typeof filePath === "string")
+							: [];
+						const baseRef: string = typeof data.baseRef === "string" && data.baseRef.length > 0 ? data.baseRef : "HEAD";
+						const allowedFiles = new Set(report.files.flatMap((file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])]));
 						const errors: string[] = [];
 
 						for (const filePath of files) {
 							try {
+								if (!allowedFiles.has(filePath)) throw new Error("File is not part of this report");
 								if (baseRef === "HEAD") {
 									// For uncommitted changes, checkout from HEAD
-									execSync(`git checkout HEAD -- "${filePath}"`, { cwd, encoding: "utf-8" });
+									execFileSync("git", ["checkout", "HEAD", "--", filePath], { cwd, encoding: "utf-8" });
 								} else {
 									// For committed changes, checkout from the base ref
-									execSync(`git checkout ${baseRef} -- "${filePath}"`, { cwd, encoding: "utf-8" });
+									execFileSync("git", ["checkout", "--end-of-options", baseRef, "--", filePath], { cwd, encoding: "utf-8" });
 								}
 							} catch (err: any) {
 								errors.push(`${filePath}: ${err.message}`);
@@ -435,6 +432,7 @@ function startReportServer(
 				port: addr.port,
 				server,
 				waitForResult: () => resultPromise,
+				auth,
 			});
 		});
 	});
@@ -442,13 +440,13 @@ function startReportServer(
 
 function openBrowser(url: string): void {
 	try {
-		execSync(`open "${url}"`, { stdio: "ignore" });
+		execFileSync("open", [url], { stdio: "ignore" });
 	} catch {
 		try {
-			execSync(`xdg-open "${url}"`, { stdio: "ignore" });
+			execFileSync("xdg-open", [url], { stdio: "ignore" });
 		} catch {
 			try {
-				execSync(`start "${url}"`, { stdio: "ignore" });
+				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
 			} catch {}
 		}
 	}
@@ -523,10 +521,11 @@ export default function (pi: ExtensionAPI) {
 			cleanupServer();
 
 			// Start server and open browser
-			const { port, server, waitForResult } = await startReportServer(report, cwd);
+			const { port, server, waitForResult, auth } = await startReportServer(report, cwd);
 			activeServer = server;
 
 			const url = `http://127.0.0.1:${port}`;
+			const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 			activeSession = {
 				kind: "report",
 				title,
@@ -538,7 +537,7 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 			registerActiveViewer(activeSession);
-			openBrowser(url);
+			openBrowser(launchUrl);
 			notifyViewerOpen(ctx, activeSession);
 
 			// Wait for user to close the report
@@ -566,12 +565,12 @@ export default function (pi: ExtensionAPI) {
 				} catch {}
 
 				const rolledBack = result.rolledBackFiles.length;
-				const summary = rolledBack > 0
+				const closedSummary = rolledBack > 0
 					? `Report closed. ${rolledBack} file${rolledBack > 1 ? "s" : ""} rolled back: ${result.rolledBackFiles.join(", ")}`
 					: "Report closed. No files were rolled back.";
 
 				return {
-					content: [{ type: "text" as const, text: summary }],
+					content: [{ type: "text" as const, text: closedSummary }],
 					details: {
 						action: result.action,
 						rolledBackFiles: result.rolledBackFiles,
@@ -649,10 +648,11 @@ export default function (pi: ExtensionAPI) {
 
 			cleanupServer();
 
-			const { port, server, waitForResult } = await startReportServer(report, cwd);
+			const { port, server, waitForResult, auth } = await startReportServer(report, cwd);
 			activeServer = server;
 
 			const url = `http://127.0.0.1:${port}`;
+			const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 			activeSession = {
 				kind: "report",
 				title: "Completion Report",
@@ -664,7 +664,7 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 			registerActiveViewer(activeSession);
-			openBrowser(url);
+			openBrowser(launchUrl);
 			notifyViewerOpen(ctx, activeSession);
 
 			const result = await waitForResult();
