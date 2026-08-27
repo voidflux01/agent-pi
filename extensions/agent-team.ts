@@ -918,7 +918,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
-		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names.",
+		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names. When reporting the outcome to the user: lead with the result and the next decision; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
 		parameters: Type.Object({
 			agent: Type.String({ description: "Agent name (case-insensitive)" }),
 			task: Type.String({ description: "Task description for the agent to execute" }),

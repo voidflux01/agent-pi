@@ -888,7 +888,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "dispatch_agents",
 		label: "Dispatch Agents",
-		description: "Dispatch one or more agents for the current pipeline phase. Agents run in parallel or sequential mode depending on the phase configuration. Use this in phases 2-5 to do the actual work.",
+		description: "Dispatch one or more agents for the current pipeline phase. Agents run in parallel or sequential mode depending on the phase configuration. Use this in phases 2-5 to do the actual work. When reporting outcomes to the user: lead with results and next decisions; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				role: Type.String({ description: "Agent role name (e.g. 'scout', 'builder', 'reviewer')" }),
