@@ -31,6 +31,7 @@ import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-li
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
+import { persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import {
 	cleanupLaunchFiles,
 	closeHerdrTab,
@@ -346,6 +347,17 @@ export default function (pi: ExtensionAPI) {
 
 				const result = externalFull ?? state.textChunks.join("");
 
+				// Archive the FULL transcript like team/chain/pipeline runs do,
+				// so long results survive the 8k follow-up message cap.
+				let fullOutputPath = "";
+				try {
+					fullOutputPath = persistFullOutput(
+						path.join(process.cwd(), ".pi", "agent-sessions"),
+						runBaseName(`${state.name.toLowerCase()}-sa${state.id}`, state.turnCount),
+						result,
+					);
+				} catch {}
+
 				// Standby spawns (warmup) suppress notification and follow-up message
 				if (!state.standby) {
 					ctx.ui.notify(
@@ -355,7 +367,7 @@ export default function (pi: ExtensionAPI) {
 
 					pi.sendMessage({
 						customType: "subagent-result",
-						content: `SA${state.id} (${state.name})${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}`,
+						content: `SA${state.id} (${state.name})${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}${fullOutputPath ? `\n\nFull transcript (${result.length} chars): ${fullOutputPath}` : ""}`,
 						display: true,
 					}, { deliverAs: "followUp", triggerTurn: true });
 				} else {
