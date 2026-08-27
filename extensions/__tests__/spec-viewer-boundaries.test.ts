@@ -14,6 +14,9 @@ describe("spec viewer boundaries", () => {
 		const html = generateSpecViewerHTML({ title: "<img>", port: 1, documents: [{ key: "spec", label: "<script>alert(1)</script>", markdown: "</script><img src=x>", filePath: "spec.md" }] });
 		expect(html).toContain("&lt;img&gt;");
 		expect(html).toContain("function sanitizeMarkdownHtml(html)");
+		expect(html).toContain("escapeHtml(doc.label)");
+		expect(html).toContain("escapeHtml(JSON.stringify(String(c.id)))");
+		expect(html).toContain("escapeHtml(JSON.stringify(url))");
 		expect(html).toContain("<\\/script>");
 		const source = readFileSync(new URL("../spec-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("allowedDocument");

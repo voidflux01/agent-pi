@@ -883,7 +883,7 @@ export function generateSpecViewerHTML(opts: {
       const hasComments = getCommentsForDoc(doc.key).length > 0 ? ' has-comments' : '';
       html += '<div class="step-item' + active + hasComments + '" onclick="goToStep(' + idx + ')">' +
         '<span class="step-num">' + (idx + 1) + '</span>' +
-        doc.label +
+        escapeHtml(doc.label) +
         '<div class="step-comment-dot"></div>' +
         '</div>';
     });
@@ -986,11 +986,11 @@ export function generateSpecViewerHTML(opts: {
 
       if (ext === 'html' || ext === 'htm') {
         html += '<div class="visual-card">' +
-          '<iframe src="' + url + '" sandbox="allow-scripts"></iframe>' +
+          '<iframe src="' + escapeHtml(url) + '" sandbox="allow-scripts"></iframe>' +
           '<div class="visual-caption">' + escapeHtml(name) + '</div></div>';
       } else {
-        html += '<div class="visual-card" onclick="openLightbox(\\'' + url + '\\')">' +
-          '<img src="' + url + '" alt="' + escapeHtml(name) + '" loading="lazy">' +
+        html += '<div class="visual-card" onclick="openLightbox(' + escapeHtml(JSON.stringify(url)) + ')">' +
+          '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(name) + '" loading="lazy">' +
           '<div class="visual-caption">' + escapeHtml(name) + '</div></div>';
       }
     });
@@ -1126,7 +1126,7 @@ export function generateSpecViewerHTML(opts: {
       var time = new Date(c.timestamp);
       var timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       html += '<div class="comment-card">' +
-        '<button class="comment-delete" onclick="deleteComment(\\'' + c.id + '\\')" title="Delete comment">' +
+        '<button class="comment-delete" onclick="deleteComment(' + escapeHtml(JSON.stringify(String(c.id))) + ')" title="Delete comment">' +
         '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
         '</button>' +
         '<div class="comment-section-ref">' + escapeHtml(c.sectionText || '(section)') + '</div>' +
