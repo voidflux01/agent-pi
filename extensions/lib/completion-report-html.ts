@@ -1,9 +1,14 @@
+import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
 // ABOUTME: Self-contained HTML template for the Completion Report viewer GUI window.
 // ABOUTME: Renders work summary, file diffs with syntax highlighting, and per-file rollback controls.
 
 /**
  * Data structure for a single changed file.
  */
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
+
 export interface ChangedFile {
 	path: string;
 	status: "modified" | "added" | "deleted" | "renamed";
@@ -46,7 +51,7 @@ export function generateCompletionReportHTML(opts: {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${report.title} — Completion Report</title>
+<title>${escapeHtml(report.title)} — Completion Report</title>
 <style>
   :root {
     --bg: #1a1d23;
@@ -814,7 +819,7 @@ export function generateCompletionReportHTML(opts: {
 </div>
 
 <!-- marked.js (markdown parser) -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<script>${SAFE_MARKDOWN_RUNTIME}<\/script>
 
 <script>
 (function() {
@@ -826,7 +831,24 @@ export function generateCompletionReportHTML(opts: {
 
   // ── Init ──────────────────────────────────────
   function init() {
-    if (typeof marked !== 'undefined') {
+    function sanitizeMarkdownHtml(html) {
+    var template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('script, iframe, object, embed, applet, form, base, meta, link').forEach(function (node) { node.remove(); });
+    template.content.querySelectorAll('*').forEach(function (node) {
+      Array.from(node.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        var value = attr.value.trim();
+        if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'style') { node.removeAttribute(attr.name); return; }
+        if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction') && !/^(https?:|mailto:|tel:|#|\/)/i.test(value)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  }
+
+  if (typeof marked !== 'undefined') {
       marked.setOptions({ gfm: true, breaks: true });
     }
 
@@ -879,7 +901,7 @@ export function generateCompletionReportHTML(opts: {
   function renderMarkdownWithTables(md) {
     let html = '';
     try {
-      html = marked.parse(md);
+      html = sanitizeMarkdownHtml(marked.parse(md));
     } catch (e) {
       html = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\\n/g,'<br>');
     }
@@ -1109,7 +1131,7 @@ export function generateCompletionReportHTML(opts: {
     confirmBtn.textContent = 'Rolling back...';
     confirmBtn.disabled = true;
 
-    fetch('http://localhost:' + PORT + '/rollback', {
+    fetch('http://127.0.0.1:' + PORT + '/rollback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: files, baseRef: report.baseRef }),
@@ -1152,7 +1174,7 @@ export function generateCompletionReportHTML(opts: {
 
   // ── Result Communication ──────────────────────
   function sendResult(action, files) {
-    fetch('http://localhost:' + PORT + '/result', {
+    fetch('http://127.0.0.1:' + PORT + '/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1185,7 +1207,7 @@ export function generateCompletionReportHTML(opts: {
   }
 
   function handleDone() {
-    fetch('http://localhost:' + PORT + '/result', {
+    fetch('http://127.0.0.1:' + PORT + '/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1205,7 +1227,7 @@ export function generateCompletionReportHTML(opts: {
 
   window.addEventListener('pagehide', function() {
     try {
-      navigator.sendBeacon('http://localhost:' + PORT + '/result', JSON.stringify({
+      navigator.sendBeacon('http://127.0.0.1:' + PORT + '/result', JSON.stringify({
         action: 'closed',
         rolledBackFiles: Array.from(rolledBackFiles)
       }));
@@ -1224,7 +1246,7 @@ export function generateCompletionReportHTML(opts: {
 
   window.saveReport = function() {
     const text = buildReportText();
-    fetch('http://localhost:' + PORT + '/save', {
+    fetch('http://127.0.0.1:' + PORT + '/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: text }),
@@ -1239,7 +1261,7 @@ export function generateCompletionReportHTML(opts: {
   };
 
   window.downloadStandalone = function() {
-    fetch('http://localhost:' + PORT + '/export-standalone', {
+    fetch('http://127.0.0.1:' + PORT + '/export-standalone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     })

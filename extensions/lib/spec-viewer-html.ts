@@ -1,5 +1,10 @@
+import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
 // ABOUTME: Self-contained HTML template for the Spec Viewer GUI window.
 // ABOUTME: Multi-page wizard with step navigation, inline comments, markdown editing, visuals gallery, approve/request-changes.
+
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
 
 export interface SpecDocument {
 	/** Unique key (e.g. "spec", "requirements", "tasks", "visuals") */
@@ -37,7 +42,7 @@ export function generateSpecViewerHTML(opts: {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title} — Spec Viewer</title>
+<title>${escapeHtml(title)} — Spec Viewer</title>
 <style>
   :root {
     --bg: #1a1d23;
@@ -746,7 +751,7 @@ export function generateSpecViewerHTML(opts: {
 <!-- Header -->
 <div class="header">
   <span class="badge">SPEC</span>
-  <span class="title" id="titleText">${title}</span>
+  <span class="title" id="titleText">${escapeHtml(title)}</span>
   <span class="comment-count" id="commentCount"></span>
   <span class="modified-badge" id="modifiedBadge">modified</span>
   <img src="/logo.png" alt="agent" class="header-logo">
@@ -819,7 +824,7 @@ export function generateSpecViewerHTML(opts: {
 </div>
 
 <!-- marked.js CDN -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<script>${SAFE_MARKDOWN_RUNTIME}<\/script>
 
 <script>
 (function() {
@@ -843,6 +848,23 @@ export function generateSpecViewerHTML(opts: {
   });
 
   // ── Marked config ─────────────────────────────
+  function sanitizeMarkdownHtml(html) {
+    var template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('script, iframe, object, embed, applet, form, base, meta, link').forEach(function (node) { node.remove(); });
+    template.content.querySelectorAll('*').forEach(function (node) {
+      Array.from(node.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        var value = attr.value.trim();
+        if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'style') { node.removeAttribute(attr.name); return; }
+        if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction') && !/^(https?:|mailto:|tel:|#|\/)/i.test(value)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  }
+
   if (typeof marked !== 'undefined') {
     marked.setOptions({ gfm: true, breaks: true });
   }
@@ -932,7 +954,7 @@ export function generateSpecViewerHTML(opts: {
     var md = docMarkdown[doc.key] || '';
     // Pre-process: escape "N." in checkbox items to prevent nested ordered lists
     md = md.replace(/^(\\s*- \\[[ xX]\\] )(\\d+)\\./gm, '$1$2\\\\.');
-    var html = marked.parse(md);
+    var html = sanitizeMarkdownHtml(marked.parse(md));
     renderedView.innerHTML = html;
 
     // Make sections commentable

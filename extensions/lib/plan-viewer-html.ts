@@ -1,3 +1,4 @@
+import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
 // ABOUTME: Self-contained HTML template for the Plan Viewer GUI window.
 // ABOUTME: Renders markdown with marked.js, supports checkboxes, inline editing, reorder, approve/decline.
 
@@ -5,6 +6,10 @@
  * Generate the full HTML page for the plan viewer window.
  * This is a single self-contained page with all CSS/JS inlined.
  */
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
+
 export function generatePlanViewerHTML(opts: {
 	markdown: string;
 	title: string;
@@ -21,7 +26,7 @@ export function generatePlanViewerHTML(opts: {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title} — Plan Viewer</title>
+<title>${escapeHtml(title)} — Plan Viewer</title>
 <style>
   :root {
     --bg: #1a1d23;
@@ -836,7 +841,7 @@ export function generatePlanViewerHTML(opts: {
   <span class="badge ${mode === "questions" ? "questions" : ""}" id="modeBadge">
     ${mode === "questions" ? "QUESTIONS" : "PLAN"}
   </span>
-  <span class="title" id="titleText">${title}</span>
+  <span class="title" id="titleText">${escapeHtml(title)}</span>
   <span class="progress" id="progressText"></span>
   <span class="modified-badge" id="modifiedBadge">modified</span>
   <img src="/logo.png" alt="agent" class="header-logo">
@@ -879,7 +884,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
 </div>
 
 <!-- marked.js (markdown parser) — loaded from CDN for simplicity -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<script>${SAFE_MARKDOWN_RUNTIME}<\/script>
 
 <script>
 (function() {
@@ -894,6 +899,23 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
   let questionCount = 0;
 
   // ── Marked config ─────────────────────────────
+  function sanitizeMarkdownHtml(html) {
+    var template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('script, iframe, object, embed, applet, form, base, meta, link').forEach(function (node) { node.remove(); });
+    template.content.querySelectorAll('*').forEach(function (node) {
+      Array.from(node.attributes).forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        var value = attr.value.trim();
+        if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'style') { node.removeAttribute(attr.name); return; }
+        if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction') && !/^(https?:|mailto:|tel:|#|\/)/i.test(value)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  }
+
   if (typeof marked !== 'undefined') {
     marked.setOptions({
       gfm: true,
@@ -923,7 +945,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
     // Pre-process to fix checkbox items with numbered prefixes (e.g. "- [ ] 1. text")
     const preprocessed = preprocessCheckboxMarkdown(markdown);
     // Parse markdown and convert checkbox syntax to interactive elements
-    let html = marked.parse(preprocessed);
+    let html = sanitizeMarkdownHtml(marked.parse(preprocessed));
 
     // Convert checkbox list items to interactive plan items
     // Handles both tight lists (<li><input>text</li>) and loose lists (<li><p><input>text</p></li>)
@@ -1145,7 +1167,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
       if (isQuestion) {
         // Flush buffer as markdown
         if (buffer.length > 0) {
-          html += '<div class="markdown-body">' + marked.parse(buffer.join('\\n')) + '</div>';
+          html += '<div class="markdown-body">' + sanitizeMarkdownHtml(marked.parse(buffer.join('\\n'))) + '</div>';
           buffer = [];
         }
         qNum++;
@@ -1170,7 +1192,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
 
     // Flush remaining buffer
     if (buffer.length > 0) {
-      html += '<div class="markdown-body">' + marked.parse(buffer.join('\\n')) + '</div>';
+      html += '<div class="markdown-body">' + sanitizeMarkdownHtml(marked.parse(buffer.join('\\n'))) + '</div>';
     }
 
     questionCount = qNum;
@@ -1474,7 +1496,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
       markdown = document.getElementById('rawEditor').value;
     }
     // Send save request to server
-    fetch('http://localhost:' + PORT + '/save', {
+    fetch('http://127.0.0.1:' + PORT + '/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markdown: markdown }),
@@ -1489,7 +1511,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
     if (currentView === 'raw') {
       markdown = document.getElementById('rawEditor').value;
     }
-    fetch('http://localhost:' + PORT + '/export-standalone', {
+    fetch('http://127.0.0.1:' + PORT + '/export-standalone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markdown: markdown }),
@@ -1529,7 +1551,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
       body.answerMap = answers;
     }
 
-    fetch('http://localhost:' + PORT + '/result', {
+    fetch('http://127.0.0.1:' + PORT + '/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

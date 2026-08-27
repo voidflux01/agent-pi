@@ -1,6 +1,10 @@
 // ABOUTME: Self-contained HTML template for a lightweight local file viewer/editor.
 // ABOUTME: Features syntax highlighting (highlight.js), line numbers, edit/save flow, and keyboard shortcuts.
 
+function escapeHtml(value: string): string {
+	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+}
+
 export function generateFileViewerHTML(opts: {
 	title: string;
 	filePath: string;
@@ -26,8 +30,8 @@ export function generateFileViewerHTML(opts: {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${opts.title} — File Viewer</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
+<title>${escapeHtml(opts.title)} — File Viewer</title>
+<!-- Syntax highlighting is intentionally local-only; untrusted CDNs must not run in this authenticated viewer. -->
 <style>
   :root {
     --bg: #1a1d23;
@@ -402,19 +406,19 @@ export function generateFileViewerHTML(opts: {
     </div>
   </div>
 
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/typescript.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/yaml.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/dockerfile.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/bash.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/swift.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/kotlin.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/rust.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/go.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/ini.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/toml.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/makefile.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/xml.min.js"><\/script>
+
+
+
+
+
+
+
+
+
+
+
+
+
 <script>
   var PORT = ${opts.port};
   var TITLE = ${escapedTitle};
