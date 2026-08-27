@@ -19,7 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // ── detection ─────────────────────────────────────
 
@@ -98,19 +98,57 @@ export interface HerdrTabRef {
 	paneId: string;
 }
 
-/** Find a workspace by exact label; create when missing. Returns workspace id. */
-export function ensureHerdrWorkspace(label: string, cwd: string): string | null {
-	const list = herdrCli(["workspace", "list"]);
-	if (list.code !== 0) return null;
+/**
+ * Provenance ledger for workspaces agent-pi created, stored next to the
+ * task journal. Only ids recorded here are ever reused - a user's own
+ * same-label workspace can never be hijacked for task tabs.
+ */
+function workspaceLedgerPath(cwd: string): string {
+	return join(cwd, ".pi", "agent-sessions", "herdr-workspaces.json");
+}
+
+function readWorkspaceLedger(cwd: string): Record<string, string> {
 	try {
-		const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string; label: string }>;
-		const match = ws.filter((w) => w.label === label);
-		if (match.length === 1) return match[0].workspace_id;
+		return JSON.parse(readFileSync(workspaceLedgerPath(cwd), "utf8")) as Record<string, string>;
+	} catch {
+		return {};
+	}
+}
+
+function writeWorkspaceLedger(cwd: string, ledger: Record<string, string>): void {
+	try {
+		mkdirSync(dirname(workspaceLedgerPath(cwd)), { recursive: true });
+		writeFileSync(workspaceLedgerPath(cwd), JSON.stringify(ledger, null, "\t") + "\n", "utf8");
 	} catch {}
+}
+
+/**
+ * Reuse a workspace agent-pi itself created earlier (recorded in the
+ * local ledger and still listed by herdr); otherwise create one. A
+ * user's own same-label workspace is never reused because only ledgered
+ * ids count as ours. Best-effort stamping + recording: failures fall
+ * back to plain create-and-return.
+ */
+export function ensureHerdrWorkspace(label: string, cwd: string): string | null {
+	const ledger = readWorkspaceLedger(cwd);
+	const remembered = ledger[label];
+	if (remembered) {
+		const list = herdrCli(["workspace", "list"]);
+		if (list.code === 0) {
+			try {
+				const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string }>;
+				if (ws.some((w) => w.workspace_id === remembered)) return remembered;
+			} catch {}
+		}
+	}
 	const created = herdrCli(["workspace", "create", "--label", label, "--cwd", cwd]);
 	if (created.code !== 0) return null;
 	try {
-		return JSON.parse(created.stdout).result?.workspace?.workspace_id ?? null;
+		const id = JSON.parse(created.stdout).result?.workspace?.workspace_id ?? null;
+		if (id) {
+			writeWorkspaceLedger(cwd, { ...ledger, [label]: id });
+		}
+		return id;
 	} catch {
 		return null;
 	}
