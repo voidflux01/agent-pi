@@ -326,6 +326,7 @@ export default function (pi: ExtensionAPI) {
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
 		const tasksExtPath = join(extDir, "tasks.ts");
+		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
 		// Durable journal record — survives parent restarts (see /agents-status).
@@ -352,6 +353,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", tasksExtPath,
 			"-e", footerExtPath,
 			"-e", memoryCycleExtPath,
+			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--thinking", "off",
@@ -450,7 +452,12 @@ export default function (pi: ExtensionAPI) {
 						id: journalId,
 						cwd: ctx.cwd,
 						command: ["pi", ...args],
-						env: { ...process.env, PI_SUBAGENT: "1" },
+						env: {
+					...process.env,
+					PI_SUBAGENT: "1",
+					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
+					PI_SESSION_FILE: agentSessionFile || undefined,
+				},
 					});
 
 					tab = createHerdrTaskTab(wsId, ctx.cwd, `ap-${journalId}`);
@@ -524,7 +531,12 @@ export default function (pi: ExtensionAPI) {
 			const runHeadless = () => {
 				const proc = spawn("pi", args, {
 					stdio: ["ignore", "pipe", "pipe"],
-					env: { ...process.env, PI_SUBAGENT: "1" },
+					env: {
+					...process.env,
+					PI_SUBAGENT: "1",
+					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
+					PI_SESSION_FILE: agentSessionFile || undefined,
+				},
 					cwd: ctx.cwd,
 				});
 

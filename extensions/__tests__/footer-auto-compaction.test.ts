@@ -8,14 +8,6 @@ vi.mock("@mariozechner/pi-tui", () => ({
 	truncateToWidth: (s: string) => s,
 }));
 
-vi.mock("node:fs", () => ({
-	existsSync: vi.fn(() => false),
-	mkdirSync: vi.fn(),
-	readFileSync: vi.fn(() => ""),
-	writeFileSync: vi.fn(),
-	appendFileSync: vi.fn(),
-}));
-
 function createExtension() {
 	const handlers: Record<string, (event: unknown, ctx: any) => any> = {};
 	const pi: any = {
@@ -27,9 +19,7 @@ function createExtension() {
 }
 
 describe("footer (post-refactor)", () => {
-	beforeEach(() => {
-		vi.resetModules();
-	});
+
 
 	it("does not register a before_agent_start handler (moved to memory-cycle)", async () => {
 		const { handlers, pi } = createExtension();
@@ -61,7 +51,7 @@ describe("formatTokens", () => {
 	let formatTokens: (n: number) => string;
 
 	beforeEach(async () => {
-		vi.resetModules();
+		// module freshness per test handled via freshFooter()
 		const mod = await import("../footer.ts");
 		formatTokens = mod.formatTokens;
 	});

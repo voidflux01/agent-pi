@@ -269,7 +269,8 @@ export default function (pi: ExtensionAPI) {
 
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
-		const extensions = ["-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath];
+		const askParentExtPath = path.join(extDir, "ask-parent.ts");
+		const extensions = ["-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath, "-e", askParentExtPath];
 		if (commanderAvail) {
 			// Commander tools are extension-registered (not built-in), so they must NOT
 			// go in --tools (which only accepts built-in names and warns on unknowns).
@@ -300,7 +301,12 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		const spawnEnv: Record<string, string | undefined> = { ...process.env, PI_SUBAGENT: "1" };
+		const spawnEnv: Record<string, string | undefined> = {
+			...process.env,
+			PI_SUBAGENT: "1",
+			PI_AGENT_NAME: state.name.toLowerCase(),
+			PI_SESSION_FILE: state.sessionFile,
+		};
 		if (commanderAvail && cmdTaskId !== undefined) {
 			spawnEnv.PI_COMMANDER_TASK_ID = String(cmdTaskId);
 		}

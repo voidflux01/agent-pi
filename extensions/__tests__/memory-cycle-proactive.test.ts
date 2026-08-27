@@ -17,14 +17,6 @@ vi.mock("@sinclair/typebox", () => ({
 	},
 }));
 
-vi.mock("node:fs", () => ({
-	existsSync: vi.fn(() => false),
-	mkdirSync: vi.fn(),
-	readFileSync: vi.fn(() => ""),
-	writeFileSync: vi.fn(),
-	appendFileSync: vi.fn(),
-}));
-
 type Handler = (event: any, ctx: any) => Promise<any>;
 
 interface MockPi {
@@ -80,10 +72,11 @@ async function fireEvent(pi: MockPi, event: string, ctx: any): Promise<any> {
 describe("memory-cycle proactive compaction", () => {
 	let pi: MockPi;
 
+	let modSeq = 0;
 	beforeEach(async () => {
-		vi.resetModules();
+		modSeq++;
 		pi = createMockPi();
-		const extension = await import("../memory-cycle.ts");
+		const extension = await import(`../memory-cycle.ts?fresh=${modSeq}`);
 		extension.default(pi as any);
 	});
 

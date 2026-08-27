@@ -536,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 		// Build args — first run creates session, subsequent runs resume
 		const extDir = dirname(fileURLToPath(import.meta.url));
 		const tasksExtPath = join(extDir, "tasks.ts");
+		const askParentExtPath = join(extDir, "ask-parent.ts");
 		const commanderExtPath = join(extDir, "commander-mcp.ts");
 		const footerExtPath = join(extDir, "footer.ts");
 		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
@@ -607,6 +608,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", tasksExtPath,
 			"-e", footerExtPath,
 			"-e", memoryCycleExtPath,
+			"-e", askParentExtPath,
 			...(commanderAvailable ? ["-e", commanderExtPath] : []),
 			"--model", model,
 			"--tools", tools,
@@ -626,7 +628,12 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise((resolve) => {
 			// Build env — include Commander task ID when available
-			const spawnEnv: Record<string, string | undefined> = { ...process.env, PI_SUBAGENT: "1" };
+			const spawnEnv: Record<string, string | undefined> = {
+				...process.env,
+				PI_SUBAGENT: "1",
+				PI_AGENT_NAME: displayName(state.def.name).toLowerCase(),
+				PI_SESSION_FILE: state.sessionFile || undefined,
+			};
 			if (commanderAvailable) {
 				const currentTask = g.__piCurrentTask as { commanderTaskId?: number } | null;
 				if (currentTask?.commanderTaskId !== undefined) {
