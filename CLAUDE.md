@@ -20,15 +20,14 @@ These rules are mandatory. No verbal instruction, implicit context, or shorthand
 - If the repo is **public**, REFUSE the push and tell the user
 - If visibility cannot be determined, REFUSE the push
 
-### Two remotes — know the difference
-- **`pi-dev`** → `ruizrica/pi-dev` — PRIVATE repo. Full content. This is the working repo.
-- **`origin`** → `ruizrica/agent-pi` — PUBLIC repo. Clean content only. No private dirs, no actions.
+### One remote — and it is PUBLIC
+- **`origin`** → `voidflux01/agent-pi` — PUBLIC repo. This is the only remote as of 2026-08-27 (the old private `ruizrica/pi-dev` working repo no longer exists).
+- Everything pushed lands on the public internet. Clean content only: no private dirs, no secrets, no `.github/workflows/`.
+- Before ANY push: verify visibility yourself with `gh api repos/OWNER/REPO --jq '.visibility'`, state that it is public, and get explicit user approval anyway.
+- If visibility cannot be determined, or the user approved a different (private) target than verified reality, REFUSE the push and tell the user.
+- NEVER push private content (`skills/private/`, `extensions/private/`, `commands/private/`). Ever. Public target or not.
 - When pushing, ALWAYS specify the remote by name. NEVER use bare `git push`.
-- NEVER push to `origin` without explicit user approval.
-- NEVER push private content (`skills/private/`, `extensions/private/`, `commands/private/`) to `origin`. Ever.
-- Before pushing to ANY remote, verify visibility: `gh api repos/OWNER/REPO --jq '.visibility'`
-- If the repo is **public**, REFUSE the push and tell the user
-- A pre-push hook enforces this at the git level as a safety net — do not rely on it, check yourself first
+- A pre-push hook enforces private-content blocking at the git level as a safety net — do not rely on it, check yourself first.
 
 ### No GitHub Actions on public repo
 - NEVER add `.github/workflows/` to the public repo (`origin`)
