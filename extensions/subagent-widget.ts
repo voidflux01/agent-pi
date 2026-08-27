@@ -31,7 +31,7 @@ import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-li
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker } from "./lib/toolkit-cli.ts";
-import { persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
@@ -377,6 +377,14 @@ export default function (pi: ExtensionAPI) {
 						result,
 					);
 				} catch {}
+				// Deterministic RESULT-contract gate (zero-token; tiber-inspired).
+				let contractProblems: string[] = [];
+				if (!state.standby) {
+					try {
+						const compliance = checkResultCompliance(result);
+						contractProblems = compliance.ok ? [] : compliance.problems;
+					} catch {}
+				}
 				// Close the journal row opened at dispatch time.
 				try {
 					journalUpdate(saOutDir, state.saRunId ?? "", {
@@ -384,6 +392,7 @@ export default function (pi: ExtensionAPI) {
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						outputFile: fullOutputPath || undefined,
+						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
 					});
 				} catch {}
 
@@ -396,7 +405,7 @@ export default function (pi: ExtensionAPI) {
 
 					pi.sendMessage({
 						customType: "subagent-result",
-						content: `SA${state.id} (${state.name})${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}${fullOutputPath ? `\n\nFull transcript (${result.length} chars): ${fullOutputPath}` : ""}`,
+						content: `SA${state.id} (${state.name})${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}${fullOutputPath ? `\n\nFull transcript (${result.length} chars): ${fullOutputPath}` : ""}${contractProblems.length > 0 && contractGateEnabled() ? `\n\n⚠️ RESULT contract violated (${contractProblems.join("; ")}) — ask this sub-agent to re-emit a compliant ## RESULT block or read the full transcript yourself.` : ""}`,
 						display: true,
 					}, { deliverAs: "followUp", triggerTurn: true });
 				} else {

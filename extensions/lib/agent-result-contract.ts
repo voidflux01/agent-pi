@@ -106,6 +106,8 @@ export interface ComposedAgentResult {
 	usedResult: boolean;
 	fullChars: number;
 	resultChars: number;
+	/** Non-empty when the transcript broke the ## RESULT contract. */
+	contractProblems: string[];
 }
 
 /**
@@ -144,12 +146,60 @@ export function composeAgentResult(opts: ComposeAgentResultOptions): ComposedAge
 	const fullChars = fullText.length;
 	const pointer = `\n\nFull transcript (${fullChars} chars): ${opts.fullOutputPath}\nUse the read tool on that path for exact errors, diffs, and test output not shown above.`;
 
+	let content = `${header}${body}${pointer}`;
+	const compliance = checkResultCompliance(fullText);
+	if (!compliance.ok && contractGateEnabled()) {
+		content += `
+
+⚠️ RESULT contract violated (${compliance.problems.join("; ")}) — read the full transcript before acting on this result.`;
+	}
 	return {
-		content: `${header}${body}${pointer}`,
+		content,
 		usedResult,
 		fullChars,
 		resultChars: body.length,
+		contractProblems: compliance.problems,
 	};
+}
+
+export interface ResultCompliance {
+	ok: boolean;
+	problems: string[];
+}
+
+/**
+ * Deterministic, zero-token RESULT-contract gate. Tiber-inspired delivery
+ * check, simplified to pure mechanics: a finished sub-agent transcript must
+ * contain a ## RESULT block with a "done:" line, a "summary:" line, and an
+ * exact "## END" closer. Content quality is deliberately NOT judged here.
+ */
+export function checkResultCompliance(fullText: string): ResultCompliance {
+	const text = fullText ?? "";
+	if (!text.trim()) return { ok: false, problems: ["empty transcript"] };
+	const { found } = extractResultBlock(text);
+	if (!found) return { ok: false, problems: ["no ## RESULT block"] };
+	const problems: string[] = [];
+	const lines = text.split(/\r?\n/);
+	let start = -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (lines[i].trim() === RESULT_MARKER) start = i;
+	}
+	let closed = false;
+	for (let i = start + 1; i < lines.length; i++) {
+		if (lines[i].trim() === RESULT_END_MARKER) {
+			closed = true;
+			break;
+		}
+	}
+	if (!closed) problems.push("block not closed with ## END");
+	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(text)) problems.push('missing "done:" line');
+	if (!/(^|\n)\s*summary:\s*\S/i.test(text)) problems.push('missing "summary:"');
+	return { ok: problems.length === 0, problems };
+}
+
+/** Set PI_RESULT_CONTRACT_GATE=0 to silence warning lines (checks still run). */
+export function contractGateEnabled(): boolean {
+	return process.env.PI_RESULT_CONTRACT_GATE !== "0";
 }
 
 /** Persist the full transcript next to the agent session file. Returns the path. */
