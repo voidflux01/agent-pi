@@ -1,13 +1,29 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { isWithinDirectory } from "../lib/path-safety.ts";
 import { generateSpecViewerHTML } from "../lib/spec-viewer-html.ts";
+import { discoverSpecDocuments } from "../spec-viewer.ts";
 
 describe("spec viewer boundaries", () => {
 	it("does not confuse sibling paths with descendants", () => {
 		expect(isWithinDirectory("/tmp/project", "/tmp/project/file.md")).toBe(true);
 		expect(isWithinDirectory("/tmp/project", "/tmp/project-evil/file.md")).toBe(false);
 		expect(isWithinDirectory("/tmp/project", "/tmp/project/../secret")).toBe(false);
+	});
+
+	it("does not read markdown through an external symlink", () => {
+		const root = mkdtempSync("/tmp/pi-spec-");
+		const outside = mkdtempSync("/tmp/pi-spec-outside-");
+		try {
+			writeFileSync(`${outside}/secret.md`, "private");
+			symlinkSync(`${outside}/secret.md`, `${root}/spec.md`);
+			mkdirSync(`${root}/planning`);
+			writeFileSync(`${root}/planning/requirements.md`, "safe");
+			expect(discoverSpecDocuments(root).map((doc) => doc.filePath)).toEqual(["planning/requirements.md"]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+			rmSync(outside, { recursive: true, force: true });
+		}
 	});
 
 	it("escapes document labels and keeps script data inert", () => {

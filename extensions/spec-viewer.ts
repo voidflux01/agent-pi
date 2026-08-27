@@ -4,7 +4,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync, lstatSync } from "node:fs";
 import { join, basename, dirname, extname, resolve, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -53,99 +53,74 @@ const MIME_TYPES: Record<string, string> = {
 	".json": "application/json",
 };
 
+function readSafeSpecMarkdown(folderPath: string, filePath: string): string | null {
+	try {
+		if (lstatSync(filePath).isSymbolicLink() || !statSync(filePath).isFile()) return null;
+		const rootReal = realpathSync(folderPath);
+		const fileReal = realpathSync(filePath);
+		if (!isWithinDirectory(rootReal, fileReal)) return null;
+		return readFileSync(fileReal, "utf-8");
+	} catch {
+		return null;
+	}
+}
+
+function safeSpecDirectory(folderPath: string, directoryPath: string): string | null {
+	try {
+		if (lstatSync(directoryPath).isSymbolicLink() || !statSync(directoryPath).isDirectory()) return null;
+		const rootReal = realpathSync(folderPath);
+		const directoryReal = realpathSync(directoryPath);
+		return isWithinDirectory(rootReal, directoryReal) ? directoryReal : null;
+	} catch {
+		return null;
+	}
+}
+
 // ── Folder Discovery ─────────────────────────────────────────────────
 
-function discoverSpecDocuments(folderPath: string): SpecDocument[] {
+export function discoverSpecDocuments(folderPath: string): SpecDocument[] {
 	const docs: SpecDocument[] = [];
 
-	// 1. spec.md — main spec document
-	const specPath = join(folderPath, "spec.md");
-	if (existsSync(specPath)) {
-		docs.push({
-			key: "spec",
-			label: "Spec",
-			markdown: readFileSync(specPath, "utf-8"),
-			filePath: "spec.md",
-		});
-	}
+	const addMarkdown = (key: string, label: string, relativePath: string, absolutePath: string) => {
+		const markdown = readSafeSpecMarkdown(folderPath, absolutePath);
+		if (markdown !== null) docs.push({ key, label, markdown, filePath: relativePath });
+	};
 
-	// 2. planning/requirements.md
-	const reqPath = join(folderPath, "planning", "requirements.md");
-	if (existsSync(reqPath)) {
-		docs.push({
-			key: "requirements",
-			label: "Requirements",
-			markdown: readFileSync(reqPath, "utf-8"),
-			filePath: "planning/requirements.md",
-		});
-	}
+	addMarkdown("spec", "Spec", "spec.md", join(folderPath, "spec.md"));
+	addMarkdown("requirements", "Requirements", "planning/requirements.md", join(folderPath, "planning", "requirements.md"));
 
-	// 3. Tasks — planning/tasks.md or any tasks*.md in folder
 	const tasksPath = join(folderPath, "planning", "tasks.md");
-	if (existsSync(tasksPath)) {
-		docs.push({
-			key: "tasks",
-			label: "Tasks",
-			markdown: readFileSync(tasksPath, "utf-8"),
-			filePath: "planning/tasks.md",
-		});
+	if (readSafeSpecMarkdown(folderPath, tasksPath) !== null) {
+		addMarkdown("tasks", "Tasks", "planning/tasks.md", tasksPath);
 	} else {
-		// Check root for tasks*.md
 		try {
-			const rootFiles = readdirSync(folderPath);
-			const taskFile = rootFiles.find((f) => f.startsWith("tasks") && f.endsWith(".md"));
-			if (taskFile) {
-				docs.push({
-					key: "tasks",
-					label: "Tasks",
-					markdown: readFileSync(join(folderPath, taskFile), "utf-8"),
-					filePath: taskFile,
-				});
+			for (const file of readdirSync(folderPath)) {
+				if (!file.startsWith("tasks") || !file.endsWith(".md")) continue;
+				addMarkdown("tasks", "Tasks", file, join(folderPath, file));
+				if (docs.some((doc) => doc.key === "tasks")) break;
 			}
 		} catch {}
 	}
 
-	// 4. Visuals — planning/visuals/ folder
 	const visualsDir = join(folderPath, "planning", "visuals");
-	if (existsSync(visualsDir)) {
+	const safeVisualsDir = safeSpecDirectory(folderPath, visualsDir);
+	if (safeVisualsDir) {
 		try {
-			const visualFiles = readdirSync(visualsDir)
-				.filter((f) => {
-					const ext = extname(f).toLowerCase();
-					return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".html", ".htm"].includes(ext);
-				})
-				.map((f) => join("planning", "visuals", f));
-
-			if (visualFiles.length > 0) {
-				docs.push({
-					key: "visuals",
-					label: "Visuals",
-					markdown: "",
-					filePath: "planning/visuals/",
-					isVisuals: true,
-					visualFiles,
-				});
-			}
+			// Visuals are validated again by loadVisualAsExportAsset; discovery keeps only names.
+			const discoveredVisualFiles = readdirSync(safeVisualsDir)
+				.filter((file) => [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".html", ".htm"].includes(extname(file).toLowerCase()))
+				.map((file) => join("planning", "visuals", file));
+			if (discoveredVisualFiles.length > 0) docs.push({ key: "visuals", label: "Visuals", markdown: "", filePath: "planning/visuals/", isVisuals: true, visualFiles: discoveredVisualFiles });
 		} catch {}
 	}
 
-	// 5. Other planning docs (excluding already-added ones)
 	const planningDir = join(folderPath, "planning");
-	if (existsSync(planningDir)) {
+	const safePlanningDir = safeSpecDirectory(folderPath, planningDir);
+	if (safePlanningDir) {
 		try {
 			const knownFiles = new Set(["requirements.md", "tasks.md", "initialization.md", "questions.md"]);
-			const planningFiles = readdirSync(planningDir)
-				.filter((f) => f.endsWith(".md") && !knownFiles.has(f))
-				.sort();
-
-			for (const file of planningFiles) {
-				const key = "other-" + file.replace(".md", "");
-				docs.push({
-					key,
-					label: basename(file, ".md").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-					markdown: readFileSync(join(planningDir, file), "utf-8"),
-					filePath: join("planning", file),
-				});
+			for (const file of readdirSync(safePlanningDir).filter((name) => name.endsWith(".md") && !knownFiles.has(name)).sort()) {
+				addMarkdown("other-" + file.replace(".md", ""), basename(file, ".md").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), join("planning", file), join(safePlanningDir, file));
 			}
 		} catch {}
 	}
