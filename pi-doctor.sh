@@ -319,12 +319,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════
 section "Skills"
 
-SKILL_COUNT=0
-for skill_dir in skills/*/; do
-    if [ -f "${skill_dir}SKILL.md" ] || [ -f "${skill_dir}SKILL.md.disabled" ]; then
-        SKILL_COUNT=$((SKILL_COUNT + 1))
-    fi
-done 2>/dev/null
+SKILL_COUNT=$(find skills -name "SKILL.md" -type f 2>/dev/null | wc -l | xargs)
 
 if [ "$SKILL_COUNT" -gt 0 ]; then
     pass "Skills available ${DIM}(${SKILL_COUNT})${NC}"
