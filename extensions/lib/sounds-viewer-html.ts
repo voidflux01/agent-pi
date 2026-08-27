@@ -26,7 +26,23 @@ export function generateSoundsViewerHTML(opts: {
 }): string {
 	const { catalog, config, port } = opts;
 	const safeName = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
-	const safeCatalog = catalog.filter((item) => safeName(item.name));
+	const safeText = (value: unknown, fallback: string, maxLength: number): string => typeof value === "string" ? value.slice(0, maxLength) : fallback;
+	const safeNumber = (value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | undefined => typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : undefined;
+	const safeCatalog = catalog.filter((item) => safeName(item.name)).map((item) => ({
+		name: item.name,
+		title: safeText(item.title, item.name, 256),
+		description: safeText(item.description, "", 4096),
+		categories: Array.isArray(item.categories) ? item.categories.filter((category) => typeof category === "string" && /^[A-Za-z0-9 _-]{1,64}$/.test(category)).slice(0, 32) : [],
+		author: safeText(item.author, "", 256),
+		meta: item.meta && typeof item.meta === "object" ? {
+			duration: safeNumber(item.meta.duration, 0, 86400),
+			sizeKb: safeNumber(item.meta.sizeKb, 0, Number.MAX_SAFE_INTEGER),
+			format: safeText(item.meta.format, "", 32),
+			license: safeText(item.meta.license, "", 256),
+			tags: Array.isArray(item.meta.tags) ? item.meta.tags.filter((tag) => typeof tag === "string").map((tag) => tag.slice(0, 128)).slice(0, 32) : [],
+			keywords: Array.isArray(item.meta.keywords) ? item.meta.keywords.filter((keyword) => typeof keyword === "string").map((keyword) => keyword.slice(0, 128)).slice(0, 32) : [],
+		} : undefined,
+	}));
 	const allowedHooks = new Set(["agent_end", "agent_start", "tool_execution_start", "tool_execution_end", "turn_start", "turn_end", "session_start", "session_compact"]);
 	const safeAssignments = Object.fromEntries(Object.entries(config.assignments || {}).filter(([hook, name]) => allowedHooks.has(hook) && safeName(name)));
 	const safeConfig = { ...config, assignments: safeAssignments };

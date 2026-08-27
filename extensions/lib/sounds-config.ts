@@ -66,6 +66,11 @@ export interface SoundsConfig {
 const EXT_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 export const CONFIG_PATH = join(EXT_DIR, "sounds-config.json");
 export const SOUNDS_DIR = join(EXT_DIR, "sounds");
+const SAFE_SOUND_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function isSafeConfigSoundName(value: unknown): value is string {
+	return typeof value === "string" && SAFE_SOUND_NAME.test(value);
+}
 
 // ── Defaults ─────────────────────────────────────────────────────────
 
@@ -84,9 +89,15 @@ export function loadConfig(): SoundsConfig {
 		if (existsSync(CONFIG_PATH)) {
 			const raw = readFileSync(CONFIG_PATH, "utf-8");
 			const parsed = JSON.parse(raw);
+			const assignments: Partial<Record<HookName, string>> = {};
+			if (parsed.assignments && typeof parsed.assignments === "object" && !Array.isArray(parsed.assignments)) {
+				for (const [hook, name] of Object.entries(parsed.assignments)) {
+					if (ALL_HOOKS.includes(hook as HookName) && isSafeConfigSoundName(name)) assignments[hook as HookName] = name;
+				}
+			}
 			return {
-				assignments: parsed.assignments || {},
-				volume: typeof parsed.volume === "number" ? parsed.volume : 0.5,
+				assignments,
+				volume: typeof parsed.volume === "number" && Number.isFinite(parsed.volume) ? Math.max(0, Math.min(1, parsed.volume)) : 0.5,
 				enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
 			};
 		}

@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn, execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { SOUNDS_DIR, ensureSoundsDir } from "./sounds-config.ts";
 
 // ── Platform Detection ───────────────────────────────────────────────
@@ -16,7 +17,7 @@ let cachedPlayer: AudioPlayer | undefined;
 const SAFE_SOUND_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 function soundPath(name: string): string {
-	if (!SAFE_SOUND_NAME.test(name)) throw new Error("Invalid sound name");
+	if (typeof name !== "string" || !SAFE_SOUND_NAME.test(name)) throw new Error("Invalid sound name");
 	return join(SOUNDS_DIR, `${name}.json`);
 }
 
@@ -55,9 +56,9 @@ export function isPlaying(): boolean {
 // ── Temp File Helpers ────────────────────────────────────────────────
 
 function writeTempMp3(base64Data: string): string {
-	const tempPath = join(tmpdir(), `pi-sound-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`);
+	const tempPath = join(tmpdir(), `pi-sound-${randomBytes(16).toString("hex")}.mp3`);
 	const buffer = Buffer.from(base64Data, "base64");
-	writeFileSync(tempPath, buffer);
+	writeFileSync(tempPath, buffer, { flag: "wx", mode: 0o600 });
 	return tempPath;
 }
 
@@ -96,7 +97,7 @@ export function uninstallSound(name: string): void {
 	}
 }
 
-export function isSafeSoundName(name: string): boolean { return SAFE_SOUND_NAME.test(name); }
+export function isSafeSoundName(name: string): boolean { return typeof name === "string" && SAFE_SOUND_NAME.test(name); }
 
 export function isSoundInstalled(name: string): boolean {
 	try { return existsSync(soundPath(name)); } catch { return false; }
@@ -107,7 +108,10 @@ export function loadCachedSound(name: string): CachedSound | null {
 	try { filePath = soundPath(name); } catch { return null; }
 	try {
 		if (!existsSync(filePath)) return null;
-		return JSON.parse(readFileSync(filePath, "utf-8")) as CachedSound;
+		const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+		if (!parsed || parsed.name !== name || typeof parsed.dataUri !== "string" ||
+			parsed.dataUri.length > 12 * 1024 * 1024 || !/^data:audio\/[^;]+;base64,[A-Za-z0-9+/=]+$/.test(parsed.dataUri)) return null;
+		return parsed as CachedSound;
 	} catch {
 		return null;
 	}
