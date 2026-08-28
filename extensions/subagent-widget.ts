@@ -24,6 +24,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
+import { subagentContextBudget } from "./lib/context-budget.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
@@ -141,6 +142,7 @@ interface SubState {
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
 	standby?: boolean;         // true = warmup spawn, suppress follow-up message
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
+	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
 }
 
@@ -254,6 +256,8 @@ export default function (pi: ExtensionAPI) {
 			state.model || agentDef?.model || configModel || DEFAULT_SUBAGENT_MODEL,
 		);
 		state.model = model;
+		const contextUsage = ctx?.getContextUsage?.();
+		state.resultBudgetChars = subagentContextBudget(contextUsage?.percent, 1).resultChars;
 
 		// Journal the dispatch — id doubles as the archived-transcript base name.
 		const saDir = path.join(ctx?.cwd ?? process.cwd(), ".pi", "agent-sessions");
@@ -300,21 +304,22 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Build system prompt: agent definition prompt + Commander discipline
-		const systemPromptArgs: string[] = [];
-		if (agentDef?.systemPrompt) {
-			systemPromptArgs.push("--append-system-prompt", agentDef.systemPrompt);
-		}
+		// Build one stable prompt block instead of several append flags. This keeps
+		// the worker's system-prefix reusable for provider prompt caching and avoids
+		// repeating the same framing between runtime adapters.
+		const promptParts: string[] = [];
+		if (agentDef?.systemPrompt) promptParts.push(agentDef.systemPrompt);
 		if (commanderAvail) {
-			const cmdPrompt = buildCommanderPrompt({
+			promptParts.push(buildCommanderPrompt({
 				agentName: `SA-${state.id}-${state.name}`,
 				taskId: cmdTaskId,
 				enableMailboxChat: true,
 				peerNames,
-			});
-			systemPromptArgs.push("--append-system-prompt", cmdPrompt);
+			}));
 		}
 		// Keep parent-visible results compact and structurally complete.
-		systemPromptArgs.push("--append-system-prompt", buildAgentResultContractPrompt());
+		promptParts.push(buildAgentResultContractPrompt());
+		const systemPromptArgs = ["--append-system-prompt", promptParts.join("\n\n")];
 
 		// Pre-claim: parent claims Commander task on behalf of subagent
 		if (commanderAvail && cmdTaskId !== undefined) {
@@ -456,6 +461,7 @@ export default function (pi: ExtensionAPI) {
 						model: state.model,
 						outputText: result,
 						fullOutputPath,
+						maxResultChars: state.resultBudgetChars,
 					});
 					pi.sendMessage({
 						customType: "subagent-result",
@@ -509,7 +515,7 @@ export default function (pi: ExtensionAPI) {
 				spawnToolkitWorker({
 					name: state.name,
 					tools,
-					systemPrompt: [agentDef?.systemPrompt, ...systemPromptArgs.filter((_, i) => i % 2 === 1)].filter(Boolean).join("\n\n"),
+					systemPrompt: systemPromptArgs[1],
 				}, {
 					task: extTask0,
 					sessionFile: state.sessionFile,
@@ -701,6 +707,11 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
+			const contextUsage = ctx?.getContextUsage?.();
+			const budget = subagentContextBudget(contextUsage?.percent, 1);
+			if (budget.maxAgents === 0) {
+				return { content: [{ type: "text", text: `Context is at ${Math.round(contextUsage?.percent ?? 90)}%; defer subagent work until after compaction.` }] };
+			}
 			const id = nextId++;
 			const agentName = (args.name || "AGENT").toUpperCase();
 			const state: SubState = {
@@ -748,11 +759,18 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
-			const defs = args.agents;
-			if (!defs || defs.length === 0) {
+			const requestedDefs = args.agents;
+			if (!requestedDefs || requestedDefs.length === 0) {
 				return { content: [{ type: "text", text: "Error: No agents specified." }] };
 			}
-
+			const contextUsage = ctx?.getContextUsage?.();
+			const budget = subagentContextBudget(contextUsage?.percent, requestedDefs.length);
+			if (budget.maxAgents === 0) {
+				return { content: [{ type: "text", text: `Context is at ${Math.round(contextUsage?.percent ?? 90)}%; defer batch spawning until after compaction.` }] };
+			}
+			const defs = requestedDefs.slice(0, budget.maxAgents);
+			const deferred = requestedDefs.length - defs.length;
+	
 			// ── Guard: prevent duplicate batch spawns while agents are running ──
 			if (!args.force) {
 				const running = Array.from(agents.values()).filter(a => a.status === "running" && !a.standby);
@@ -791,6 +809,7 @@ export default function (pi: ExtensionAPI) {
 					autoRemove: args.autoRemove,
 					model: def.model, // per-agent model override
 					maxDurationMs: resolveTimeout(agentName, args.timeout),
+					resultBudgetChars: budget.resultChars,
 				};
 			});
 
@@ -834,7 +853,7 @@ export default function (pi: ExtensionAPI) {
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
 			return {
-				content: [{ type: "text", text: `Batch spawned ${states.length} subagents: ${ids}` }],
+				content: [{ type: "text", text: `Batch spawned ${states.length} subagents: ${ids}${deferred > 0 ? `; deferred ${deferred} due to context budget` : ""}` }],
 			};
 		},
 	});

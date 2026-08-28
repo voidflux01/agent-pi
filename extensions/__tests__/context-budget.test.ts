@@ -2,7 +2,7 @@
 // ABOUTME: Covers contextBudgetLevel thresholds and isContextLossError pattern matching.
 
 import { describe, it, expect } from "vitest";
-import { contextBudgetLevel, isContextLossError } from "../lib/context-budget.ts";
+import { contextBudgetLevel, isContextLossError, subagentContextBudget } from "../lib/context-budget.ts";
 
 describe("contextBudgetLevel", () => {
 	it("should return 'ok' below 80%", () => {
@@ -40,5 +40,19 @@ describe("isContextLossError", () => {
 		expect(isContextLossError("Connection refused")).toBe(false);
 		expect(isContextLossError("")).toBe(false);
 		expect(isContextLossError("rate limit exceeded")).toBe(false);
+	});
+});
+
+
+describe("subagentContextBudget", () => {
+	it("reduces batch size and result budget as context fills", () => {
+		expect(subagentContextBudget(69, 5)).toEqual({ maxAgents: 5, resultChars: 3500 });
+		expect(subagentContextBudget(70, 5)).toEqual({ maxAgents: 3, resultChars: 2800 });
+		expect(subagentContextBudget(80, 5)).toEqual({ maxAgents: 2, resultChars: 2000 });
+		expect(subagentContextBudget(90, 5)).toEqual({ maxAgents: 0, resultChars: 1200 });
+	});
+
+	it("keeps normal behavior when usage is unavailable", () => {
+		expect(subagentContextBudget(undefined, 2)).toEqual({ maxAgents: 2, resultChars: 3500 });
 	});
 });

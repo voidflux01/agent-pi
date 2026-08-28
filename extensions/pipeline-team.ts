@@ -50,6 +50,7 @@ import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
+import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
@@ -460,6 +461,7 @@ export default function (pi: ExtensionAPI) {
 						model,
 						outputText: output,
 						fullOutputPath,
+						maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
 					}).content;
 				} catch {
 					composed = output; // persistence failure must never lose the result itself
