@@ -1104,7 +1104,7 @@ export default function (pi: ExtensionAPI) {
 		widgetBoxes.clear();
 	});
 
-	// ── Pre-spawn scout helper ────────────────────────────────────────────────
+	// ── Scout status helpers ────────────────────────────────────────────────
 
 	/** Publish scout status to globalThis so the footer can render a pill. */
 	function publishScoutStatus(state: SubState) {
@@ -1121,38 +1121,8 @@ export default function (pi: ExtensionAPI) {
 		(globalThis as any).__piScoutStatus = undefined;
 	}
 
-	function preSpawnScout(ctx: any) {
-		// Only pre-spawn if scout agent definition exists
-		const scoutDef = resolveAgentByName("scout", knownAgents);
-		if (!scoutDef) return;
-
-		const id = nextId++;
-		const state: SubState = {
-			id,
-			status: "running",
-			name: "SCOUT",
-			task: "Warming up — standing by for recon tasks.",
-			textChunks: [],
-			toolCount: 0,
-			elapsed: 0,
-			sessionFile: makeSessionFile(id),
-			turnCount: 1,
-			summary: "Standing by...",
-			autoRemove: false,     // keep widget alive — scout persists across tasks
-			standby: true,         // suppress follow-up message on warmup completion
-			maxDurationMs: 0,      // no timeout for pre-spawned scout (warmup is exempt)
-		};
-		agents.set(id, state);
-		// No registerWidget — scout shows as a footer pill, not a stacking widget
-
-		// Store scout ID globally so mode prompts can reference it
-		(globalThis as any).__piScoutId = id;
-		publishScoutStatus(state);
-
-		// Spawn with a minimal warmup prompt — establishes the session file
-		spawnAgent(state, "You are now on standby. Respond with exactly: Ready.", ctx);
-	}
-
+	// Startup only restores local state and registers controls. It must not
+	// dispatch a warmup/scout child before the user asks for one.
 	pi.on("session_start", async (_event, ctx) => {
 		sessionEpoch++;
 		const startEpoch = sessionEpoch;
@@ -1189,9 +1159,6 @@ export default function (pi: ExtensionAPI) {
 		const toolkitModelsConfig = loadToolkitModelsConfig(startCwd, extProjectDir);
 		const toolkitAgents = scanToolkitAgentDefs(startCwd, extProjectDir, toolkitModelsConfig);
 		knownAgents = new Map([...standardAgents, ...toolkitAgents]);
-
-		// Pre-spawn scout subagent so it's always ready for recon tasks
-		preSpawnScout(ctx);
 
 		// ── Expose global hooks for escape-cancel integration ────────────
 		(globalThis as any).__piKillAllSubagents = (): number => {
@@ -1237,7 +1204,5 @@ export default function (pi: ExtensionAPI) {
 		(globalThis as any).__piScoutId = undefined;
 		(globalThis as any).__piScoutStatus = undefined;
 
-		// Re-spawn scout for the new session
-		preSpawnScout(ctx);
 	});
 }

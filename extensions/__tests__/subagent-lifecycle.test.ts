@@ -13,6 +13,12 @@ import { resolveTimeout } from "../subagent-widget.ts";
 // and validate the constants match our expectations.
 
 describe("stale session lifecycle protection", () => {
+	it("does not auto-start a scout or child on session lifecycle events", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).not.toContain("preSpawnScout");
+		expect(src).not.toContain("Warming up — standing by");
+	});
+
 	it("snapshots cwd and invalidates late background callbacks", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain('pi.on("session_shutdown"');
