@@ -17,7 +17,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-const { spawn } = require("child_process") as any;
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -34,28 +33,10 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
+import { run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
-import {
-	cleanupLaunchFiles,
-	closeHerdrTabAsync,
-	createHerdrTaskTabAsync,
-	ensureHerdrWorkspaceAsync,
-	herdrEnabledAsync,
-	pollDoneFileAsync,
-	readLastAssistantText,
-	sessionUsage,
-	sendCommandToPaneAsync,
-	shellQuote,
-	writeLaunchScript,
-	waitForLaunchStart,
-	launchDonePath,
-	visiblePiTuiArgs,
-	registerHerdrPane,
-	updateHerdrPaneStatus,
-	registerHerdrCommands,
-	type HerdrTabRef,
-} from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -588,215 +569,46 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			let ownedByHerdr = false;
-			let herdrCancelled = false;
-
-			// ── Herdr transport (visible pi TUI) ────────────────────────────────────────────
-			// Runs pi inside a Herdr pane in its real interactive TUI (the headless
-			// "--mode json"/"-p" flags are stripped), so operators watch the work:
-			// persistent across parent restarts, resumable via the session
-			// file. Completion is signalled by a marker file; authoritative
-			// result text is read from pi's session JSONL. Standby (warmup)
-			// spawns stay headless — they are an invisible pre-optimization.
-			const runHerdrTransport = async (): Promise<boolean> => {
-				if (spawnEpoch !== sessionEpoch) {
-					finish(1);
-					return true;
-				}
-				if (state.standby) return false;
-				if (!(await herdrEnabledAsync())) return false;
-				if (spawnEpoch !== sessionEpoch) {
-					finish(1);
-					return true;
-				}
-				let tab: HerdrTabRef | null = null;
-				try {
-					const runCwd = spawnCwd;
-					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
-					if (spawnEpoch !== sessionEpoch) {
-						finish(1);
-						return true;
-					}
-					if (!wsId) return false;
-
-					const launchId = `sa${state.id}`;
-					const launchDir = path.dirname(state.sessionFile);
-					// The authoritative result still comes from the session JSONL, and
-					// herdr-done.ts writes the done marker on the first agent_end (the
-					// launch script's process-exit marker stays as the fallback).
-					const tuiArgs = visiblePiTuiArgs(argv, herdrDoneExtPath);
-					const refs = writeLaunchScript({
-						dir: launchDir,
-						id: launchId,
-						cwd: runCwd,
-						command: ["pi", ...tuiArgs],
-						env: { ...spawnEnv, HERDR_DONE_PATH: launchDonePath(launchDir, launchId) },
-					});
-
-					tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${launchId}`);
-					if (spawnEpoch !== sessionEpoch) {
-						if (tab) await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						finish(1);
-						return true;
-					}
-					if (!tab) {
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-
-					// Duck-typed process handle: escape-cancel / watchdog /
-					// /subrm all funnel through kill() → close the pane.
-					state.proc = {
-						kill: () => {
-							herdrCancelled = true;
-							void closeHerdrTabAsync(tab!);
-						},
-						once: () => {},
-						removeListener: () => {},
-						__piNoExitEvent: true,
-					} as any;
-
-					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
-					if (spawnEpoch !== sessionEpoch) {
-						state.proc = undefined;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						finish(1);
-						return true;
-					}
-					if (!sent) {
-						state.proc = undefined;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					const launched = await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled);
-					if (spawnEpoch !== sessionEpoch) {
-						state.proc = undefined;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						finish(1);
-						return true;
-					}
-					if (!launched) {
-						state.proc = undefined;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					registerHerdrPane(runCwd, {
-						key: `sa-${state.id}`,
-						label: `ap-${launchId}`,
-						cwd: runCwd,
-						sessionFile: state.sessionFile,
-						ref: tab,
-						scriptPath: refs.scriptPath,
-						donePath: refs.donePath,
-						startedPath: refs.startedPath,
-						status: "running",
-					});
-					ownedByHerdr = true;
-
-					// Live dashboard: poll the session JSONL for latest text.
-					const liveTimer = setInterval(() => {
-						if (spawnEpoch !== sessionEpoch) {
-							clearInterval(liveTimer);
-							return;
-						}
-						if (herdrCancelled) return;
-						try {
-							const { text } = readLastAssistantText(state.sessionFile);
-							if (text) {
-								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
-								if (last && state.summary !== last) {
-									state.summary = last;
-									invalidateWidget(state.id);
-								}
-							}
-						} catch {}
-					}, 3000);
-
-					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => herdrCancelled);
-					clearInterval(liveTimer);
-					cleanupLaunchFiles(refs);
-
-					if (herdrCancelled) {
-						finish(130);
-						return true;
-					}
-					if (exitCode === null) {
-						finish(1);
-						return true;
-					}
-
-					// Authoritative result text from the session JSONL.
-					const { text } = readLastAssistantText(state.sessionFile);
-					finish(exitCode, text || undefined);
-					await closeHerdrTabAsync(tab);
-					return true;
-				} catch {
-					if (tab) void closeHerdrTabAsync(tab);
-					// Already driving this agent in a pane — never double-run headless.
-					if (ownedByHerdr && !herdrCancelled) {
-						finish(1);
-						return true;
-					}
-					return false;
-				}
-			};
-
-			const runHeadless = () => {
-				const proc = spawn("pi", argv, {
-					stdio: ["ignore", "pipe", "pipe"],
-					env: spawnEnv,
-					cwd: spawnCwd,
-				});
-
-				state.proc = proc;
-				let buffer = "";
-
-				proc.stdout!.setEncoding("utf-8");
-				proc.stdout!.on("data", (chunk: string) => {
-					if (spawnEpoch !== sessionEpoch) return;
-					buffer += chunk;
-					const lines = buffer.split("\n");
-					buffer = lines.pop() || "";
-					for (const line of lines) processLine(state, line);
-				});
-
-				proc.stderr!.setEncoding("utf-8");
-				proc.stderr!.on("data", (chunk: string) => {
+			// Standard Pi transport is shared with team, chain, and pipeline. The
+			// widget keeps watchdog, epoch, Commander, and follow-up policies local.
+			runDispatch({
+				command: ["pi", ...argv],
+				cwd: spawnCwd,
+				env: spawnEnv,
+				launchDir: path.dirname(state.sessionFile),
+				launchId: `sa${state.id}`,
+				sessionFile: state.sessionFile,
+				herdrDoneExtPath,
+				herdrLabel: `ap-sa${state.id}`,
+				herdrPaneKey: `sa-${state.id}`,
+				journal: { dir: saDir, id: state.saRunId ?? "" },
+				isAborted: () => spawnEpoch !== sessionEpoch,
+				onProcess: (child) => {
+					if (spawnEpoch === sessionEpoch) state.proc = child as any;
+				},
+				onStdoutLine: (line) => {
+					if (spawnEpoch === sessionEpoch) processLine(state, line);
+				},
+				onStderr: (chunk) => {
 					if (spawnEpoch !== sessionEpoch) return;
 					if (chunk.trim()) {
 						state.textChunks.push(chunk);
 						invalidateWidget(state.id);
 					}
-				});
-
-				proc.on("close", (code) => {
-					if (spawnEpoch !== sessionEpoch) {
-						finish(code);
-						return;
-					}
-					if (buffer.trim()) processLine(state, buffer);
-					finish(code);
-				});
-
-				proc.on("error", (err) => {
-					state.textChunks.push(`Error: ${err.message}`);
-					finish(1);
-				});
-
-				proc.on("exit", () => { clearInterval(timer); });
-			};
-
-			runHerdrTransport().then((ok) => {
-				if (spawnEpoch !== sessionEpoch) {
-					finish(1);
-					return;
-				}
-				if (!ok) runHeadless();
+				},
+				onHerdrUpdate: () => {
+					if (spawnEpoch !== sessionEpoch) return;
+					try {
+						const { text } = readLastAssistantText(state.sessionFile);
+						const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+						if (last) {
+							state.summary = last;
+							invalidateWidget(state.id);
+						}
+					} catch {}
+				},
+			}).then((result) => {
+				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
 		});
 	}

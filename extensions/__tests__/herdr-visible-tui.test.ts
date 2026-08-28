@@ -177,16 +177,12 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 	const files = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts", "subagent-widget.ts"];
 
 	for (const f of files) {
-		it(`${f} launches its herdr panes with watchable argv + done marker`, () => {
+		it(`${f} delegates standard Pi transport to the shared runtime`, () => {
 			const src = readFileSync(join(__dirname, "..", f), "utf8");
-			// no pane may be handed the headless argv directly
-			expect(src).not.toMatch(/command:\s*\["pi",\s*\.\.\.(args|argv|baseArgs)\]/);
-			expect(src).toContain("visiblePiTuiArgs(");
-			expect(src).toContain("herdrEnabledAsync");
-			expect(src).toContain("sendCommandToPaneAsync");
-			expect(src).toContain("waitForLaunchStart");
-			expect(src).toContain("HERDR_DONE_PATH");
-			expect(src).toMatch(/herdr-done\.ts/);
+			expect(src).toContain('from "./lib/dispatch-runtime.ts"');
+			expect(src).toContain("runDispatch({");
+			// Transport details must not drift back into individual orchestrators.
+			expect(src).not.toMatch(/spawn\(\s*["']pi["']/);
 		});
 	}
 });
@@ -201,5 +197,5 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 	it("uses the active Pi context directory for visible subagent work", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("const spawnCwd = contextCwd(ctx);");
-		expect(src).toContain("const runCwd = spawnCwd;");
+		expect(src).toContain("cwd: spawnCwd");
 	});

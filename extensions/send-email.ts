@@ -59,7 +59,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Check if Commander is available
 			const gate = g.__piCommanderGate;
-			if (!gate || gate.status !== "available") {
+			if (!gate || gate.state !== "available") {
 				return {
 					content: [{ type: "text" as const, text: "Email sending failed: Commander is not connected. The send_email tool requires Commander with AgentMail configured." }],
 					details: { success: false, error: "commander_not_available" },

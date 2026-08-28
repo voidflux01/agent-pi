@@ -3,16 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-// This mirrors the bypass logic from tasks.ts (lines ~237-240).
-// The function under test is the allowlist check extracted from the tool_call handler.
-const TASK_GATE_BYPASS_TOOLS = ["tasks", "dispatch_agent", "dispatch_agents", "ask_user", "run_chain", "advance_phase", "pipeline_status"];
-const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"];
-
-function shouldBypassTaskGate(toolName: string): boolean {
-	return TASK_GATE_BYPASS_TOOLS.includes(toolName)
-		|| toolName.startsWith("commander_")
-		|| READ_ONLY_BYPASS_TOOLS.includes(toolName);
-}
+import { shouldBypassTaskGate } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {

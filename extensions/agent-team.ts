@@ -30,6 +30,7 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } 
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
@@ -45,6 +46,7 @@ import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock,
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
+import { run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -874,148 +876,41 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// ── Herdr transport (Phase 1) ───────────────────────────────
-			// Runs the same headless pi command inside a Herdr pane: visible,
-			// persistent across parent restarts, resumable via the session file.
-			// Completion is signalled by a marker file; the authoritative result
-			// text is read from pi's session JSONL. Any herdr failure falls back
-			// to the headless child-process path below — precision never depends
-			// on herdr being present.
-			const runHerdrTransport = async (): Promise<boolean> => {
-				if (!(await herdrEnabledAsync())) return false;
-				let tab: HerdrTabRef | null = null;
-				let cancelled = false;
-				try {
-					// Inside herdr, HERDR_WORKSPACE_ID is the parent's own workspace;
-					// otherwise use the shared "agent-pi" workspace.
-					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
-					if (!wsId) return false;
-
-					// Watchable variant: this transport always launches pi children,
-					// so drop the headless "--mode json"/"-p" flags and let the pane
-					// show pi's real TUI instead of a raw JSON event stream. The
-					// authoritative result still comes from the session JSONL, and
-					// herdr-done.ts writes the done marker on the first agent_end
-					// (the process-exit marker stays as the fallback signal).
-					const tuiArgs = visiblePiTuiArgs(args, herdrDoneExtPath);
-					const refs = writeLaunchScript({
-						dir: sessionDir,
-						id: journalId,
-						cwd: runCwd,
-						command: ["pi", ...tuiArgs],
-						env: { ...spawnEnv, PI_SUBAGENT: "1", HERDR_DONE_PATH: launchDonePath(sessionDir, journalId) },
-					});
-					tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
-					if (!tab) {
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-
-					// Escape-cancel integration: kill() closes the pane.
-					state.proc = {
-						kill: () => {
-							cancelled = true;
-							void closeHerdrTabAsync(tab!);
-						},
-					} as any;
-					journalUpdate(sessionDir, journalId, { status: "running" });
-
-					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
-					if (!sent) {
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => cancelled))) {
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					registerHerdrPane(runCwd, {
-						key: journalId, label: `ap-${journalId}`, cwd: runCwd,
-						sessionFile: agentSessionFile, ref: tab,
-						scriptPath: refs.scriptPath, donePath: refs.donePath, startedPath: refs.startedPath,
-						status: "running",
-					});
-
-					// Live dashboard: poll the session JSONL for the latest text so
-					// the widget shows what the agent is doing (screen capture would
-					// be unreliable, so we read pi's own session file).
-					const liveTimer = setInterval(() => {
-						if (runEpoch !== sessionEpoch || cancelled) return;
-						try {
-							const { text } = readLastAssistantText(agentSessionFile);
-							if (text) {
-								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
-								if (last) {
-									state.lastWork = last;
-									state.summary = last;
-									invalidateAgentWidget(state);
-								}
-							}
-						} catch {}
-					}, 3000);
-
-					// No hard timeout, matching the headless path (7-day safety cap).
-					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => cancelled);
-					clearInterval(liveTimer);
-					cleanupLaunchFiles(refs);
-
-					if (cancelled) {
-						finish(130, "Cancelled (herdr pane closed)");
-						return true;
-					}
-					if (exitCode === null) {
-						finish(1, "Timed out waiting for agent output");
-						return true;
-					}
-
-					// Authoritative result text from the session JSONL (no screen capture).
-					const { text } = readLastAssistantText(agentSessionFile);
-					finish(exitCode, "", text);
-					await closeHerdrTabAsync(tab);
-					return true;
-				} catch {
-					if (tab) void closeHerdrTabAsync(tab);
-					return false;
-				}
-			};
-
-			const runHeadless = () => {
-				const proc = spawn("pi", args, {
-					stdio: ["ignore", "pipe", "pipe"],
-					env: spawnEnv,
-					cwd: runCwd,
-				});
-				state.proc = proc;
-				journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
-
-				let buffer = "";
-				proc.stdout!.setEncoding("utf-8");
-				proc.stdout!.on("data", (chunk: string) => {
-					buffer += chunk;
-					const lines = buffer.split("\n");
-					buffer = lines.pop() || "";
-					for (const line of lines) {
-						if (!line.trim()) continue;
-						handleStdoutLine(line);
-					}
-				});
-
-				proc.stderr!.setEncoding("utf-8");
-				proc.stderr!.on("data", (chunk: string) => { stderrBuf += chunk; });
-				proc.on("close", (code) => {
-					if (buffer.trim()) handleStdoutLine(buffer);
-					finish(code, stderrBuf);
-				});
-				proc.on("error", (err) => finish(1, `Error spawning agent: ${err.message}`));
-				proc.on("exit", () => { clearInterval(timer); });
-				};
-
-			// Try herdr first; any failure silently falls back to headless.
-			runHerdrTransport().then((ok) => {
-				if (!ok) runHeadless();
+			// Standard Pi transport is centralized. Team-specific state, context
+			// warnings, Commander reconciliation, and result composition stay here.
+			runDispatch({
+				command: ["pi", ...args],
+				cwd: runCwd,
+				env: spawnEnv,
+				launchDir: sessionDir,
+				launchId: journalId,
+				sessionFile: agentSessionFile,
+				herdrDoneExtPath,
+				herdrLabel: `ap-${journalId}`,
+				herdrPaneKey: journalId,
+				journal: { dir: sessionDir, id: journalId },
+				isAborted: () => runEpoch !== sessionEpoch,
+				onProcess: (child) => { state.proc = child as any; },
+				onStdoutLine: handleStdoutLine,
+				onStderr: (chunk) => { stderrBuf += chunk; },
+				onHerdrUpdate: () => {
+					if (runEpoch !== sessionEpoch) return;
+					try {
+						const { text } = readLastAssistantText(agentSessionFile);
+						const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+						if (last) {
+							state.lastWork = last;
+							state.summary = last;
+							invalidateAgentWidget(state);
+						}
+					} catch {}
+				},
+			}).then((result) => {
+				finish(result.exitCode, result.stderr, result.outputText);
+			}).catch((error) => {
+				finish(1, error instanceof Error ? error.message : String(error));
 			});
+
 		});
 	}
 
@@ -1477,103 +1372,47 @@ export default function (pi: ExtensionAPI) {
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
-		// Mode gate: only fire when mode is TEAM (or unset for backward compat)
+		// TEAM is an explicit orchestration mode. Never inject its prompt when the
+		// mode bus has not selected TEAM; NORMAL owns the default prompt.
 		const mode = (globalThis as any).__piCurrentMode;
-		if (mode && mode !== "TEAM") return {};
+		if (!modePromptMatches(mode, "TEAM")) return {};
 
-		// Build dynamic agent catalog from active team only
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` + (s.def.model ? `\n**Model:** ${s.def.model}` : ""))
 			.join("\n\n");
-
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-
 		const commanderAvailable = (globalThis as any).__piCommanderGate?.state === "available";
 		const commanderSection = commanderAvailable ? `
 
-## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_session { operation: "file:open", file_path: <path> }\` — display key files in Commander's floating viewer
-- \`commander_task\` — track tasks in the Commander dashboard
-- \`commander_mailbox\` — send status updates to the dashboard
+## Commander
+Commander is connected. Use commander_task for tracking and commander_mailbox for concise status updates.` : "";
+		const scoutSection = agentStates.has("scout") ? `
 
-### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "coordinator" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere
-- Use file:open to show dispatched agent results or task lists` : "";
+## Context gathering
+Use dispatch_agent with the scout for bounded, read-only reconnaissance. Do not inspect the codebase yourself.
+Example: \`dispatch_agent { agent: "scout", task: "Map the relevant files and report paths, symbols, and risks." }\`` : `
 
-		// Check if scout is on the team for delegation instructions
-		const hasScout = agentStates.has("scout");
-		const scoutSection = hasScout ? `
-
-## Scout Agent (ALWAYS use for context gathering)
-A scout agent is on your team. **ALWAYS dispatch to the scout** for any context-gathering work instead of doing it yourself.
-
-### What to dispatch to the scout:
-- Reading files, exploring directory structures
-- Searching for patterns, symbols, or text in the codebase (grep, find)
-- Understanding architecture, tracing code paths, mapping dependencies
-- Any investigation or information-gathering task
-
-### How to use the scout:
-\`\`\`
-dispatch_agent { agent: "scout", task: "Read the file at src/index.ts and summarize its exports" }
-\`\`\`
-The scout runs in the background. When it finishes, its findings are returned. Then you synthesize and respond to the user.
-
-### What YOU still do directly:
-- Respond to the user (synthesize scout findings, answer questions)
-- Write/edit files, run commands, make code changes
-- Plan, create tasks, manage workflow
-- Any action that modifies the codebase
-
-### Important:
-- Do NOT use Read, grep, find, or ls yourself — dispatch those to the scout
-- You CAN still use Bash for running tests, builds, or commands that modify things
-- If the scout errors, fall back to doing the work directly` : "";
+## Context gathering
+No scout is active. Use dispatch_agent with the listed specialist whose tools fit the investigation.`;
 
 		return {
-			systemPrompt: `You coordinate specialist agents and delegate context-gathering to them.
-You dispatch specialist agents for investigation and can work directly for responses and edits.
+			systemPrompt: `You are the coordinator for TEAM mode.
 
-## Active Team: ${activeTeamName}
+## Tool boundary
+You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through dispatch_agent. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.
+
+## Active Team
 Members: ${teamMembers}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents outside this team.
+You can dispatch only to the agents listed below.
 ${scoutSection}
 
-## When to Work Directly
-- Responding to the user with information gathered by agents
-- Writing or editing files, running builds/tests
-- Small edits, answering questions you already know the answer to
-- Task management, planning, workflow decisions
-
-## When to Dispatch Agents
-- ${hasScout ? "ANY context-gathering: reading files, searching code, exploring structure — ALWAYS dispatch scout" : "Simple lookups: reading a file, checking status, listing contents"}
-- Significant work: new features, refactors, multi-file changes
-- Tasks that benefit from specialist knowledge
-- When you want structured, multi-agent collaboration
-
-## Guidelines
-- ${hasScout ? "ALWAYS dispatch scout for reads/searches — do NOT read files yourself" : "Use your judgment — if it's quick, just do it; if it's real work, dispatch"}
-- You can mix direct work and agent dispatches in the same conversation
-- You can chain agents: use scout to explore, then builder to implement
-- You can dispatch the same agent multiple times with different tasks
-- Keep tasks focused — one clear objective per dispatch
-
-## Asking the User
-- You have the ask_user tool to ask the user questions directly
-- Use it when you need clarification, decisions, or preferences before dispatching agents
-- Three modes: "select" (pick from options with markdown preview), "input" (free text), "confirm" (yes/no)
-- If a sub-agent needs user input, it should describe what it needs — then YOU ask the user and relay the answer
-
-## Task Management
-- You have direct access to the \`tasks\` tool — use it yourself, do NOT dispatch agents for task management
-- Use \`tasks new-list\` to start a themed list, \`tasks add\` to add items, \`tasks toggle\` to cycle status
-- Define your plan as tasks BEFORE dispatching agents
+## Dispatch rules
+- Keep each dispatch focused on one outcome.
+- Use builder agents for changes and tester agents for verification.
+- Do not dispatch merely to add ceremony.
+- Report the result and next decision to the user.
 
 ## Agents
-
 ${agentCatalog}${commanderSection}`,
 		};
 	});

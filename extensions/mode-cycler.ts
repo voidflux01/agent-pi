@@ -7,7 +7,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
-import { PLAN_PROMPT, SPEC_PROMPT, buildNormalPrompt } from "./lib/mode-prompts.ts";
+import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 
@@ -132,10 +132,22 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
+			const changed = upper !== currentMode;
 			setMode(upper as Mode, ctx);
 			const msg = reason
 				? `Mode set to ${upper}. Reason: ${reason}`
 				: `Mode set to ${upper}.`;
+
+			// A mode prompt is assembled at before_agent_start, before this tool
+			// executes. Queue a fresh user turn, then abort the stale one, so the
+			// next model call actually receives the selected mode's prompt.
+			if (changed) {
+				try {
+					pi.sendUserMessage(`Continue the task in ${upper} mode.`, { deliverAs: "followUp" });
+				} finally {
+					ctx.abort();
+				}
+			}
 
 			return {
 				content: [{ type: "text", text: msg }],
@@ -174,7 +186,10 @@ export default function (pi: ExtensionAPI) {
 				scoutId,
 			})};
 		}
-		if (currentMode === "PLAN") return { systemPrompt: PLAN_PROMPT };
+		if (currentMode === "PLAN") {
+			const g = globalThis as any;
+			return { systemPrompt: buildPlanPrompt(!!g.__piCommanderAvailable) };
+		}
 		if (currentMode === "SPEC") return { systemPrompt: SPEC_PROMPT };
 		return {};
 	});

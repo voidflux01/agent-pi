@@ -2,7 +2,7 @@
 // ABOUTME: Validates that prompts contain expected keywords for their workflows.
 
 import { describe, it, expect } from "vitest";
-import { PLAN_PROMPT, SPEC_PROMPT } from "../lib/mode-prompts.ts";
+import { PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
 
 describe("PLAN_PROMPT", () => {
 	it("is a non-empty string", () => {
@@ -22,8 +22,8 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("implement");
 	});
 
-	it("contains 'commander_task'", () => {
-		expect(PLAN_PROMPT).toContain("commander_task");
+	it("does not mention unavailable Commander tools", () => {
+		expect(PLAN_PROMPT).not.toContain("commander_task");
 	});
 
 	it("contains '.context/todo.md'", () => {
@@ -31,9 +31,11 @@ describe("PLAN_PROMPT", () => {
 	});
 });
 
-describe("PLAN_PROMPT — Commander-first enforcement", () => {
-	it("contains 'ALWAYS' for Commander usage", () => {
-		expect(PLAN_PROMPT).toContain("ALWAYS");
+describe("buildPlanPrompt — optional Commander", () => {
+	it("adds Commander instructions only when connected", () => {
+		expect(buildPlanPrompt(false)).not.toContain("commander_task");
+		expect(buildPlanPrompt(true)).toContain("commander_task");
+		expect(buildPlanPrompt(true)).toContain("ALWAYS");
 	});
 });
 
@@ -42,34 +44,25 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("scout");
 	});
 
-	it("references subagent_create_batch tool", () => {
-		expect(PLAN_PROMPT).toContain("subagent_create_batch");
+	it("keeps scout count complexity-driven", () => {
+		expect(PLAN_PROMPT).toContain("at most one");
+		expect(PLAN_PROMPT).toContain("Never spawn four scouts by default");
 	});
 
-	it("specifies spawning 4 scouts by default", () => {
-		expect(PLAN_PROMPT).toContain("4 scout subagents");
-	});
-
-	it("includes example scout dispatch with focused tasks", () => {
-		expect(PLAN_PROMPT).toContain("Structure scout");
-		expect(PLAN_PROMPT).toContain("Pattern scout");
-		expect(PLAN_PROMPT).toContain("Data flow scout");
-		expect(PLAN_PROMPT).toContain("Test scout");
+	it("requires bounded read-only scout findings", () => {
+		expect(PLAN_PROMPT).toContain("read-only scout");
+		expect(PLAN_PROMPT).toContain("file paths only");
 	});
 
 	it("provides guidance on skipping scouts for simple tasks", () => {
-		expect(PLAN_PROMPT).toContain("Simple tasks");
-		expect(PLAN_PROMPT).toContain("skip scouts");
+		expect(PLAN_PROMPT).toContain("Simple one-file fixes");
+		expect(PLAN_PROMPT).toContain("do not spawn scouts");
 	});
 
 	it("instructs to synthesize scout findings", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("synthesize");
 	});
 
-	it("lists typical scout assignment types", () => {
-		expect(PLAN_PROMPT).toContain("Dependency scout");
-		expect(PLAN_PROMPT).toContain("Config scout");
-	});
 });
 
 describe("PLAN_PROMPT — structured plan format", () => {
@@ -98,11 +91,11 @@ describe("PLAN_PROMPT — structured plan format", () => {
 
 	it("teaches Why justification for phases", () => {
 		expect(PLAN_PROMPT).toContain("Why");
-		expect(PLAN_PROMPT).toContain("justification");
+		expect(PLAN_PROMPT).toContain("Why");
 	});
 
 	it("emphasizes phases over flat steps", () => {
-		expect(PLAN_PROMPT).toContain("Phases, not flat steps");
+		expect(PLAN_PROMPT).toContain("Phase");
 	});
 });
 

@@ -1,4 +1,4 @@
-// ABOUTME: Task discipline extension that gates agent tools until tasks are defined.
+// ABOUTME: Task discipline extension with an advisory default and optional strict mode.
 // ABOUTME: Three-state lifecycle (idle/inprogress/done) with widget display and task validation.
 /**
  * Tasks Extension — Task discipline for the agent
@@ -49,6 +49,7 @@ import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber } from "./lib/task-list-render.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
+import { shouldBypassTaskGate, taskGateStrict } from "./lib/task-gate.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
@@ -334,19 +335,23 @@ export default function (pi: ExtensionAPI) {
 		// Sub-agents manage their own task discipline — don't gate them
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		if (event.toolName === "tasks") return { block: false };
-		// Communication, orchestration, dispatcher, and Commander MCP tools bypass the gate
-		if (["dispatch_agent", "dispatch_agents", "ask_user", "run_chain", "advance_phase", "pipeline_status"].includes(event.toolName)) return { block: false };
-		if (event.toolName.startsWith("commander_")) return { block: false };
-
-		// Allow read-only exploration without task ceremony
-		const readOnlyTools = ["read", "grep", "find", "ls", "glob"];
-		if (readOnlyTools.includes(event.toolName)) return { block: false };
+		// Communication, orchestration, dispatcher, and Commander MCP tools bypass the gate.
+		if (shouldBypassTaskGate(event.toolName)) return { block: false };
 
 		// A malformed historical tool result must not crash the extension or
 		// create an unrecoverable gate. Reconstruction normalizes this, but keep
 		// the boundary defensive for live state as well.
 		if (!Array.isArray(tasks)) return { block: false };
-		return decideGateClaim(tasks);
+		const decision = decideGateClaim(tasks);
+		if (!decision.block || taskGateStrict()) return decision;
+
+		// NORMAL mode should not spend a tool turn on task ceremony. Keep the
+		// same guidance as a soft warning, with PI_TASKS_STRICT=1 for teams that
+		// explicitly want the legacy blocking behavior.
+		return {
+			block: false,
+			reason: `Task suggestion: ${decision.reason} Continue if the task is small or exploratory.`,
+		};
 	});
 
 	// ── Auto-nudge on agent_end ────────────────────────────────────────
@@ -409,7 +414,7 @@ export default function (pi: ExtensionAPI) {
 		name: "tasks",
 		label: "Tasks",
 		description:
-			"Manage your task list. You MUST add tasks before using any other tools. " +
+			"Manage an optional task list. Tasks are advisory by default; use PI_TASKS_STRICT=1 to require an in-progress task before non-read-only tools. " +
 			"Actions: new-list (text=title, description), add (text or texts[] for batch), toggle (id) — cycles idle→inprogress→done, remove (id), update (id + text), list, clear. " +
 			"Always toggle a task to inprogress before starting work on it, and to done when finished. " +
 			"Use new-list to start a themed list with a title and description. " +

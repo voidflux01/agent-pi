@@ -4,6 +4,11 @@
 export const MODES = ["NORMAL", "PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
 export type Mode = typeof MODES[number];
 
+/** A mode extension may inject only after the mode was explicitly selected. */
+export function modePromptMatches(activeMode: string | undefined, owner: Mode): boolean {
+	return activeMode === owner;
+}
+
 /** Advance to the next mode in the cycle, wrapping CHAIN → NORMAL. */
 export function nextMode(current: Mode): Mode {
 	const idx = MODES.indexOf(current);

@@ -53,9 +53,11 @@ describe("buildNormalPrompt", () => {
 		expect(result).toContain("/pipeline");
 	});
 
-	it("contains task classification guidance (SIMPLE vs structured)", () => {
+	it("contains low-ceremony direct-work guidance", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
-		expect(result.toLowerCase()).toContain("simple");
+		expect(result.toLowerCase()).toContain("work directly");
+		expect(result.toLowerCase()).toContain("do not call set_mode");
+		expect(result).toContain("Orchestration is opt-in");
 	});
 });
 
@@ -113,7 +115,7 @@ describe("buildNormalPrompt — Scout delegation", () => {
 
 	it("with scoutId set, contains scout delegation section", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
-		expect(result).toContain("Scout Agent");
+		expect(result).toContain("Optional scout");
 		expect(result).toContain("subagent_continue");
 	});
 
@@ -125,18 +127,18 @@ describe("buildNormalPrompt — Scout delegation", () => {
 
 	it("with scoutId set, instructs agent to delegate reads to scout", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
-		expect(result).toContain("delegate");
-		expect(result.toLowerCase()).toContain("read");
+		expect(result.toLowerCase()).toContain("context gathering");
+		expect(result.toLowerCase()).toContain("read-only");
 	});
 
 	it("with scoutId set, instructs agent to still handle edits directly", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
 		expect(result.toLowerCase()).toContain("edit");
-		expect(result).toContain("YOU still do directly");
+		expect(result.toLowerCase()).toContain("simple edit");
 	});
 
 	it("with scoutId set, mentions fallback if scout errors", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
-		expect(result.toLowerCase()).toContain("fall back");
+		expect(result.toLowerCase()).toContain("continue directly");
 	});
 });

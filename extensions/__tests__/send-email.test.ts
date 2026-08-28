@@ -24,7 +24,7 @@ function createPiMock() {
 
 /** Set up the Commander gate as "available" on globalThis */
 function mockCommanderAvailable() {
-	(globalThis as any).__piCommanderGate = { status: "available" };
+	(globalThis as any).__piCommanderGate = { state: "available" };
 }
 
 /** Set up the Commander gate as NOT available */

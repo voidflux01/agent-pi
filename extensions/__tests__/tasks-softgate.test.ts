@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import tasksExtension, { decideGateClaim } from "../tasks.ts";
 
-describe("tasks gate decision (hard gate)", () => {
+describe("tasks gate decision", () => {
 	it("blocks when tasks exist but none is in progress", () => {
 		const d = decideGateClaim([
 			{ id: 1, status: "done" },
@@ -37,7 +37,7 @@ describe("tasks gate decision (hard gate)", () => {
 });
 
 
-describe("hard gate integration", () => {
+describe("strict gate integration", () => {
 	it("requires transcript-backed toggles before write tools", async () => {
 		let tool: any;
 		const handlers = new Map<string, Function>();
@@ -48,6 +48,7 @@ describe("hard gate integration", () => {
 			sendMessage() {},
 		};
 		const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+		process.env.PI_TASKS_STRICT = "1";
 		tasksExtension(pi as any);
 
 		await tool.execute("new-list", { action: "new-list", text: "tracked work" }, undefined, undefined, ctx);
@@ -62,6 +63,23 @@ describe("hard gate integration", () => {
 		const done = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
 		expect(done.details.tasks[0].status).toBe("done");
 		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
+		delete process.env.PI_TASKS_STRICT;
+	});
+});
+
+
+describe("default advisory gate", () => {
+	it("warns without blocking ordinary tools", async () => {
+		let tool: any;
+		const handlers = new Map<string, Function>();
+		const pi = { registerTool(def: any) { tool = def; }, registerCommand() {}, on(name: string, handler: Function) { handlers.set(name, handler); }, sendMessage() {} };
+		const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+		tasksExtension(pi as any);
+		await tool.execute("new-list", { action: "new-list", text: "small change" }, undefined, undefined, ctx);
+		await tool.execute("add", { action: "add", text: "edit one file" }, undefined, undefined, ctx);
+		const advisory = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
+		expect(advisory.block).toBe(false);
+		expect(advisory.reason).toContain("Task suggestion");
 	});
 });
 
@@ -80,7 +98,7 @@ describe("transcript-backed reconstruction", () => {
 		};
 		tasksExtension(pi as any);
 		await handlers.get("session_start")!(undefined, ctx);
-		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
+		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
 	});
 
 	it("ignores malformed reconstructed task details", async () => {

@@ -28,31 +28,12 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
-import { spawn } from "child_process";
-import {
-	cleanupLaunchFiles,
-	closeHerdrTabAsync,
-	createHerdrTaskTabAsync,
-	ensureHerdrWorkspaceAsync,
-	herdrEnabledAsync,
-	pollDoneFileAsync,
-	readLastAssistantText,
-	sessionUsage,
-	sendCommandToPaneAsync,
-	shellQuote,
-	writeLaunchScript,
-	waitForLaunchStart,
-	launchDonePath,
-	visiblePiTuiArgs,
-	registerHerdrPane,
-	updateHerdrPaneStatus,
-	registerHerdrCommands,
-	type HerdrTabRef,
-} from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
@@ -63,6 +44,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
+import { run as runDispatch } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -447,202 +429,55 @@ export default function (pi: ExtensionAPI) {
 				resolve({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed });
 			};
 
-			let buffer = "";
-			let ownedByHerdr = false;
-			let herdrCancelled = false;
-
-			// ── Herdr transport (Phase 2) ──────────────────────────────────
-			// Runs pi inside a Herdr pane in its real interactive TUI (the
-			// headless "--mode json"/"-p" flags are stripped), so operators watch:
-			// persistent across parent restarts, resumable via the session
-			// file. Completion is signalled by a marker file; authoritative
-			// result text is read from pi's session JSONL. Any herdr failure
-			// before takeover falls back to the headless path below —
-			// precision never depends on herdr being present.
-			const runHerdrTransport = async (): Promise<boolean> => {
-				if (!(await herdrEnabledAsync())) return false;
-				let tab: HerdrTabRef | null = null;
-				try {
-					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", ctx.cwd);
-					if (!wsId) return false;
-
-					// Watchable variant: this transport always launches a pi child, so
-					// drop the headless "--mode json"/"-p" flags and let the pane show
-					// pi's real TUI instead of a raw JSON event stream. The child stays
-					// alive after its turn, so herdr-done.ts writes the done marker on
-					// the first agent_end (the process-exit marker remains the fallback)
-					// and the result text still comes from the session JSONL.
-					const tuiArgs = visiblePiTuiArgs(args, herdrDoneExtPath);
-					const refs = writeLaunchScript({
-						dir: sessionDir,
-						id: journalId,
-						cwd: ctx.cwd,
-						command: ["pi", ...tuiArgs],
-						env: childEnvironment({
-							PI_SUBAGENT: "1",
-							PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
-							PI_SESSION_FILE: agentSessionFile || undefined,
-							HERDR_DONE_PATH: launchDonePath(sessionDir, journalId),
-						}),
-					});
-
-					tab = await createHerdrTaskTabAsync(wsId, ctx.cwd, `ap-${journalId}`);
-					if (!tab) {
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-
-					// Escape-cancel integration: kill() closes the pane.
-					currentChainProc = {
-						kill: () => {
-							herdrCancelled = true;
-							void closeHerdrTabAsync(tab!);
-						},
-					};
-					journalUpdate(sessionDir, journalId, { status: "running" });
-
-					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
-					if (!sent) {
-						currentChainProc = null;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled))) {
-						currentChainProc = null;
-						await closeHerdrTabAsync(tab);
-						cleanupLaunchFiles(refs);
-						return false;
-					}
-					registerHerdrPane(ctx.cwd, {
-						key: journalId, label: `ap-${journalId}`, cwd: ctx.cwd,
-						sessionFile: agentSessionFile, ref: tab,
-						scriptPath: refs.scriptPath, donePath: refs.donePath, startedPath: refs.startedPath,
-						status: "running",
-					});
-					ownedByHerdr = true;
-
-					// Live dashboard: poll the session JSONL for latest text.
-					const liveTimer = setInterval(() => {
-						if (herdrCancelled) return;
-						try {
-							const { text } = readLastAssistantText(agentSessionFile);
-							if (text) {
-								const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
-								if (last) {
-									state.lastWork = last;
-									updateWidget();
-								}
-							}
-						} catch {}
-					}, 3000);
-
-					const exitCode = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => herdrCancelled);
-					clearInterval(liveTimer);
-					cleanupLaunchFiles(refs);
-
-					if (herdrCancelled) {
-						finish(130);
-						return true;
-					}
-					if (exitCode === null) {
-						finish(1);
-						return true;
-					}
-
-					// Authoritative result text from the session JSONL.
-					const { text } = readLastAssistantText(agentSessionFile);
-					finish(exitCode, text || undefined);
-					await closeHerdrTabAsync(tab);
-					return true;
-				} catch {
-					if (tab) void closeHerdrTabAsync(tab);
-					// Already driving this step in a pane — never double-run headless.
-					if (ownedByHerdr && !herdrCancelled) {
-						finish(1);
-						return true;
-					}
-					return false;
-				}
-			};
-
-			const runHeadless = () => {
-				const proc = spawn("pi", args, {
-					stdio: ["ignore", "pipe", "pipe"],
-					env: childEnvironment({
+			// Transport mechanics live in one runtime. This caller keeps only
+			// chain-specific parsing and widget state.
+			const runtimePromise = runDispatch({
+				command: ["pi", ...args],
+				cwd: ctx.cwd,
+				env: childEnvironment({
 					PI_SUBAGENT: "1",
 					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
 					PI_SESSION_FILE: agentSessionFile || undefined,
-					}),
-					cwd: ctx.cwd,
-				});
-
-				// Track for escape-cancel integration
-				currentChainProc = proc;
-				journalUpdate(sessionDir, journalId, { status: "running", pid: proc.pid });
-
-				proc.stdout!.setEncoding("utf-8");
-				proc.stdout!.on("data", (chunk: string) => {
-					buffer += chunk;
-					const lines = buffer.split("\n");
-					buffer = lines.pop() || "";
-					for (const line of lines) {
-						if (!line.trim()) continue;
-						try {
-							const event = JSON.parse(line);
-							if (event.type === "message_update") {
-								const delta = event.assistantMessageEvent;
-								if (delta?.type === "text_delta") {
-									const deltaText = delta.delta || "";
-									textChunks.push(deltaText);
-									liveText = (liveText + deltaText).slice(-8_192);
-									const full = liveText;
-									const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-									state.lastWork = last;
-									updateWidget();
-								}
+				}),
+				launchDir: sessionDir,
+				launchId: journalId,
+				sessionFile: agentSessionFile,
+				herdrDoneExtPath,
+				herdrLabel: `ap-${journalId}`,
+				herdrPaneKey: journalId,
+				journal: { dir: sessionDir, id: journalId },
+				onProcess: (child) => { currentChainProc = child; },
+				onStdoutLine: (line) => {
+					try {
+						const event = JSON.parse(line);
+						if (event.type === "message_update") {
+							const delta = event.assistantMessageEvent;
+							if (delta?.type === "text_delta") {
+								const deltaText = delta.delta || "";
+								textChunks.push(deltaText);
+								liveText = (liveText + deltaText).slice(-8_192);
+								const last = liveText.split("\n").filter((l: string) => l.trim()).pop() || "";
+								state.lastWork = last;
+								updateWidget();
 							}
-						} catch {}
-					}
-				});
-
-				proc.stderr!.setEncoding("utf-8");
-				proc.stderr!.on("data", () => {});
-
-				proc.on("close", (code) => {
-					currentChainProc = null;
-
-					if (buffer.trim()) {
-						try {
-							const event = JSON.parse(buffer);
-							if (event.type === "message_update") {
-								const delta = event.assistantMessageEvent;
-								if (delta?.type === "text_delta") textChunks.push(delta.delta || "");
-							}
-						} catch {}
-					}
-
-					finish(code);
-				});
-
-				proc.on("error", (err) => {
-					currentChainProc = null;
-					journalUpdate(sessionDir, journalId, { status: "error", exitCode: 1, elapsedMs: Date.now() - startTime });
-					resolve({
-						output: `Error spawning agent: ${err.message}`,
-						fullOutput: "",
-						fullOutputPath: "",
-						exitCode: 1,
-						elapsed: Date.now() - startTime,
-					});
-				});
-
-				proc.on("exit", () => {});
-			};
-
-			runHerdrTransport().then((ok) => {
-				if (!ok) runHeadless();
+						}
+					} catch {}
+				},
+				onHerdrUpdate: () => {
+					try {
+						const { text } = readLastAssistantText(agentSessionFile);
+						const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
+						if (last) {
+							state.lastWork = last;
+							updateWidget();
+						}
+					} catch {}
+				},
 			});
+			runtimePromise.then((result) => {
+				finish(result.exitCode, result.outputText);
+			}).catch(() => finish(1));
+
 		});
 	}
 
@@ -1185,9 +1020,9 @@ export default function (pi: ExtensionAPI) {
 			updateWidget();
 		}
 
-		// Mode gate: only fire when mode is CHAIN (or unset for backward compat)
+		// Mode gate: only the explicitly selected mode may inject this prompt
 		const mode = (globalThis as any).__piCurrentMode;
-		if (mode && mode !== "CHAIN") return {};
+		if (!modePromptMatches(mode, "CHAIN")) return {};
 
 		if (!activeChain) return {};
 
@@ -1213,7 +1048,7 @@ export default function (pi: ExtensionAPI) {
 			.map(s => {
 				const agentDef = allAgents.get(s.agent.toLowerCase());
 				if (!agentDef) return `### ${displayName(s.agent)}\nAgent not found.`;
-				return `### ${displayName(agentDef.name)}\n${agentDef.description}\n**Tools:** ${agentDef.tools}\n**Role:** ${agentDef.systemPrompt}`;
+				return `### ${displayName(agentDef.name)}\n${agentDef.description}\n**Tools:** ${agentDef.tools}`;
 			})
 			.join("\n\n");
 

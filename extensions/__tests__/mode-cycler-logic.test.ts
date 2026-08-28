@@ -127,3 +127,14 @@ describe("modeTextAnsi", () => {
 		expect(modeTextAnsi("CHAIN")).toBe("\x1b[1;97m");
 	});
 });
+
+
+describe("mode prompt ownership", () => {
+	it("requires explicit ownership and rejects an unset mode", async () => {
+		const { modePromptMatches } = await import("../lib/mode-cycler-logic.ts");
+		expect(modePromptMatches(undefined, "TEAM")).toBe(false);
+		expect(modePromptMatches("NORMAL", "TEAM")).toBe(false);
+		expect(modePromptMatches("TEAM", "TEAM")).toBe(true);
+		expect(modePromptMatches("CHAIN", "TEAM")).toBe(false);
+	});
+});

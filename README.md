@@ -46,8 +46,8 @@ Pi discovers all extensions, themes, and skills automatically.
 
 ### First Steps
 
-1. **Type a task** — Pi operates in plan-first mode. It will ask you to define tasks before using tools.
-2. **Shift+Tab** — Cycle through operational modes (NORMAL → PLAN → SPEC → PIPELINE → TEAM → CHAIN)
+1. **Type a task** — NORMAL is the default low-ceremony mode. Work starts directly.
+2. **Shift+Tab** or **`set_mode`** — Opt into PLAN / SPEC / PIPELINE / TEAM / CHAIN when the task needs orchestration.
 3. **Ctrl+X** — Cycle themes
 4. **`/agents-team`** — Switch between agent teams
 5. **`/chain`** — Switch between chain workflows

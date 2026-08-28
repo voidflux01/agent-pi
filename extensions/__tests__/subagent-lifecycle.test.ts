@@ -118,40 +118,21 @@ describe("timeout render warnings", () => {
 	});
 });
 
-describe("PLAN prompt lifecycle guidance", () => {
-	// Import the PLAN_PROMPT to verify lifecycle content is present
-	it("includes scout lifecycle management section", async () => {
+describe("PLAN prompt complexity guidance", () => {
+	it("skips scouts for simple work", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("Scout lifecycle management");
+		expect(PLAN_PROMPT).toContain("do not spawn scouts");
 	});
 
-	it("mentions the 5-minute timeout for scouts", async () => {
+	it("uses the smallest sufficient scout count", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("5-minute timeout");
+		expect(PLAN_PROMPT).toContain("at most one");
+		expect(PLAN_PROMPT).toContain("Never spawn four scouts by default");
 	});
 
-	it("mentions auto-dismiss behavior", async () => {
+	it("does not prescribe the old batch lifecycle", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("auto-dismiss");
-	});
-
-	it("mentions subagent_cleanup tool", async () => {
-		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("subagent_cleanup");
-	});
-
-	it("warns against spawning while previous scouts are running", async () => {
-		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("cannot spawn a new batch");
-	});
-
-	it("rules section includes wait-for-scouts guidance", async () => {
-		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("ALWAYS wait for all scouts to finish before spawning new ones");
-	});
-
-	it("rules section includes subagent_list check guidance", async () => {
-		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("subagent_list");
+		expect(PLAN_PROMPT).not.toContain("subagent_create_batch");
+		expect(PLAN_PROMPT).not.toContain("Scout lifecycle management");
 	});
 });
