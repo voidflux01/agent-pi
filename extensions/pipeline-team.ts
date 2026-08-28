@@ -697,8 +697,18 @@ export default function (pi: ExtensionAPI) {
 		agentDefs: { role: string; task: string }[],
 		mode: "parallel" | "sequential",
 		ctx: any,
-	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean }> {
+	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean; blockedReason?: string }> {
 		const phaseState = phaseStates[currentPhaseIndex];
+		const contextBudget = subagentContextBudget(ctx?.getContextUsage?.()?.percent, agentDefs.length);
+		if (contextBudget.maxAgents === 0) {
+			return {
+				outputs: [],
+				fullOutputs: [],
+				fullOutputPaths: [],
+				success: false,
+				blockedReason: `Context is at ${Math.round(ctx?.getContextUsage?.()?.percent ?? 90)}%; compact before dispatching more pipeline agents.`,
+			};
+		}
 		phaseState.agents = agentDefs.map((d, i) => ({
 			role: d.role,
 			index: i,
@@ -716,7 +726,8 @@ export default function (pi: ExtensionAPI) {
 		let allSuccess = true;
 
 		if (mode === "parallel") {
-			const maxParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || "4", 10) || 4);
+			const configuredParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || "4", 10) || 4);
+			const maxParallel = Math.min(configuredParallel, contextBudget.maxAgents);
 			const launch = (d: any, i: number) => {
 				const def = allAgents.get(d.role.toLowerCase());
 				if (!def) {
@@ -1022,9 +1033,10 @@ export default function (pi: ExtensionAPI) {
 				: mergedOutput;
 
 			const status = result.success ? "done" : "error";
+			const blockedNotice = result.blockedReason ? `\n\n${result.blockedReason}` : "";
 
 			return {
-				content: [{ type: "text", text: `[${phase.def.name}] ${status} — ${agents.length} agent(s)\n\n${truncated}` }],
+				content: [{ type: "text", text: `[${phase.def.name}] ${status} — ${agents.length} agent(s)${blockedNotice}\n\n${truncated}` }],
 				details: {
 					phase: phase.def.name,
 					agents: agents.map(a => a.role),
