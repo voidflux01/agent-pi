@@ -509,6 +509,76 @@ function preferCallerPaneSplit(): boolean {
 	return process.env.PI_HERDR_SPLIT !== "0" && !!process.env.HERDR_PANE_ID;
 }
 
+/** Sibling-split only when the caller is the sole pane in its tab.
+ *  A tab that already has grok + parent (or leftover children) gets a new tab. */
+export function shouldSiblingSplit(tabPaneCount: number): boolean {
+	return tabPaneCount <= 1;
+}
+
+/** How many panes share the caller's tab in a `herdr pane list` payload. */
+export function parseCallerTabPaneCount(listStdout: string, paneId: string): number {
+	try {
+		const panes = JSON.parse(listStdout)?.result?.panes;
+		if (!Array.isArray(panes)) return 1;
+		const mine = panes.find((p: { pane_id?: string }) => p?.pane_id === paneId);
+		const tabId = mine?.tab_id;
+		if (!tabId) return 1;
+		return panes.filter((p: { tab_id?: string }) => p?.tab_id === tabId).length;
+	} catch {
+		return 1;
+	}
+}
+
+const lingeringPanes = new Map<string, { tab: HerdrTabRef; timer: ReturnType<typeof setTimeout> }>();
+
+function lingerKey(tab: HerdrTabRef): string {
+	return tab.paneId || tab.tabId;
+}
+
+/** Close finished worker panes now so the next dispatch does not stack them. */
+export function closeLingeringHerdrPanes(): void {
+	for (const [key, entry] of lingeringPanes) {
+		clearTimeout(entry.timer);
+		lingeringPanes.delete(key);
+		void closeHerdrTabAsync(entry.tab);
+	}
+}
+
+/** `ms <= 0` closes immediately; otherwise close after the glance delay. */
+export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number): void {
+	const key = lingerKey(tab);
+	const prev = lingeringPanes.get(key);
+	if (prev) {
+		clearTimeout(prev.timer);
+		lingeringPanes.delete(key);
+	}
+	if (ms <= 0) {
+		void closeHerdrTabAsync(tab);
+		return;
+	}
+	const timer = setTimeout(() => {
+		lingeringPanes.delete(key);
+		void closeHerdrTabAsync(tab);
+	}, ms);
+	lingeringPanes.set(key, { tab, timer });
+}
+
+function callerTabPaneCountSync(): number {
+	const paneId = process.env.HERDR_PANE_ID;
+	if (!paneId) return 1;
+	const list = herdrCli(["pane", "list"], { timeoutMs: 5_000 });
+	if (list.code !== 0) return 1;
+	return parseCallerTabPaneCount(list.stdout, paneId);
+}
+
+async function callerTabPaneCountAsync(): Promise<number> {
+	const paneId = process.env.HERDR_PANE_ID;
+	if (!paneId) return 1;
+	const list = await herdrCliAsync(["pane", "list"], { timeoutMs: 5_000 });
+	if (list.code !== 0) return 1;
+	return parseCallerTabPaneCount(list.stdout, paneId);
+}
+
 function tabRefFromCreate(stdout: string, workspaceId: string): HerdrTabRef | null {
 	try {
 		const res = JSON.parse(stdout).result;
@@ -580,7 +650,8 @@ async function splitCallerPaneAsync(cwd: string, label: string): Promise<HerdrTa
  *  the zsh compinit security prompt eating input. Returns null on failure. */
 export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): HerdrTabRef | null {
 	if (!isExplicitDispatchActive()) return null;
-	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
+	closeLingeringHerdrPanes();
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit() && shouldSiblingSplit(callerTabPaneCountSync())) {
 		const split = splitCallerPane(cwd, label);
 		if (split) return split;
 	}
@@ -630,7 +701,8 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 /** Async watchable-worker creation: sibling split, else background tab. */
 export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): Promise<HerdrTabRef | null> {
 	if (!isExplicitDispatchActive()) return null;
-	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
+	closeLingeringHerdrPanes();
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit() && shouldSiblingSplit(await callerTabPaneCountAsync())) {
 		const split = await splitCallerPaneAsync(cwd, label);
 		if (split) return split;
 	}
@@ -892,11 +964,59 @@ export interface SessionUsage {
 	assistantMessages: number;
 }
 
+/** Count tool_use / toolCall events in a Pi session jsonl (herdr TUI has no JSON stream). */
+export function countSessionToolCalls(sessionFile: string): number {
+	if (!existsSync(sessionFile)) return 0;
+	let n = 0;
+	try {
+		for (const line of readFileSync(sessionFile, "utf8").split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				const e = JSON.parse(line);
+				const t = e?.type || e?.event;
+				if (t === "tool_execution_start" || t === "toolCall" || t === "tool_use") n++;
+				const msg = e?.message || e;
+				if (Array.isArray(msg?.content)) {
+					for (const c of msg.content) {
+						if (c?.type === "toolCall" || c?.type === "tool_use") n++;
+					}
+				}
+			} catch {}
+		}
+	} catch {}
+	return n;
+}
+
+/** Default glance time after a successful worker, then the pane closes. */
+export const HERDR_SUCCESS_LINGER_MS = 12_000;
+/** Default extra time after a failed/aborted worker so the error is readable. */
+export const HERDR_ERROR_LINGER_MS = 30_000;
+
+export type HerdrLingerKind = "success" | "error";
+
 /**
- * Sum token usage + cost across every assistant message in a pi session
- * JSONL. Missing/corrupt lines are skipped; files that exist but carry no
- * usage yield zeros - callers decide whether zeros are meaningful.
+ * Auto-close delay for a finished herdr worker pane. `null` keeps it open.
+ *
+ * Defaults: success 12s, error/abort 30s (error is at least 30s when a
+ * positive override is shorter). `PI_HERDR_LINGER_MS=0` closes immediately;
+ * a positive value sets the success delay; `keep` / `off` / `-1` never close.
  */
+export function herdrPaneAutoCloseMs(kind: HerdrLingerKind = "success"): number | null {
+	const raw = process.env.PI_HERDR_LINGER_MS?.trim();
+	if (raw) {
+		const lower = raw.toLowerCase();
+		if (lower === "keep" || lower === "off" || lower === "forever" || lower === "none" || raw === "-1") {
+			return null;
+		}
+		const n = Number(raw);
+		if (Number.isFinite(n) && n >= 0) {
+			if (n === 0) return 0;
+			return kind === "error" ? Math.max(n, HERDR_ERROR_LINGER_MS) : n;
+		}
+	}
+	return kind === "error" ? HERDR_ERROR_LINGER_MS : HERDR_SUCCESS_LINGER_MS;
+}
+
 export function sessionUsage(sessionFile: string): SessionUsage {
 	const out: SessionUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, costUsd: 0, assistantMessages: 0 };
 	if (!existsSync(sessionFile)) return out;

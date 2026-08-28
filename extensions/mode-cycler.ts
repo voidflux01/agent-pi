@@ -85,7 +85,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function setMode(mode: Mode, ctx: ExtensionContext) {
-		setCoordinationMode(mode);
+		setCoordinationMode(mode, ctx);
+		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
+			setMode(next, nextCtx || ctx);
+		};
 
 		// Write to temp file for statusline
 		try { writeFileSync(MODE_FILE, mode, "utf-8"); } catch {}
@@ -216,7 +219,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		applyExtensionDefaults(import.meta.url, ctx);
 		midRunSystemPrompt = null;
-		setCoordinationMode("NORMAL");
+		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
+			setMode(next, nextCtx || ctx);
+		};
+		setCoordinationMode("NORMAL", ctx);
 		(globalThis as any).__piRefreshModeBlock = () => refreshModeBlock(ctx);
 		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}
 		if (ctx.hasUI) {

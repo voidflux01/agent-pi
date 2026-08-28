@@ -20,6 +20,8 @@ import {
 	visiblePiTuiCommand,
 	waitForLaunchStart,
 	writeLaunchScript,
+	herdrPaneAutoCloseMs,
+	scheduleHerdrPaneClose,
 	type HerdrTabRef,
 } from "./herdr-client.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
@@ -254,7 +256,11 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		if (refs) cleanupLaunchFiles(refs);
 		if (tab) {
 			updateHerdrPaneStatus(spec.cwd, spec.herdrPaneKey || spec.launchId, terminalStatus, tab);
-			await closeHerdrTabAsync(tab);
+			const failed = aborted || terminalStatus !== "done";
+			const autoClose = herdrPaneAutoCloseMs(failed ? "error" : "success");
+			if (autoClose !== null) {
+				scheduleHerdrPaneClose(tab, autoClose);
+			}
 		}
 	}
 }

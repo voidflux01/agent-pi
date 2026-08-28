@@ -43,8 +43,25 @@ export function coordinationState(): CoordinationState {
 	return globalState.__piCoordinationState;
 }
 
-export function setCoordinationMode(mode: Mode): void {
+/** Live TUI ctx from `/mode` / set_mode so widgets hide on the visible UI. */
+export type ModeChangeUi = { ui?: { setWidget: (key: string, renderer: unknown, options?: unknown) => void } };
+
+type ModeChangeListener = (mode: Mode, previous: Mode, ctx?: ModeChangeUi) => void;
+const modeChangeListeners = new Set<ModeChangeListener>();
+
+/** Subscribe to mode changes. Returns an unsubscribe function. */
+export function onCoordinationModeChange(listener: ModeChangeListener): () => void {
+	modeChangeListeners.add(listener);
+	return () => { modeChangeListeners.delete(listener); };
+}
+
+export function setCoordinationMode(mode: Mode, ctx?: ModeChangeUi): void {
+	const previous = coordinationState().mode;
 	coordinationState().mode = mode;
+	if (previous === mode) return;
+	for (const listener of modeChangeListeners) {
+		try { listener(mode, previous, ctx); } catch {}
+	}
 }
 
 export function setActiveChain(name: string | null): void {

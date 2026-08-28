@@ -38,7 +38,7 @@ import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispa
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
-import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
@@ -381,6 +381,10 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
+				if (state.sessionFile) {
+					const n = countSessionToolCalls(state.sessionFile);
+					if (n > state.toolCount) state.toolCount = n;
+				}
 				invalidateWidget(state.id);
 			}, 1000);
 
@@ -417,6 +421,9 @@ export default function (pi: ExtensionAPI) {
 				state.elapsed = Date.now() - startTime;
 				state.status = code === 0 ? "done" : "error";
 				state.proc = undefined;
+				if (state.toolCount === 0 && state.sessionFile) {
+					state.toolCount = countSessionToolCalls(state.sessionFile);
+				}
 				updateHerdrPaneStatus(
 					spawnCwd,
 					`sa-${state.id}`,

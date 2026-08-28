@@ -200,15 +200,26 @@ describe("visible external runtime helpers", () => {
 		expect(toolkitHerdrLabel("omp-agent")).toBe("omp-agent");
 	});
 
-	it("keeps finished herdr tabs open unless PI_HERDR_LINGER_MS is set", () => {
+	it("lingers then closes by default; keep is opt-in", () => {
 		const prev = process.env.PI_HERDR_LINGER_MS;
 		try {
 			delete process.env.PI_HERDR_LINGER_MS;
-			expect(toolkitHerdrAutoCloseMs()).toBeNull();
+			expect(toolkitHerdrAutoCloseMs()).toBe(12_000);
+			expect(toolkitHerdrAutoCloseMs("error")).toBe(30_000);
 			process.env.PI_HERDR_LINGER_MS = "0";
 			expect(toolkitHerdrAutoCloseMs()).toBe(0);
+			expect(toolkitHerdrAutoCloseMs("error")).toBe(0);
 			process.env.PI_HERDR_LINGER_MS = "15000";
 			expect(toolkitHerdrAutoCloseMs()).toBe(15_000);
+			expect(toolkitHerdrAutoCloseMs("error")).toBe(30_000);
+			process.env.PI_HERDR_LINGER_MS = "60000";
+			expect(toolkitHerdrAutoCloseMs()).toBe(60_000);
+			expect(toolkitHerdrAutoCloseMs("error")).toBe(60_000);
+			process.env.PI_HERDR_LINGER_MS = "keep";
+			expect(toolkitHerdrAutoCloseMs()).toBeNull();
+			expect(toolkitHerdrAutoCloseMs("error")).toBeNull();
+			process.env.PI_HERDR_LINGER_MS = "-1";
+			expect(toolkitHerdrAutoCloseMs()).toBeNull();
 		} finally {
 			if (prev === undefined) delete process.env.PI_HERDR_LINGER_MS;
 			else process.env.PI_HERDR_LINGER_MS = prev;

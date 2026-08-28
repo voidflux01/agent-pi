@@ -444,7 +444,7 @@ export default function (pi: ExtensionAPI) {
 
 			// ── Questions mode result ────────────────────────────────
 			if (purpose === "questions") {
-				if (result.action === "approved") {
+				if (result.action === "approved" || result.action === "submitted") {
 					const answerText = result.answers || "(no answers provided)";
 
 					return {

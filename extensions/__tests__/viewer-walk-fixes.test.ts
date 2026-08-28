@@ -25,6 +25,10 @@ describe("grill tools bind the execute context", () => {
 	it("does not tell the model to implement while grill is unfinished", () => {
 		expect(src).toContain("Do not implement yet.");
 	});
+
+	it("treats questions Submit Answers as submitted even if the POST action is submitted", () => {
+		expect(src).toContain('result.action === "approved" || result.action === "submitted"');
+	});
 });
 
 describe("viewer tools do not queue a second approval turn", () => {

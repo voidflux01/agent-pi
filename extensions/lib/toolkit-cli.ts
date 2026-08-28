@@ -21,6 +21,8 @@ import {
 	registerHerdrPane,
 	stampHerdrPaneIdentityAsync,
 	launchDonePath,
+	herdrPaneAutoCloseMs,
+	scheduleHerdrPaneClose,
 } from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
@@ -460,29 +462,10 @@ export function toolkitHerdrLabel(agentName: string, paneTitle?: string): string
 	return agent;
 }
 
-/** Auto-close delay for a finished toolkit tab. `null` keeps the labeled tab
- *  open (default). `PI_HERDR_LINGER_MS=0` closes immediately; a positive value
- *  waits that many ms then closes. */
-export function toolkitHerdrAutoCloseMs(): number | null {
-	const raw = process.env.PI_HERDR_LINGER_MS;
-	if (raw === undefined || raw === "") return null;
-	const n = Number(raw);
-	return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
-function delayMs(ms: number, aborted?: () => boolean): Promise<void> {
-	if (ms <= 0) return Promise.resolve();
-	return new Promise((resolve) => {
-		const started = Date.now();
-		const tick = () => {
-			if (aborted?.() || Date.now() - started >= ms) {
-				resolve();
-				return;
-			}
-			setTimeout(tick, 250);
-		};
-		setTimeout(tick, Math.min(250, ms));
-	});
+/** Auto-close delay for a finished toolkit tab. Same policy as Pi workers:
+ *  success 12s, error 30s, `PI_HERDR_LINGER_MS=keep` to leave it open. */
+export function toolkitHerdrAutoCloseMs(kind: "success" | "error" = "success"): number | null {
+	return herdrPaneAutoCloseMs(kind);
 }
 
 /**
@@ -615,25 +598,19 @@ export async function runToolkitDispatch(opts: {
 								}
 							}
 							cleanupLaunchFiles(refs);
-							const failed = herdrCancelled || cancelled();
-							if (failed) {
-								await closeHerdrTabAsync(tab);
-							} else {
-								await stampHerdrPaneIdentityAsync(tab, {
-									label: herdrLabel,
-									agent: herdrAgent,
-									state: rc === 0 ? "idle" : "unknown",
-								});
-								const autoClose = toolkitHerdrAutoCloseMs();
-								if (autoClose !== null) {
-									void (async () => {
-										await delayMs(autoClose, () => herdrCancelled || cancelled());
-										if (!herdrCancelled && !cancelled()) await closeHerdrTabAsync(tab);
-									})();
-								}
+							const cancelledRun = herdrCancelled || cancelled();
+							const failed = cancelledRun || rc !== 0;
+							await stampHerdrPaneIdentityAsync(tab, {
+								label: herdrLabel,
+								agent: herdrAgent,
+								state: failed ? "unknown" : "idle",
+							});
+							const autoClose = toolkitHerdrAutoCloseMs(failed ? "error" : "success");
+							if (autoClose !== null) {
+								scheduleHerdrPaneClose(tab, autoClose);
 							}
 							return {
-								exitCode: failed ? 130 : (rc ?? 1),
+								exitCode: cancelledRun ? 130 : (rc ?? 1),
 								raw: rawOut,
 								transport: "herdr",
 							};

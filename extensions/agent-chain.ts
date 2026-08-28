@@ -35,13 +35,13 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
-import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
+import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
@@ -156,6 +156,7 @@ export default function (pi: ExtensionAPI) {
 	let chains: ChainDef[] = [];
 	let activeChain: ChainDef | null = null;
 	let widgetCtx: any;
+	let unwatchMode: (() => void) | undefined;
 	let sessionDir = "";
 	let launchModel = "";
 	const agentSessions: Map<string, string | null> = new Map();
@@ -263,8 +264,17 @@ export default function (pi: ExtensionAPI) {
 		return lines;
 	}
 
+	function hideChainWidget(ctx?: { ui?: { setWidget: (key: string, renderer: unknown) => void } }) {
+		const ui = ctx?.ui || widgetCtx?.ui;
+		try { ui?.setWidget("agent-chain", undefined); } catch {}
+	}
+
 	function updateWidget() {
 		if (!widgetCtx) return;
+		if (coordinationState().mode !== "CHAIN") {
+			hideChainWidget();
+			return;
+		}
 		// Only show widget when pipeline is actually running (at least one non-pending step)
 		const hasActiveStep = stepStates.some(s => s.status !== "pending");
 		if (!hasActiveStep) return;
@@ -391,7 +401,7 @@ export default function (pi: ExtensionAPI) {
 				const elapsed = Date.now() - startTime;
 				state.elapsed = elapsed;
 				const output = externalFull ?? textChunks.join("");
-				state.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
+				state.lastWork = resultOneLiner(output, extractResultBlock(output).result) || "";
 
 				if (code === 0) {
 					agentSessions.set(agentKey, agentSessionFile);
@@ -416,7 +426,7 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath = "";
 				}
 
-				state.lastWork = resultOneLiner(output, "") || state.lastWork;
+				state.lastWork = resultOneLiner(output, extractResultBlock(output).result) || state.lastWork;
 
 				const su = agentSessionFile && code === 0 ? sessionUsage(agentSessionFile) : null;
 				journalUpdate(sessionDir, journalId, {
@@ -590,6 +600,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+			widgetCtx = ctx;
 			const { task } = params as { task: string };
 
 			if (onUpdate) {
@@ -1013,10 +1024,10 @@ export default function (pi: ExtensionAPI) {
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
+		widgetCtx = _ctx;
 		// Force widget reset on first turn after /new
 		if (pendingReset && activeChain) {
 			pendingReset = false;
-			widgetCtx = _ctx;
 			stepStates = activeChain.steps.map(s => {
 				const agentDef = allAgents.get(s.agent.toLowerCase());
 				return {
@@ -1077,11 +1088,11 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 - Warm, professional, collaborative tone — no emojis anywhere` : "";
 
 		return {
-			systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}
+			systemPrompt: `You are the coordinator for a sequential pipeline called "${activeChain.name}".${desc}
 
 ${ORCHESTRATED_TASK_PROMPT}
 
-You have full access to your own tools AND the run_chain tool to delegate to your team.
+You orchestrate via \`run_chain\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After run_chain returns, quote the step summaries from ## RESULT.
 
 ## Active Chain: ${activeChain.name}
 Flow: ${flow}
@@ -1097,22 +1108,17 @@ ${agentCatalog}
 - Tasks that benefit from the full pipeline: planning, building, reviewing
 - When you want structured, multi-agent collaboration on a problem
 
-## When to Work Directly
-- Read-only checks such as reading a file, checking status, or listing contents
-- Quick lookups and answers that do not modify the codebase
-- Any edit or execution in CHAIN mode still requires an active task; use NORMAL for trivial changes
+## When not to work directly
+- Do not write files or run verification the chain already ran
+- Quick questions to the user are fine; use NORMAL for trivial one-file edits
+- Any leftover edit or execution still requires an active task
 
 ## How run_chain Works
 - Pass a clear task description to run_chain
 - Each step's output feeds into the next step as $INPUT
 - Agents maintain session context — they remember previous work within this session
 - You can run the chain multiple times with different tasks if needed
-- After the chain completes, review the result and summarize for the user
-
-## Guidelines
-- Use your judgment — if it's quick, just do it; if it's real work, run the chain
-- Keep chain tasks focused and clearly described
-- You can mix direct work and chain runs in the same conversation${commanderSection}`,
+- After the chain completes, report the RESULT summaries — do not re-run them${commanderSection}`,
 		};
 	});
 
@@ -1298,11 +1304,15 @@ ${agentCatalog}
 		applyExtensionDefaults(import.meta.url, _ctx);
 		launchModel = providerModelString(_ctx.model);
 		// Clear widget with both old and new ctx — one of them will be valid
-		if (widgetCtx) {
-			widgetCtx.ui.setWidget("agent-chain", undefined);
-		}
-		_ctx.ui.setWidget("agent-chain", undefined);
+		if (widgetCtx) hideChainWidget(widgetCtx);
+		hideChainWidget(_ctx);
 		widgetCtx = _ctx;
+		unwatchMode?.();
+		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
+			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
+			if (mode !== "CHAIN") hideChainWidget(ctx);
+			else updateWidget();
+		});
 
 		// Reset execution state — widget re-registration deferred to before_agent_start
 		stepStates = [];

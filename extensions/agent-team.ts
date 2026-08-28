@@ -31,7 +31,7 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
-import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
+import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
@@ -45,7 +45,7 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -118,6 +118,14 @@ function parseTeamsYaml(raw: string): Record<string, string[]> {
 		}
 	}
 	return teams;
+}
+
+/** Prefer a small coding team over the kitchen-sink `all` roster. */
+export function defaultTeamName(teams: Record<string, string[]>): string | undefined {
+	const names = Object.keys(teams);
+	if (names.includes("plan-build")) return "plan-build";
+	const small = names.find((n) => n !== "all" && n !== "full" && (teams[n]?.length ?? 0) > 0 && (teams[n]?.length ?? 0) <= 5);
+	return small || names[0];
 }
 
 // ── Frontmatter Parser ───────────────────────────
@@ -209,6 +217,7 @@ export default function (pi: ExtensionAPI) {
 	let activeTeamName = "";
 	let gridCols = 2;
 	let widgetCtx: any;
+	let unwatchMode: (() => void) | undefined;
 	let sessionEpoch = 0;
 	let sessionDir = "";
 	let contextWindow = 0;
@@ -541,6 +550,9 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			state.elapsed = Date.now() - startTime;
+			const sessionPath = join(sessionDir, `${state.def.name.toLowerCase().replace(/\s+/g, "-")}.json`);
+			const n = countSessionToolCalls(sessionPath);
+			if (n > state.toolCount) state.toolCount = n;
 			invalidateAgentWidget(state);
 		}, 1000);
 		state.timer = timer;
@@ -748,8 +760,13 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath = "";
 				}
 
-				state.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+				state.lastWork = resultOneLiner(full, extractResultBlock(full).result)
+					|| full.split("\n").filter((l: string) => l.trim() && l.trim() !== "## END" && l.trim() !== "## RESULT").pop()
+					|| "";
 				state.summary = resultOneLiner(full, extractResultBlock(full).result) || state.lastWork;
+				if (state.toolCount === 0 && state.sessionFile) {
+					state.toolCount = countSessionToolCalls(state.sessionFile);
+				}
 				state.summaryLines = full.split("\n").map((l: string) => l.trim()).filter(Boolean).slice(-3);
 				invalidateAgentWidget(state);
 
@@ -891,8 +908,10 @@ export default function (pi: ExtensionAPI) {
 						if (last) {
 							state.lastWork = last;
 							state.summary = last;
-							invalidateAgentWidget(state);
 						}
+						const n = countSessionToolCalls(agentSessionFile);
+						if (n > state.toolCount) state.toolCount = n;
+						invalidateAgentWidget(state);
 					} catch {}
 				},
 			}).then((result) => {
@@ -1481,6 +1500,14 @@ ${agentCatalog}${commanderSection}`,
 		widgetCtx = _ctx;
 		safeSetWidget(_ctx, "agent-team", undefined);
 		removeAllAgentWidgets(_ctx);
+		unwatchMode?.();
+		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
+			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
+			if (!widgetCtx) return;
+			if (mode !== "TEAM") {
+				removeAllAgentWidgets(widgetCtx);
+			}
+		});
 		contextWindow = _ctx.model?.contextWindow || 0;
 
 		// Wipe old agent session files so subagents start fresh
@@ -1495,10 +1522,9 @@ ${agentCatalog}${commanderSection}`,
 
 		loadAgents(_ctx.cwd);
 
-		// Default to first team — use /agents-team to switch
-		const teamNames = Object.keys(teams);
-		if (teamNames.length > 0) {
-			activateTeam(teamNames[0]);
+		const preferred = defaultTeamName(teams);
+		if (preferred) {
+			activateTeam(preferred);
 		}
 
 		// All tools remain visible — dispatcher can use any registered tool directly

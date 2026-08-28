@@ -21,7 +21,8 @@ Before any write, edit, or bash/execution tool:
 2. Use \`tasks add\` for each real step.
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
-The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.`;
+The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
+After a dispatched child (chain, team, pipeline, or scout) returns, treat its ## RESULT as the report. Do not re-run its verification (no bash, python, tests, or extra file reads to confirm what RESULT already stated). Do not read the archived transcript unless RESULT is missing a path or quote you need. Quote the summary; do not claim you re-verified it yourself.`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {

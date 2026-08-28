@@ -75,13 +75,44 @@ are not a unit.
   `report-metadata` so the chip is not `bash`. Falls back to a labeled tab,
   then headless. omp / prime in that pane run their **interactive TUI** (no
   `-p --mode json`, no `tee`), same idea as pi's visible transport. Headless
-  fallback still prints JSON. Finished splits stay open (labeled idle) so a
-  short PONG does not flash and vanish. Set `PI_HERDR_LINGER_MS` to auto-close
-  after N ms (`0` = close immediately).
+  fallback still prints JSON. Finished splits linger labeled idle (12s on
+  success, 30s on error/abort) then close so a short PONG is visible without
+  stacking panes. `PI_HERDR_LINGER_MS=0` closes immediately; a positive value
+  sets the success delay; `keep` leaves the pane open.
 - Toolkit `subagent_create` blocks until the CLI exits, same as scout, so the
   parent does not poll with `subagent_list` / `sleep`.
 - Child Pi / omp / prime dispatches no longer pass `--thinking off`; thinking
   follows the harness default or the model the parent already selected.
+
+### Chain / team / pipeline walk-through
+
+- Chain (and team/pipeline) step lines use the RESULT `summary:` instead of
+  the last transcript line (`## END`).
+- Switching mode hides the previous workflow widget (chain timeline no longer
+  sits on TEAM/PIPELINE).
+- Successful Pi herdr child panes linger 12s then close; error/abort linger
+  30s (`PI_HERDR_LINGER_MS=keep` to leave them open).
+- `advance_phase` refuses to leave PLAN/BUILD/GATHER/EXECUTE/REVIEW until
+  `dispatch_agents` has run in that phase. UNDERSTAND may still advance
+  without dispatch.
+- `/pipeline` labels show the full phase flow (`plan-build (plan → build)`)
+  and switching to a pipeline also sets mode PIPELINE.
+- Default TEAM is `plan-build` when present, not `all` (22).
+- `show_plan` questions mode accepts `submitted` as well as `approved`, so
+  Submit Answers is not reported as "closed without submitting".
+- `/mode` away from CHAIN/TEAM/PIPELINE passes the live UI ctx so the chain
+  timeline (and other workflow widgets) actually hide; previously the CHAIN
+  color bar cleared but `── plan-build-review ──` stayed above the editor.
+- Chain coordinator prompt no longer invites mixing bash/python with
+  `run_chain`; after the chain returns, quote RESULT only.
+- TEAM / scout cards poll the child session jsonl while running so Tools
+  is not stuck at 0 until exit.
+- A new herdr worker closes lingered siblings first, and sibling-splits only
+  when the caller is the sole pane in its tab (avoids stacking onto grok +
+  parent). Crowded tabs open a labeled background tab instead.
+- Orchestration prompts tell the parent to treat ## RESULT as the report and
+  not re-run child verification. Herdr TUI tool counts are read from the
+  session file when the JSON stream is absent.
 - Built-in toolkit agent defs so TEAM lists `omp-agent` and `prime-agent`
   without `.pi/agents/toolkit/*.md`.
 - Journal records the stream's real `provider/model`, not the dummy Haiku

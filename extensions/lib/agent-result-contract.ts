@@ -74,18 +74,22 @@ export function extractResultBlock(text: string): ExtractedResult {
 /** Short one-line summary derived from the result block or transcript tail. */
 export function resultOneLiner(fullText: string, resultText: string): string {
 	const clean = (s: string) => s.replace(/\s+/g, " ").trim();
-	if (resultText) {
-		const first = clean(
-			resultText.split("\n").find((l) => /^summary:/i.test(l.trim())) || "",
+	const fromBlock = resultText || extractResultBlock(fullText).result;
+	if (fromBlock) {
+		const summary = clean(
+			fromBlock.split("\n").find((l) => /^summary:/i.test(l.trim())) || "",
 		);
-		if (first.length > 0) return first.slice(0, 160);
-		return clean(resultText).slice(0, 160);
+		if (summary.length > 0) return summary.replace(/^summary:\s*/i, "").slice(0, 160);
+		return clean(fromBlock).slice(0, 160);
 	}
 	if (fullText) {
 		const last = clean(
 			fullText
 				.split("\n")
-				.filter((l) => l.trim())
+				.filter((l) => {
+					const t = l.trim();
+					return t && t !== RESULT_MARKER && t !== RESULT_END_MARKER;
+				})
 				.pop() || "",
 		);
 		if (last.length > 0) return last.slice(0, 160);

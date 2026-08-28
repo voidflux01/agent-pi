@@ -34,17 +34,17 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
-import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
+import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable, onCoordinationModeChange, setCoordinationMode } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { buildAgentResultContractPrompt, composeAgentResult, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { parsePipelineYaml, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
+import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
@@ -76,6 +76,7 @@ interface PhaseState {
 	status: PhaseStatus;
 	summary: string;
 	agents: AgentState[];
+	dispatchCount: number;
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -185,6 +186,7 @@ export default function (pi: ExtensionAPI) {
 	let phaseStates: PhaseState[] = [];
 	let currentPhaseIndex = 0;
 	let widgetCtx: any;
+	let unwatchMode: (() => void) | undefined;
 	let widgetCollapsed = true;
 	let sessionDir = "";
 	let contextWindow = 0;
@@ -248,6 +250,7 @@ export default function (pi: ExtensionAPI) {
 			status: "pending" as PhaseStatus,
 			summary: "",
 			agents: [],
+			dispatchCount: 0,
 		}));
 
 		if (phaseStates.length > 0) {
@@ -284,6 +287,10 @@ export default function (pi: ExtensionAPI) {
 
 	function updateWidget() {
 		if (!widgetCtx) return;
+		if (coordinationState().mode !== "PIPELINE") {
+			clearPipelineUI();
+			return;
+		}
 		if (!activeConfig || phaseStates.length === 0) {
 			clearPipelineUI();
 			return;
@@ -434,7 +441,12 @@ export default function (pi: ExtensionAPI) {
 				const output = externalFull ?? textChunks.join("");
 				agentState.output = output;
 				agentState.status = code === 0 ? "done" : "error";
-				agentState.lastWork = output.split("\n").filter((l: string) => l.trim()).pop() || "";
+				agentState.lastWork = resultOneLiner(output, extractResultBlock(output).result)
+					|| output.split("\n").filter((l: string) => {
+						const t = l.trim();
+						return t && t !== "## END" && t !== "## RESULT";
+					}).pop()
+					|| "";
 				updateWidget();
 
 				ctx.ui.notify(
@@ -561,6 +573,9 @@ export default function (pi: ExtensionAPI) {
 			lastWork: "",
 			output: "",
 		}));
+		if (agentDefs.length > 0) {
+			phaseState.dispatchCount = (phaseState.dispatchCount || 0) + 1;
+		}
 		updateWidget();
 
 		const outputs: string[] = [];
@@ -742,7 +757,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "advance_phase",
 		label: "Advance Phase",
-		description: "Move the pipeline to the next phase. Call this when the current phase is complete. In Phase 1 (UNDERSTAND), call this once the task is fully clarified.",
+		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require dispatch_agents first — do not advance on a self-written summary.",
 		parameters: Type.Object({
 			summary: Type.String({ description: "Summary of what was accomplished in this phase / the clarified task" }),
 			skip_to: Type.Optional(Type.String({ description: "Optional: skip to a specific phase name (e.g. 'plan' to skip gather)" })),
@@ -753,6 +768,15 @@ export default function (pi: ExtensionAPI) {
 
 			if (!activeConfig || phaseStates.length === 0) {
 				return { content: [{ type: "text", text: "No pipeline active." }], details: {} };
+			}
+
+			const current = phaseStates[currentPhaseIndex];
+			if (phaseRequiresAgentDispatch(current.def) && (current.dispatchCount || 0) === 0) {
+				const hint = current.def.agents[0]?.role || "the configured agent";
+				return {
+					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call dispatch_agents first (e.g. ${hint}), wait for ## RESULT, then advance_phase with that summary. Do not skip this phase's agents.` }],
+					details: { error: true, phase: current.def.name },
+				};
 			}
 
 			// Mark current phase done
@@ -996,19 +1020,19 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			/** Shows pipeline name with its first phase (starting point) */
-			const options = pipelineConfigs.map(c => {
-				const firstPhase = c.phases[0] ? displayName(c.phases[0].name) : "No Phases";
-				return `${c.name} — ${firstPhase}`;
-			});
+			const options = pipelineConfigs.map(c => pipelineSelectLabel(c));
 
 			const choice = await ctx.ui.select("Select Pipeline", options);
 			if (choice === undefined) return;
 
 			const idx = options.indexOf(choice);
 			activatePipeline(pipelineConfigs[idx]);
+			const applyMode = (globalThis as any).__piSetMode as undefined | ((mode: string, nextCtx?: typeof ctx) => void);
+			if (typeof applyMode === "function") applyMode("PIPELINE", ctx);
+			else setCoordinationMode("PIPELINE");
 			updateStatus();
-			ctx.ui.notify(`Pipeline: ${activeConfig!.name}\n${activeConfig!.description}`, "info");
+			const flow = activeConfig!.phases.map((p) => p.name).join(" → ");
+			ctx.ui.notify(`Pipeline ${activeConfig!.name} active (${flow}). Mode is PIPELINE.`, "info");
 		},
 	});
 
@@ -1200,15 +1224,13 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
-You are in the PLAN phase. Dispatch a planner agent to create an implementation plan.
-Use \`dispatch_agents\` with a planner. The plan will be stored as $PLAN for later phases.
-Call \`advance_phase\` with the plan summary when done.`;
+You are in the PLAN phase. Dispatch a planner with \`dispatch_agents\` — do not write the plan yourself.
+Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
-		} else if (phase.def.name === "execute") {
-			phaseInstructions = `## Phase Instructions: EXECUTE
-You are in the EXECUTE phase. Dispatch builder agents to implement the plan.
-You can dispatch multiple builders for independent tasks.
-Use \`dispatch_agents\` then call \`advance_phase\` when implementation is complete.`;
+		} else if (phase.def.name === "execute" || phase.def.name === "build") {
+			phaseInstructions = `## Phase Instructions: ${phaseName}
+Dispatch builder agents with \`dispatch_agents\`. Do not implement files yourself.
+Wait for ## RESULT, then call \`advance_phase\`.`;
 
 		} else if (phase.def.name === "review") {
 			phaseInstructions = `## Phase Instructions: REVIEW
@@ -1263,7 +1285,7 @@ ${taskSummary || "(Phase 1: Ask the user what they want to accomplish)"}
 ${contextSummary}${planSection}${reviewSection}
 
 ## Tools
-- \`advance_phase\`: Move to next phase (required summary of what was done)
+- \`advance_phase\`: Move to next phase after this phase's dispatch_agents have finished (required summary from their RESULT)
 - \`dispatch_agents\`: Send agents to work (array of {role, task})
 - \`pipeline_status\`: Check current pipeline state
 - Plus all standard codebase tools (read, write, edit, bash, etc.)${commanderSection}`,
@@ -1278,6 +1300,12 @@ ${contextSummary}${planSection}${reviewSection}
 		// Clear widgets from previous session
 		widgetCtx = _ctx;
 		clearPipelineUI();
+		unwatchMode?.();
+		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
+			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
+			if (mode !== "PIPELINE") clearPipelineUI();
+			else updateWidget();
+		});
 		contextWindow = _ctx.model?.contextWindow || 0;
 
 		// Wipe pipeline session files

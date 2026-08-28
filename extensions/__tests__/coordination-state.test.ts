@@ -19,6 +19,7 @@ import {
 	setCommanderGate,
 	setCommanderState,
 	setCoordinationMode,
+	onCoordinationModeChange,
 } from "../lib/coordination-state.ts";
 
 function resetState(): void {
@@ -79,6 +80,16 @@ describe("coordination state bus", () => {
 		expect(commanderState().state).toBe("pending");
 		expect(commanderGate()?.state).toBe("pending");
 		expect(commanderAvailable()).toBe(false);
+	});
+
+	it("passes the live UI ctx to mode-change listeners", () => {
+		const ui = { setWidget: vi.fn() };
+		const listener = vi.fn();
+		const stop = onCoordinationModeChange(listener);
+		setCoordinationMode("CHAIN", { ui });
+		expect(listener).toHaveBeenCalledWith("CHAIN", "NORMAL", { ui });
+		stop();
+		setCoordinationMode("NORMAL");
 	});
 
 	it("drains ready callbacks exactly once", () => {

@@ -21,6 +21,19 @@ export interface PipelineConfig {
 	phases: PhaseDef[];
 }
 
+/** Work phases with configured agents must dispatch before advance_phase.
+ *  UNDERSTAND is conversational and may advance without dispatch. */
+export function phaseRequiresAgentDispatch(phase: { name: string; agents: unknown[] }): boolean {
+	const name = String(phase.name || "").trim().toLowerCase();
+	if (name === "understand") return false;
+	return (phase.agents?.length ?? 0) > 0;
+}
+
+export function pipelineSelectLabel(config: PipelineConfig): string {
+	const flow = config.phases.map((p) => p.name).join(" → ") || "no phases";
+	return `${config.name} (${flow})`;
+}
+
 export function parsePipelineYaml(raw: string): PipelineConfig[] {
 	const configs: PipelineConfig[] = [];
 	let current: PipelineConfig | null = null;
