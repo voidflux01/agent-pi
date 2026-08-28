@@ -145,12 +145,18 @@ export default function (pi: ExtensionAPI) {
 			// A mode prompt is assembled at before_agent_start, before this tool
 			// executes. Queue a fresh user turn, then abort the stale one, so the
 			// next model call actually receives the selected mode's prompt.
+			// Abort after this result is returned: calling abort() here throws and
+			// the TUI shows "This operation was aborted" instead of the mode change.
 			if (changed) {
 				try {
 					pi.sendUserMessage(`Continue the task in ${upper} mode.`, { deliverAs: "followUp" });
-				} finally {
-					ctx.abort();
+				} catch {}
+				if (ctx.hasUI) {
+					try { ctx.ui.notify(`Switched to ${upper}. Starting a new turn.`, "info"); } catch {}
 				}
+				queueMicrotask(() => {
+					try { ctx.abort(); } catch {}
+				});
 			}
 
 			return {

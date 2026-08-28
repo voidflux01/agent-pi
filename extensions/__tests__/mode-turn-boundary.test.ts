@@ -23,6 +23,7 @@ describe("set_mode turn boundary", () => {
 		const ctx: any = { abort };
 
 		await tool.execute("mode-1", { mode: "PLAN", reason: "multi-file change" }, undefined, undefined, ctx);
+		await Promise.resolve();
 
 		expect(pi.sendUserMessage).toHaveBeenCalledWith(
 			"Continue the task in PLAN mode.",

@@ -34,6 +34,18 @@ Herdr sibling panes were titled `π - security-guard` because the child's first
 like `scout-sa1`. Opt out of first-turn tool pinning with
 `PI_PIN_ORCHESTRATION_TOOLS=0`.
 
+### Walk-through usage fixes
+
+- `grill_record_turn` / `grill_save_results` / `/grill-me` used a missing
+  `ctx` (the execute argument is `ctx2`) and threw `ctx is not defined`.
+- `show_plan` no longer auto-arms grill-me; pass `grill: true` to opt in.
+  When grill is armed and unfinished, the approval follow-up says not to
+  implement yet.
+- `set_mode` returns its success result before aborting the stale turn, so
+  the TUI does not show `This operation was aborted` as the tool error.
+- Viewer open is also a display message plus a status line with the token URL.
+- `tasks` tool text states that only one task can be inprogress at a time.
+
 ### Flash first-turn still has PLAN/scout tools
 
 `pi-deepseek-route` narrows Flash to read/write/edit/bash on turn 1, which hid

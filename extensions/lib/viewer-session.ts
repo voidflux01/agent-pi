@@ -48,7 +48,11 @@ export function closeActiveViewer(): { closed: boolean; kind?: ActiveViewerKind;
 }
 
 export function notifyViewerOpen(ctx: ExtensionContext, session: ActiveViewerSession): void {
-	if (ctx.hasUI) ctx.ui.notify(`${session.title} opened at ${session.launchUrl || session.url}`, "info");
+	const where = session.launchUrl || session.url;
+	const msg = `${session.title} opened at ${where}`;
+	if (!ctx.hasUI) return;
+	ctx.ui.notify(msg, "info");
+	try { ctx.ui.setStatus(msg, "viewer"); } catch {}
 }
 
 /** Loopback origin plus the one-time capability URL that actually loads the page. */

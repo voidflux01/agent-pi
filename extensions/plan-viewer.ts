@@ -184,7 +184,7 @@ const ShowPlanParams = Type.Object({
 	file_path: Type.String({ description: "Path to the markdown plan file (e.g. .context/todo.md)" }),
 	title: Type.Optional(Type.String({ description: "Title to display in the viewer header" })),
 	mode: Type.Optional(Type.String({ description: "Viewer mode: 'plan' (default) for plan review/approval, or 'questions' for follow-up questions with inline answers" })),
-	grill: Type.Optional(Type.Boolean({ description: "Plan mode only: automatically arm a grill-me design interview for this plan (default true). The user's approval will direct you to interview first if no decisions were recorded." })),
+	grill: Type.Optional(Type.Boolean({ description: "Plan mode only: arm a grill-me design interview for this plan (default false). When true, approval directs you to interview first if no decisions were recorded." })),
 });
 
 // ── Extension ────────────────────────────────────────────────────────
@@ -243,6 +243,13 @@ export default function (pi: ExtensionAPI) {
 		// Open the browser
 		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
+		try {
+			piRef.sendMessage({
+				customType: "viewer-open",
+				content: `${activeSession.title} opened at ${launchUrl}`,
+				display: true,
+			});
+		} catch {}
 
 		// Wait for user action in the browser (or abort)
 		try {
@@ -285,6 +292,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			return result;
+		} catch (err: any) {
+			if (String(err?.message || err).includes("Aborted")) {
+				return { action: "declined", markdown, modified: false };
+			}
+			throw err;
 		} finally {
 			// Clean up server after result
 			cleanupServer();
@@ -297,8 +309,8 @@ export default function (pi: ExtensionAPI) {
 		description: "Start a deterministic design interview and save results to Markdown",
 		handler: async (args2: string, ctx2: ExtensionContext) => {
 			const plan = args2.trim() || "(No plan supplied yet. Ask the user to paste or describe the plan first.)";
-			const st = armGrillSession(ctx.cwd, plan);
-			ctx.ui.notify(`Grill session initialized: ${grillStatePath(ctx.cwd)}`, "info");
+			const st = armGrillSession(ctx2.cwd, plan);
+			ctx2.ui.notify(`Grill session initialized: ${grillStatePath(ctx2.cwd)}`, "info");
 			pi.sendUserMessage(
 				`Start /grill-me for this plan:\n\n${plan}\n\nRules:\n- Interview me relentlessly about every aspect of this plan until we reach shared understanding.\n- Walk down each branch of the design tree, resolving dependencies between decisions one-by-one.\n- Ask exactly one question at a time.\n- For each question, provide your recommended answer.\n- If a question can be answered by exploring the codebase, explore the codebase instead.\n- Use grill_record_turn after each question/answer decision is captured.\n- For every resolved turn, include my explicit choice in userAnswer; do not leave the answer only in notes.\n- Use grill_save_results to save the results into a Markdown file in the project directory when enough understanding has been reached or when I ask to stop/save.`,
 			);
@@ -329,7 +341,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId: string, params: any, _signal: unknown, _onUpdate: unknown, ctx2: ExtensionContext) {
 			const turn = params as GrillTurn;
-			const res = recordGrillTurn(ctx.cwd, turn);
+			const res = recordGrillTurn(ctx2.cwd, turn);
 			if (!res.ok) {
 				return {
 					content: [{ type: "text" as const, text: res.error }],
@@ -359,7 +371,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_toolCallId: string, params: any, _signal: unknown, _onUpdate: unknown, ctx2: ExtensionContext) {
 			const p = params as { path?: string; summary?: string; agreedDecisions?: string[]; openRisks?: string[]; nextDecisionNeeded?: string };
-			const res = saveGrillResults(ctx.cwd, {
+			const res = saveGrillResults(ctx2.cwd, {
 				summary: p.summary,
 				agreedDecisions: p.agreedDecisions,
 				openRisks: p.openRisks,
@@ -405,7 +417,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const purpose: ViewerPurpose = modeStr === "questions" ? "questions" : "plan";
-			const grillEnabled = modeStr !== "questions" && params.grill !== false;
+			const grillEnabled = modeStr !== "questions" && params.grill === true;
 
 			// Read the file
 			let markdown: string;
@@ -480,10 +492,13 @@ export default function (pi: ExtensionAPI) {
 				// interview progress recorded via grill_record_turn.
 				const grill = grillEnabled ? readGrillState(ctx.cwd) : undefined;
 				const unresolved = grill?.turns.filter((t2) => t2.decisionStatus !== "resolved") ?? [];
-				let approvalContent = `Plan approved! Proceed with implementation.${modifiedNote}`;
+				const grillBlocksImpl = !!grill && (grill.turns.length === 0 || unresolved.length > 0);
+				let approvalContent = grillBlocksImpl
+					? `Plan approved.${modifiedNote} Do not implement yet.`
+					: `Plan approved! Proceed with implementation.${modifiedNote}`;
 				if (grill) {
 					if (grill.turns.length === 0) {
-						approvalContent += `\n\n🔥 GRILL-ME INTERVIEW REQUIRED before implementation (auto-armed): interview the user about this plan — one question at a time, with your recommended answer each time; answer questions from the codebase when possible instead of asking. Record each decision with grill_record_turn and save the final write-up with grill_save_results. Cover every design branch that materially affects implementation, then start implementing without re-asking anything already resolved.`;
+						approvalContent += `\n\n🔥 GRILL-ME INTERVIEW REQUIRED before implementation: interview the user about this plan — one question at a time, with your recommended answer each time; answer questions from the codebase when possible instead of asking. Record each decision with grill_record_turn and save the final write-up with grill_save_results. Cover every design branch that materially affects implementation, then start implementing without re-asking anything already resolved.`;
 					} else if (unresolved.length > 0) {
 						approvalContent += `\n\n🔥 Grill-me has ${unresolved.length} unresolved question(s): ` + unresolved.slice(0, 5).map((t2) => `"${t2.question}"`).join("; ") + `. Resolve these first (ask the user or check the codebase), record them with grill_record_turn, then proceed.`;
 					} else {

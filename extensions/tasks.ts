@@ -483,6 +483,7 @@ export default function (pi: ExtensionAPI) {
 			"PI_TASKS_STRICT=0 makes NORMAL advisory. PLAN, SPEC, PIPELINE, TEAM, and CHAIN always require an active task. " +
 			"Actions: new-list (text=title, description), add (text or texts[] for batch), toggle (id) — cycles idle→inprogress→done, remove (id), update (id + text), list, clear. " +
 			"Always toggle a task to inprogress before starting work on it, and to done when finished. " +
+			"Only one task can be inprogress; toggling a second auto-pauses the first. Do not toggle two tasks in the same message. " +
 			"Use new-list to start a themed list with a title and description. " +
 			"IMPORTANT: If the user's new request does not fit the current list's theme, use clear to wipe the slate and new-list to start fresh.",
 		parameters: TasksParams,
