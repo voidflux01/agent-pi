@@ -541,7 +541,7 @@ export default function (pi: ExtensionAPI) {
 				if (!herdrEnabled()) return false;
 				let tab: HerdrTabRef | null = null;
 				try {
-					const runCwd = process.cwd();
+					const runCwd = ctx?.cwd ?? process.cwd();
 					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
 					if (!wsId) return false;
 
