@@ -908,7 +908,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
         var name = attr.name.toLowerCase();
         var value = attr.value.trim();
         if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'style') { node.removeAttribute(attr.name); return; }
-        if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction') && !/^(https?:|mailto:|tel:|#|\/)/i.test(value)) {
+        if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction') && !new RegExp('^(https?:|mailto:|tel:|#|/)', 'i').test(value)) {
           node.removeAttribute(attr.name);
         }
       });

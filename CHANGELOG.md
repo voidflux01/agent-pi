@@ -22,6 +22,11 @@ prints that same launch link for every token-auth viewer (plan, spec,
 file, board, reports, research, sounds, cleanup, security, completion),
 not only `show_plan`. `web-chat` is PIN-gated and unchanged.
 
+A second empty-body bug: plan / spec / completion HTML inlined
+`/^(https?:|mailto:|tel:|#|\/)/` inside a template string, so the browser
+saw an unterminated regex and never ran `render()`. `#renderedView` stayed
+blank even on a 200 token URL. Those sanitizers now use `new RegExp(...)`.
+
 ### Subagent pane titles show the role
 
 Herdr sibling panes were titled `π - security-guard` because the child's first
