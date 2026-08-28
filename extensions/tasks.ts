@@ -234,6 +234,7 @@ export default function (pi: ExtensionAPI) {
 	let syncState: SyncState = emptySyncState();
 	// Queue tasks added while the initial Commander group request is in flight.
 	let pendingGroupTaskIds: number[] = [];
+	let syncGeneration = 0;
 
 	// ── Commander sync (gate-aware) ─────────────────────────────────────
 
@@ -292,6 +293,7 @@ export default function (pi: ExtensionAPI) {
 	// ── State reconstruction from session ──────────────────────────────
 
 	const reconstructState = (ctx: ExtensionContext) => {
+		syncGeneration++;
 		tasks = [];
 		nextId = 1;
 		listTitle = undefined;
@@ -379,9 +381,10 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" as const };
 	});
 
-	function syncTasksAddedAfterGroupCreation(localIds: number[]): void {
+	function syncTasksAddedAfterGroupCreation(localIds: number[], generation: number): void {
 		for (const localId of localIds) {
 			syncToCommander("task-create-after-group", async (client) => {
+				if (generation !== syncGeneration) return;
 				const task = tasks.find((candidate) => candidate.id === localId);
 				const groupId = syncState.groupId;
 				if (!task || groupId === undefined || lookupMapping(syncState, localId) !== undefined) return;
@@ -393,6 +396,7 @@ export default function (pi: ExtensionAPI) {
 				});
 				const commanderId = parseCommanderTaskId(res);
 				if (commanderId === undefined) throw new Error("Commander did not return a task id");
+				if (generation !== syncGeneration) return;
 				syncState = addMapping(syncState, localId, commanderId);
 				syncState = updateMappingStatus(syncState, localId, task.status);
 			});
@@ -451,6 +455,7 @@ export default function (pi: ExtensionAPI) {
 					listTitle = params.text;
 					listDescription = params.description || undefined;
 					syncState = emptySyncState();
+					syncGeneration++;
 					pendingGroupTaskIds = [];
 
 					// Group creation deferred to first `add` — avoids empty tasks[] rejection
@@ -499,6 +504,7 @@ export default function (pi: ExtensionAPI) {
 
 					// Sync: create Commander tasks (skip if external sync owns it)
 					if (!isExternalSyncActive()) {
+						const generation = syncGeneration;
 						if (shouldCreateGroup(syncState)) {
 							// Path A: no group yet — batch all tasks into a single group:create
 							syncState = markGroupCreationInFlight(syncState);
@@ -510,15 +516,17 @@ export default function (pi: ExtensionAPI) {
 								process.cwd(),
 							);
 							syncToCommander("group-create", async (client) => {
+								if (generation !== syncGeneration) return;
 								const res = await client.callTool("commander_task", payload);
 								const parsed = parseGroupCreateResult(res);
+								if (generation !== syncGeneration) return;
 								if (parsed) {
 									syncState = applyGroupCreateResult(syncState, localIds, parsed);
 									for (const lid of localIds) {
 										syncState = updateMappingStatus(syncState, lid, "idle");
 									}
 									const queuedIds = pendingGroupTaskIds.splice(0);
-									syncTasksAddedAfterGroupCreation(queuedIds);
+									syncTasksAddedAfterGroupCreation(queuedIds, generation);
 								} else {
 									syncState = { ...syncState, groupCreationInFlight: false };
 								}
@@ -528,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 							// Path B: group exists — add individual tasks with group_id
 							for (const t of added) {
 								syncToCommander("task-create", async (client) => {
+									if (generation !== syncGeneration) return;
 									const res = await client.callTool("commander_task", {
 										operation: "create",
 										description: t.text,
@@ -535,6 +544,7 @@ export default function (pi: ExtensionAPI) {
 										group_id: syncState.groupId,
 									});
 									const cid = parseCommanderTaskId(res);
+									if (generation !== syncGeneration) return;
 									if (cid !== undefined) {
 										syncState = addMapping(syncState, t.id, cid);
 										syncState = updateMappingStatus(syncState, t.id, "idle");
@@ -777,6 +787,7 @@ export default function (pi: ExtensionAPI) {
 
 					tasks = [];
 					nextId = 1;
+					syncGeneration++;
 					pendingGroupTaskIds = [];
 					listTitle = undefined;
 					listDescription = undefined;

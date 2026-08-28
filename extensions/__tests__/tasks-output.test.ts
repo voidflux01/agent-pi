@@ -31,6 +31,8 @@ describe("tasks output formatting", () => {
 		expect(tasksSource).toContain("pendingGroupTaskIds");
 		expect(tasksSource).toContain("syncTasksAddedAfterGroupCreation");
 		expect(tasksSource).not.toContain("tasks are dropped");
+		expect(tasksSource).toContain("syncGeneration++");
+		expect(tasksSource).toContain("if (generation !== syncGeneration) return;");
 	});
 
 	it("should mention task validation in ABOUTME comment", () => {
