@@ -8,6 +8,8 @@ import { join, basename } from "node:path";
 
 export const DAILY_LOG_DIR = join(process.env.HOME ?? "~", ".claude", "agent-memory", "daily-logs");
 export const SESSION_STATE_FILE = ".context/session-state.json";
+/** Maximum daily-log text restored into a fresh context window. */
+export const RECENT_LOG_MAX_CHARS = 6_000;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -131,7 +133,11 @@ export function readRecentLogs(): string {
 			try {
 				const content = readFileSync(logPath, "utf-8").trim();
 				if (content) {
-					parts.push(`### ${date === today ? "Today" : "Yesterday"} (${date})\n${content}`);
+					const perDayLimit = Math.floor(RECENT_LOG_MAX_CHARS / 2);
+					const recent = content.length > perDayLimit
+						? `[older entries omitted]\n${content.slice(-perDayLimit)}`
+						: content;
+					parts.push(`### ${date === today ? "Today" : "Yesterday"} (${date})\n${recent}`);
 				}
 			} catch {
 				// Ignore read errors

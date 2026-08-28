@@ -283,6 +283,19 @@ describe("memory-cycle helpers", () => {
 			expect(result).toContain("Started feature");
 		});
 
+		it("caps restored daily logs so old history cannot flood context", () => {
+			const today = new Date().toISOString().split("T")[0];
+			mkdirSync(DAILY_LOG_DIR, { recursive: true });
+			const created = join(DAILY_LOG_DIR, `${today}.md`);
+			writeFileSync(created, "old-entry\n" + "x".repeat(20_000));
+			try {
+				const result = readRecentLogs();
+				expect(result.length).toBeLessThanOrEqual(6_100);
+				expect(result).toContain("older entries omitted");
+				expect(result).toContain("x".repeat(100));
+			} finally { rmSync(created, { force: true }); }
+		});
+
 		it("ignores empty log files", () => {
 			mkdirSync(DAILY_LOG_DIR, { recursive: true });
 			const created = join(DAILY_LOG_DIR, `${new Date().toISOString().split("T")[0]}.md`);
