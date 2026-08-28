@@ -10,6 +10,7 @@ import {
 	navUp,
 	navExit,
 	navEnter,
+	revealIncompleteTasks,
 	renderTaskList,
 	stripLeadingNumber,
 	MAX_VISIBLE_TASKS,
@@ -216,6 +217,32 @@ describe("task list keyboard navigation", () => {
 
 		state = navExit(state);
 		expect(state.selectedIndex).toBe(-1);
+	});
+});
+
+describe("revealIncompleteTasks", () => {
+	it("scrolls to the first idle task after a completed prefix", () => {
+		const tasks = [
+			...Array.from({ length: 6 }, (_, i) => ({ status: "done" as const, id: i + 1 })),
+			{ status: "idle" as const, id: 7 },
+		];
+		const next = revealIncompleteTasks({ selectedIndex: -1, scrollOffset: 0 }, tasks);
+		expect(next.scrollOffset).toBe(1);
+	});
+
+	it("keeps a short mixed list at the top", () => {
+		const next = revealIncompleteTasks(
+			{ selectedIndex: -1, scrollOffset: 0 },
+			[{ status: "done" }, { status: "idle" }],
+		);
+		expect(next.scrollOffset).toBe(0);
+	});
+
+	it("resets when the list is empty", () => {
+		expect(revealIncompleteTasks({ selectedIndex: 2, scrollOffset: 3 }, [])).toEqual({
+			selectedIndex: -1,
+			scrollOffset: 0,
+		});
 	});
 });
 

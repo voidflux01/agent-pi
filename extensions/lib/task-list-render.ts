@@ -89,6 +89,21 @@ export function navEnter(state: TaskListState, totalTasks: number): TaskListStat
 	return { ...state, selectedIndex: 0 };
 }
 
+/** Scroll so the first incomplete task is visible after add/toggle. */
+export function revealIncompleteTasks(
+	state: TaskListState,
+	tasks: Array<{ status: string }>,
+): TaskListState {
+	if (tasks.length === 0) return { selectedIndex: -1, scrollOffset: 0 };
+	const firstIncomplete = tasks.findIndex((task) => task.status !== "done");
+	const focus = firstIncomplete >= 0 ? firstIncomplete : Math.max(0, tasks.length - 1);
+	const selectedIndex = state.selectedIndex >= tasks.length ? -1 : state.selectedIndex;
+	return {
+		selectedIndex,
+		scrollOffset: ensureTaskVisible(focus, Math.min(state.scrollOffset, Math.max(0, tasks.length - 1))),
+	};
+}
+
 // ── Text helpers ─────────────────────────────────────────────────────
 
 /** Strip leading number prefix (e.g. "1. " or "3) ") from task text.

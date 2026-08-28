@@ -49,10 +49,17 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).toContain("Never spawn four scouts by default");
 	});
 
-	it("uses the shared dispatch path for scout findings", () => {
+	it("uses subagent_create for scout findings", () => {
 		expect(PLAN_PROMPT).toContain("read-only scout");
-		expect(PLAN_PROMPT).toContain("dispatch_agent");
+		expect(PLAN_PROMPT).toContain("subagent_create");
+		expect(PLAN_PROMPT).toContain('name: "scout"');
 		expect(PLAN_PROMPT).toContain("file paths only");
+		expect(PLAN_PROMPT).not.toContain("dispatch_agent");
+	});
+
+	it("makes reconnaissance Phase 1 for multi-file work", () => {
+		expect(PLAN_PROMPT).toContain("reconnaissance is Phase 1");
+		expect(PLAN_PROMPT).toContain("may run before the task list exists");
 	});
 
 	it("provides guidance on skipping scouts for simple tasks", () => {

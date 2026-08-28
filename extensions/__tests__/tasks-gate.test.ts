@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { shouldBypassTaskGate, taskRequiredForMode } from "../lib/task-gate.ts";
+import { isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -143,6 +143,57 @@ describe("PI_SUBAGENT env var bypass", () => {
 	});
 });
 
+
+describe("scout reconnaissance bypass", () => {
+	it("treats subagent_create named scout as read-only recon", () => {
+		expect(isScoutRecon("subagent_create", { name: "scout" })).toBe(true);
+		expect(isScoutRecon("subagent_create", { name: "SCOUT" })).toBe(true);
+		expect(shouldBypassTaskGate("subagent_create", true, { name: "scout" })).toBe(true);
+	});
+
+	it("does not treat unnamed or specialist subagents as recon", () => {
+		expect(isScoutRecon("subagent_create", { name: "builder" })).toBe(false);
+		expect(isScoutRecon("subagent_create", {})).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create", true, { name: "builder" })).toBe(false);
+	});
+
+	it("bypasses a scout-only batch and rejects mixed batches", () => {
+		expect(isScoutRecon("subagent_create_batch", { agents: [{ name: "scout" }, { name: "SCOUT" }] })).toBe(true);
+		expect(isScoutRecon("subagent_create_batch", { agents: [{ name: "scout" }, { name: "builder" }] })).toBe(false);
+		expect(isScoutRecon("subagent_create_batch", { agents: [] })).toBe(false);
+	});
+
+	it("does not treat TEAM dispatch_agent as recon", () => {
+		expect(isScoutRecon("dispatch_agent", { agent: "scout" })).toBe(false);
+		expect(shouldBypassTaskGate("dispatch_agent", true, { agent: "scout" })).toBe(false);
+	});
+});
+
+describe("PI_TASKS_STRICT default", () => {
+	it("is strict when unset or set to 1", () => {
+		const original = process.env.PI_TASKS_STRICT;
+		try {
+			delete process.env.PI_TASKS_STRICT;
+			expect(taskGateStrict()).toBe(true);
+			process.env.PI_TASKS_STRICT = "1";
+			expect(taskGateStrict()).toBe(true);
+		} finally {
+			if (original === undefined) delete process.env.PI_TASKS_STRICT;
+			else process.env.PI_TASKS_STRICT = original;
+		}
+	});
+
+	it("is advisory only when set to 0", () => {
+		const original = process.env.PI_TASKS_STRICT;
+		try {
+			process.env.PI_TASKS_STRICT = "0";
+			expect(taskGateStrict()).toBe(false);
+		} finally {
+			if (original === undefined) delete process.env.PI_TASKS_STRICT;
+			else process.env.PI_TASKS_STRICT = original;
+		}
+	});
+});
 
 describe("mode-aware task discipline", () => {
 	it("requires tasks in orchestration modes", () => {

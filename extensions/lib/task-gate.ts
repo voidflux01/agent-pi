@@ -1,5 +1,5 @@
 // ABOUTME: Shared task-gate policy used by the runtime and its tests.
-// ABOUTME: NORMAL mode is advisory; orchestration modes require an active task.
+// ABOUTME: NORMAL lists are strict by default; set PI_TASKS_STRICT=0 for advisory.
 
 export const TASK_GATE_BYPASS_TOOLS = [
 	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "ask_user", "run_chain",
@@ -14,7 +14,27 @@ export const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"] as 
 /** Modes where task tracking is part of the workflow contract. */
 export const TASK_REQUIRED_MODES = ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
 
-export function shouldBypassTaskGate(toolName: string, requireActiveTask = false): boolean {
+function toolArgs(args: unknown): Record<string, unknown> {
+	return args && typeof args === "object" ? args as Record<string, unknown> : {};
+}
+
+function isScoutName(value: unknown): boolean {
+	return String(value ?? "").trim().toLowerCase() === "scout";
+}
+
+/** True for read-only scout reconnaissance that must not wait on a task list. */
+export function isScoutRecon(toolName: string, args?: unknown): boolean {
+	const params = toolArgs(args);
+	if (toolName === "subagent_create") return isScoutName(params.name);
+	if (toolName === "subagent_create_batch") {
+		const agents = Array.isArray(params.agents) ? params.agents : [];
+		return agents.length > 0 && agents.every((agent) => isScoutName((agent as { name?: unknown })?.name));
+	}
+	return false;
+}
+
+export function shouldBypassTaskGate(toolName: string, requireActiveTask = false, args?: unknown): boolean {
+	if (isScoutRecon(toolName, args)) return true;
 	if (requireActiveTask && (TASK_EXECUTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	return (TASK_GATE_BYPASS_TOOLS as readonly string[]).includes(toolName)
 		|| toolName.startsWith("commander_")
@@ -25,7 +45,7 @@ export function taskRequiredForMode(mode: string | undefined): boolean {
 	return (TASK_REQUIRED_MODES as readonly string[]).includes(mode ?? "");
 }
 
-/** Optional strict lifecycle checks for task lists in NORMAL mode. */
+/** Strict lifecycle checks for existing NORMAL task lists. Opt out with PI_TASKS_STRICT=0. */
 export function taskGateStrict(): boolean {
-	return process.env.PI_TASKS_STRICT === "1";
+	return process.env.PI_TASKS_STRICT !== "0";
 }

@@ -54,38 +54,50 @@ describe("strict gate integration", () => {
 			sendMessage() {},
 		};
 		const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
-		process.env.PI_TASKS_STRICT = "1";
-		tasksExtension(pi as any);
+		const previousStrict = process.env.PI_TASKS_STRICT;
+		try {
+			delete process.env.PI_TASKS_STRICT;
+			tasksExtension(pi as any);
 
-		await tool.execute("new-list", { action: "new-list", text: "tracked work" }, undefined, undefined, ctx);
-		await tool.execute("add", { action: "add", text: "make the change" }, undefined, undefined, ctx);
-		const blocked = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
-		expect(blocked.block).toBe(true);
+			await tool.execute("new-list", { action: "new-list", text: "tracked work" }, undefined, undefined, ctx);
+			await tool.execute("add", { action: "add", text: "make the change" }, undefined, undefined, ctx);
+			const blocked = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
+			expect(blocked.block).toBe(true);
 
-		const active = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
-		expect(active.details.tasks[0].status).toBe("inprogress");
-		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
+			const active = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+			expect(active.details.tasks[0].status).toBe("inprogress");
+			expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
 
-		const done = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
-		expect(done.details.tasks[0].status).toBe("done");
-		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
-		delete process.env.PI_TASKS_STRICT;
+			const done = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+			expect(done.details.tasks[0].status).toBe("done");
+			expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
+		} finally {
+			if (previousStrict === undefined) delete process.env.PI_TASKS_STRICT;
+			else process.env.PI_TASKS_STRICT = previousStrict;
+		}
 	});
 });
 
 
-describe("default advisory gate", () => {
-	it("warns without blocking ordinary tools", async () => {
+describe("advisory gate opt-out", () => {
+	it("warns without blocking ordinary tools when PI_TASKS_STRICT=0", async () => {
 		let tool: any;
 		const handlers = new Map<string, Function>();
 		const pi = { registerTool(def: any) { tool = def; }, registerCommand() {}, on(name: string, handler: Function) { handlers.set(name, handler); }, sendMessage() {} };
 		const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
-		tasksExtension(pi as any);
-		await tool.execute("new-list", { action: "new-list", text: "small change" }, undefined, undefined, ctx);
-		await tool.execute("add", { action: "add", text: "edit one file" }, undefined, undefined, ctx);
-		const advisory = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
-		expect(advisory.block).toBe(false);
-		expect(advisory.reason).toContain("Task suggestion");
+		const previousStrict = process.env.PI_TASKS_STRICT;
+		try {
+			process.env.PI_TASKS_STRICT = "0";
+			tasksExtension(pi as any);
+			await tool.execute("new-list", { action: "new-list", text: "small change" }, undefined, undefined, ctx);
+			await tool.execute("add", { action: "add", text: "edit one file" }, undefined, undefined, ctx);
+			const advisory = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
+			expect(advisory.block).toBe(false);
+			expect(advisory.reason).toContain("Task suggestion");
+		} finally {
+			if (previousStrict === undefined) delete process.env.PI_TASKS_STRICT;
+			else process.env.PI_TASKS_STRICT = previousStrict;
+		}
 	});
 });
 
@@ -104,7 +116,7 @@ describe("transcript-backed reconstruction", () => {
 		};
 		tasksExtension(pi as any);
 		await handlers.get("session_start")!(undefined, ctx);
-		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
+		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
 	});
 
 	it("ignores malformed reconstructed task details", async () => {
@@ -166,6 +178,27 @@ describe("mode-aware gate integration", () => {
 				const active = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
 				expect(active.block, `${mode} should allow an active task`).toBe(false);
 			}
+		} finally {
+			setCoordinationMode(previous);
+		}
+	});
+
+	it("allows scout subagent_create before a task exists", async () => {
+		const previous = coordinationState().mode;
+		try {
+			const handlers = new Map<string, Function>();
+			const pi = {
+				registerTool() {}, registerCommand() {},
+				on(name: string, handler: Function) { handlers.set(name, handler); },
+				sendMessage() {},
+			};
+			const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+			setCoordinationMode("PLAN");
+			tasksExtension(pi as any);
+			const scout = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "scout", task: "map auth" } }, ctx);
+			expect(scout.block).toBe(false);
+			const builder = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "builder", task: "edit files" } }, ctx);
+			expect(builder.block).toBe(true);
 		} finally {
 			setCoordinationMode(previous);
 		}

@@ -50,7 +50,7 @@ import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, 
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
-import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
+import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 
 // ── Types ────────────────────────────────────────
@@ -217,6 +217,8 @@ export default function (pi: ExtensionAPI) {
 	let widgetCompact = true;
 	let selectedAgentIndex = -1; // -1 = no selection
 	let taskListState: TaskListState = { selectedIndex: -1, scrollOffset: 0 };
+	let taskListWidget: { invalidate: () => void } | undefined;
+	let taskListTui: { requestRender?: () => void } | undefined;
 	let nextWidgetId = 1;
 	const agentWidgetBoxes = new Map<number, { invalidate: () => void }>();
 
@@ -425,10 +427,11 @@ export default function (pi: ExtensionAPI) {
 		// Task list widget (above editor)
 		const taskList = (globalThis as any).__piTaskList as TaskListInfo | null;
 		if (taskList && taskList.tasks.length > 0) {
-			safeSetWidget(ctx, "agent-team", (_tui: any, theme: any) => {
+			taskListState = revealIncompleteTasks(taskListState, taskList.tasks);
+			const mounted = safeSetWidget(ctx, "agent-team", (tui: any, theme: any) => {
+				taskListTui = tui;
 				const text = new Text("", 0, 0);
-
-				return {
+				const widget = {
 					render(width: number): string[] {
 						const tl = (globalThis as any).__piTaskList as TaskListInfo | null;
 						if (!tl || tl.tasks.length === 0) {
@@ -457,9 +460,17 @@ export default function (pi: ExtensionAPI) {
 						text.invalidate();
 					},
 				};
+				taskListWidget = widget;
+				return widget;
 			}, { placement: "aboveEditor" });
+			if (mounted) {
+				taskListWidget?.invalidate();
+				taskListTui?.requestRender?.();
+			}
 		} else {
 			// No task list — remove the combined widget
+			taskListWidget = undefined;
+			taskListTui = undefined;
 			safeSetWidget(ctx, "agent-team", undefined);
 		}
 
@@ -1461,6 +1472,8 @@ ${agentCatalog}${commanderSection}`,
 		if ((globalThis as any).__piRefreshTaskWidget) {
 			(globalThis as any).__piRefreshTaskWidget = undefined;
 		}
+		taskListWidget = undefined;
+		taskListTui = undefined;
 		sessionEpoch++;
 		for (const state of agentStates.values()) {
 			if (state.timer) clearInterval(state.timer);
@@ -1478,9 +1491,13 @@ ${agentCatalog}${commanderSection}`,
 		widgetCtx = _ctx;
 		safeSetWidget(_ctx, "agent-team", undefined);
 		removeAllAgentWidgets(_ctx);
+		taskListWidget = undefined;
+		taskListTui = undefined;
+		taskListState = { selectedIndex: -1, scrollOffset: 0 };
 		for (const state of agentStates.values()) {
 			resetAgentState(state);
 		}
+		(globalThis as any).__piRefreshTaskWidget = (ctx?: any) => updateWidget(ctx || widgetCtx);
 		updateWidget(_ctx);
 	}));
 

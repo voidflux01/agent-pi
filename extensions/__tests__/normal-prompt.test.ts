@@ -58,6 +58,7 @@ describe("buildNormalPrompt", () => {
 		expect(result.toLowerCase()).toContain("work directly");
 		expect(result.toLowerCase()).toContain("do not call set_mode");
 		expect(result).toContain("Orchestration is opt-in");
+		expect(result).toContain("PI_TASKS_STRICT=0");
 	});
 });
 
@@ -101,44 +102,27 @@ describe("buildCommanderSection", () => {
 });
 
 describe("buildNormalPrompt — Scout delegation", () => {
-	it("without scoutId, does not contain scout instructions", () => {
+	it("instructs spawning a scout via subagent_create", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
-		expect(result).not.toContain("Scout Agent");
-		expect(result).not.toContain("subagent_continue");
-	});
-
-	it("with scoutId: null, does not contain scout instructions", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: null });
-		expect(result).not.toContain("Scout Agent");
-		expect(result).not.toContain("subagent_continue");
-	});
-
-	it("with scoutId set, contains scout delegation section", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
 		expect(result).toContain("Optional scout");
-		expect(result).toContain("subagent_continue");
+		expect(result).toContain("subagent_create");
+		expect(result).toContain('name: "scout"');
 	});
 
-	it("with scoutId set, references the correct SA ID", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 42 });
-		expect(result).toContain("SA42");
-		expect(result).toContain("id: 42");
+	it("does not depend on a pre-spawned scout id", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result).not.toContain("subagent_continue");
+		expect(result).not.toContain("SA1");
 	});
 
-	it("with scoutId set, instructs agent to delegate reads to scout", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
-		expect(result.toLowerCase()).toContain("context gathering");
-		expect(result.toLowerCase()).toContain("read-only");
-	});
-
-	it("with scoutId set, instructs agent to still handle edits directly", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
-		expect(result.toLowerCase()).toContain("edit");
+	it("skips scouts for simple lookups and edits", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result.toLowerCase()).toContain("quick lookup");
 		expect(result.toLowerCase()).toContain("simple edit");
 	});
 
-	it("with scoutId set, mentions fallback if scout errors", () => {
-		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null, scoutId: 1 });
+	it("mentions fallback if scout errors", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
 		expect(result.toLowerCase()).toContain("continue directly");
 	});
 });

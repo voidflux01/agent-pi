@@ -186,7 +186,6 @@ export default function (pi: ExtensionAPI) {
 			})};
 		}
 		if (coordinationState().mode === "PLAN") {
-			const g = globalThis as any;
 			return { systemPrompt: buildPlanPrompt(isCommanderAvailable()) };
 		}
 		if (coordinationState().mode === "SPEC") return { systemPrompt: SPEC_PROMPT };

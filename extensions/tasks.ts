@@ -1,12 +1,12 @@
-// ABOUTME: Task discipline extension with an advisory default and optional strict mode.
+// ABOUTME: Task discipline extension. NORMAL lists are strict unless PI_TASKS_STRICT=0.
 // ABOUTME: Three-state lifecycle (idle/inprogress/done) with widget display and task validation.
 /**
  * Tasks Extension — Task discipline for the agent
  *
- * A task-driven discipline extension. NORMAL mode keeps task tracking advisory;
- * orchestration modes require an active task before execution. On agent
- * completion, if tasks remain incomplete, the agent gets nudged to continue
- * or mark them done.
+ * A task-driven discipline extension. NORMAL mode does not require a task list,
+ * but an existing list is strict unless PI_TASKS_STRICT=0. Orchestration modes
+ * require an active task before execution. On agent completion, if tasks remain
+ * incomplete, the agent gets nudged to continue or mark them done.
  *
  * Three-state lifecycle:  idle → inprogress → done
  *
@@ -46,7 +46,8 @@ import {
 	type SyncState,
 } from "./lib/commander-sync.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
-import { stripLeadingNumber } from "./lib/task-list-render.ts";
+import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
+import { padRight } from "./lib/ui-helpers.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
 import { shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "./lib/task-gate.ts";
@@ -284,6 +285,45 @@ export default function (pi: ExtensionAPI) {
 		publishCurrentTask(tasks, syncState);
 	};
 
+	let localTaskListState: TaskListState = { selectedIndex: -1, scrollOffset: 0 };
+
+	const setLocalTaskWidget = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI || !ctx.ui) return;
+		const published = g.__piTaskList as { tasks: Task[]; title?: string; remaining: number; total: number } | undefined;
+		if (!published || published.tasks.length === 0) {
+			try { ctx.ui.setWidget("tasks-list", undefined); } catch {}
+			return;
+		}
+		localTaskListState = revealIncompleteTasks(localTaskListState, published.tasks);
+		try {
+			ctx.ui.setWidget("tasks-list", (tui: any, theme: Theme) => {
+				const text = new Text("", 0, 0);
+				return {
+					render(width: number): string[] {
+						const tl = g.__piTaskList as typeof published | undefined;
+						if (!tl || tl.tasks.length === 0) {
+							text.setText("");
+							return [];
+						}
+						const termHeight = process.stdout.rows || 24;
+						const availableHeight = Math.max(3, Math.min(termHeight - 10, 14));
+						const taskLines = renderTaskList(
+							tl, localTaskListState, width, availableHeight,
+							{ truncateToWidth, fg: (c: string, t: string) => theme.fg(c, t) },
+						);
+						const taskBg = "\x1b[48;5;236m";
+						const taskReset = "\x1b[0m";
+						const emptyPad = taskBg + padRight("", width) + taskReset;
+						const allLines = [emptyPad, ...taskLines.map((line) => taskBg + padRight(line, width) + taskReset), emptyPad];
+						text.setText(allLines.join("\n"));
+						return allLines;
+					},
+					invalidate() { text.invalidate(); },
+				};
+			}, { placement: "aboveEditor" });
+		} catch {}
+	};
+
 	const refreshUI = (ctx: ExtensionContext) => {
 		const syncIndicator = isCommanderAvailable() ? "(synced)" : "(local)";
 		if (tasks.length === 0) {
@@ -296,10 +336,20 @@ export default function (pi: ExtensionAPI) {
 
 		refreshWidget(ctx);
 		if (g.__piTaskList) g.__piTaskList.title = listTitle;
-		// agent-team owns the visible task-list widget. Refresh it whenever the
-		// local task state changes; otherwise it only sees the empty session-start state.
-		try { g.__piRefreshTaskWidget?.(ctx); } catch {}
-		ctx.ui.setWidget("tasks-list", undefined);
+		// agent-team owns the visible task-list widget when loaded. Fall back to a
+		// local widget so add/toggle after a completed list still repaints.
+		let refreshed = false;
+		try {
+			if (typeof g.__piRefreshTaskWidget === "function") {
+				g.__piRefreshTaskWidget(ctx);
+				refreshed = true;
+			}
+		} catch {}
+		if (refreshed) {
+			try { ctx.ui.setWidget("tasks-list", undefined); } catch {}
+		} else {
+			setLocalTaskWidget(ctx);
+		}
 	};
 
 	// ── State reconstruction from session ──────────────────────────────
@@ -351,7 +401,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName === "tasks") return { block: false };
 		// In orchestration modes, delegated work is subject to the same hard gate
 		// as local write/execution tools. Setup and status tools remain available.
-		if (shouldBypassTaskGate(event.toolName, requiredMode)) return { block: false };
+		if (shouldBypassTaskGate(event.toolName, requiredMode, event.arguments || event.params || event.input)) return { block: false };
 
 		// A malformed historical tool result must not crash the extension or
 		// create an unrecoverable gate. Reconstruction normalizes this, but keep
@@ -361,9 +411,8 @@ export default function (pi: ExtensionAPI) {
 		const decision = decideGateClaim(tasks, requiredMode);
 		if (!decision.block || requiredMode || taskGateStrict()) return decision;
 
-		// NORMAL mode should not spend a tool turn on task ceremony. Keep the
-		// same guidance as a soft warning. PI_TASKS_STRICT=1 is an explicit
-		// opt-in for stricter lifecycle checks in NORMAL.
+		// NORMAL with PI_TASKS_STRICT=0 stays advisory so small work is not
+		// blocked by task ceremony. Unset or any value other than 0 is strict.
 		return {
 			block: false,
 			reason: `Task suggestion: ${decision.reason} Continue if the task is small or exploratory.`,
@@ -430,8 +479,8 @@ export default function (pi: ExtensionAPI) {
 		name: "tasks",
 		label: "Tasks",
 		description:
-			"Manage the task list. In NORMAL mode tasks are optional; in PLAN, SPEC, PIPELINE, TEAM, and CHAIN modes, create and activate a task before write or execution tools. " +
-			"PI_TASKS_STRICT=1 enables strict lifecycle checks for existing NORMAL task lists. " +
+			"Manage the task list. In NORMAL mode a list is optional, but an existing list must have one inprogress task before write or execution tools. " +
+			"PI_TASKS_STRICT=0 makes NORMAL advisory. PLAN, SPEC, PIPELINE, TEAM, and CHAIN always require an active task. " +
 			"Actions: new-list (text=title, description), add (text or texts[] for batch), toggle (id) — cycles idle→inprogress→done, remove (id), update (id + text), list, clear. " +
 			"Always toggle a task to inprogress before starting work on it, and to done when finished. " +
 			"Use new-list to start a themed list with a title and description. " +

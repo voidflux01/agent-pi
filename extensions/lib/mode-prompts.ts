@@ -21,14 +21,13 @@ Before any write, edit, or bash/execution tool:
 2. Use \`tasks add\` for each real step.
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
-The task gate is strict in this mode. Only read-only inspection, task management, and mode-control/status tools may proceed while setting up the list.`;
+The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
 	commanderAvailable: boolean;
 	activeChain: string | null;
 	activePipeline: string | null;
-	scoutId?: number | null;
 }
 
 /** NORMAL mode prompt — teaches the agent to classify tasks and call set_mode. */
@@ -45,18 +44,7 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 ## Optional capabilities
 Commander: offline. Do not call commander_* tools.`;
 
-	const scoutSection = opts.scoutId != null ? `
-
-## Optional scout
-SA${opts.scoutId} is available for non-trivial, multi-file context gathering. Use it only when it saves work; do not use it for a quick lookup or simple edit.
-
-\`\`\`
-subagent_continue { id: ${opts.scoutId}, prompt: "Bounded read-only reconnaissance task" }
-\`\`\`
-If the scout fails, continue directly.` : "";
-
 	return `You are in NORMAL mode. This is the default, low-ceremony path.
-${scoutSection}
 
 ## Default behavior
 - Work directly on simple reads, answers, tests, and small edits.
@@ -64,6 +52,15 @@ ${scoutSection}
 - Do not dispatch an agent merely to make the workflow look formal.
 - Keep the user's task as the unit of work; use tasks only when tracking several real steps helps.
 - For multi-step work with clear scope and an approved direction, stay in NORMAL, create tasks, activate the current task, then work through the list.
+- Once a task list exists, keep one task inprogress before write, edit, or bash. PI_TASKS_STRICT=0 makes this advisory.
+
+## Optional scout
+For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
+
+\`\`\`
+subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }
+\`\`\`
+If the scout fails, continue directly.
 
 ## When to opt into orchestration
 Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:
@@ -86,16 +83,18 @@ export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work th
 ## Complexity first
 - Simple one-file fixes, renames, config edits, and quick lookups usually belong in NORMAL, not PLAN; do not spawn scouts for them.
 - If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
-- Narrow multi-file work: use at most one focused read-only scout when it saves time.
+- Multi-file or unclear-scope work: reconnaissance is Phase 1. Spawn a read-only scout before writing the plan. Do not scan the tree yourself first and then skip the scout.
+- Narrow multi-file work: use at most one focused read-only scout.
 - Broad work: choose the smallest number of scouts that cover independent areas. Never spawn four scouts by default.
 - A scout reports facts and file paths only. You synthesize the findings and remain responsible for the plan.
-- If reconnaissance is useful, use the same dispatch path as TEAM:
-  \`dispatch_agent { agent: "scout", task: "Bounded read-only reconnaissance" }\`
+- Spawn scouts with:
+  \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
+  For independent areas, launch multiple subagent_create calls in one message. Scout reconnaissance is read-only and may run before the task list exists.
 
 ${ORCHESTRATED_TASK_PROMPT}
 
 ## Plan workflow
-1. Understand the request and inspect the relevant code.
+1. For multi-file or unclear-scope work, spawn scout(s) and wait for their reports. For a simple one-file change, a quick read is enough.
 2. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
 4. After approval, implement phase by phase and update the plan.

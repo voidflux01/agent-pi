@@ -92,7 +92,7 @@ Pi discovers all extensions, themes, and skills automatically.
 |-----------|-------------|
 | **mode-cycler** | Shift+Tab cycles NORMAL / PLAN / SPEC / PIPELINE / TEAM / CHAIN |
 
-Each mode injects a tailored system prompt. NORMAL keeps task tracking advisory. PLAN / SPEC / TEAM / CHAIN / PIPELINE require an active task before write or execution tools. PLAN also enforces its plan-first approval workflow.
+Each mode injects a tailored system prompt. NORMAL does not require a task list, but an existing list is strict unless `PI_TASKS_STRICT=0`. PLAN / SPEC / TEAM / CHAIN / PIPELINE require an active task before write or execution tools. PLAN also enforces its plan-first approval workflow.
 
 **Dispatch safety:** Child Pi processes and Herdr tabs start only from a tool `execute` or slash-command handler. Session start/switch/shutdown cannot spawn, even if they open a dispatch context. Timer callbacks cannot inherit spawn rights. Toolkit workers and Herdr tab creation use the same gate.
 
