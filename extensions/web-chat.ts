@@ -412,6 +412,7 @@ class SessionBridge {
 		this.textBuffer = [];
 		this.toolNames = [];
 		this.terminalLines = [];
+		this.pendingFromPhone = false;
 	}
 }
 
@@ -600,6 +601,15 @@ function startChatServer(
 			if (req.method === "GET" && url.pathname === "/history") {
 				res.writeHead(200, { "Content-Type": "application/json" });
 				res.end(JSON.stringify({ messages: bridge.getHistory() }));
+				return;
+			}
+
+			// ── Reset the web chat's local mirror ─────────────────
+			if (req.method === "POST" && url.pathname === "/reset") {
+				bridge.destroy();
+				broadcastWS(wsClients, "reset", {});
+				res.writeHead(200, { "Content-Type": "application/json" });
+				res.end(JSON.stringify({ ok: true }));
 				return;
 			}
 
