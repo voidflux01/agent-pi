@@ -72,6 +72,14 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content.includes("⚠️ RESULT contract violated")).toBe(true);
 	});
 
+	test("keeps parent-visible results compact while preserving a transcript pointer", () => {
+		const verbose = `${GOOD}\n${"x".repeat(20_000)}`;
+		const out = composeAgentResult({ ...base, outputText: verbose });
+		expect(out.content.length).toBeLessThan(6_000);
+		expect(out.content).toMatch(/Full transcript \(20\d+ chars\):/);
+		expect(out.content).toContain("/tmp/x.txt");
+	});
+
 	test("PI_RESULT_CONTRACT_GATE=0 silences the line but keeps problems", () => {
 		process.env.PI_RESULT_CONTRACT_GATE = "0";
 		try {

@@ -33,7 +33,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { buildAgentResultContractPrompt, checkResultCompliance, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
@@ -444,9 +444,18 @@ export default function (pi: ExtensionAPI) {
 						state.status === "done" ? "success" : "error"
 					);
 
+					const compactResult = composeAgentResult({
+						agent: `SA${state.id} (${state.name})`,
+						status: state.status,
+						exitCode: code,
+						elapsedMs: state.elapsed,
+						model: state.model,
+						outputText: result,
+						fullOutputPath,
+					});
 					pi.sendMessage({
 						customType: "subagent-result",
-						content: `SA${state.id} (${state.name})${state.turnCount > 1 ? ` (Turn ${state.turnCount})` : ""} finished "${prompt}" in ${Math.round(state.elapsed / 1000)}s.\n\nResult:\n${result.slice(0, 8000)}${result.length > 8000 ? "\n\n... [truncated]" : ""}${fullOutputPath ? `\n\nFull transcript (${result.length} chars): ${fullOutputPath}` : ""}${contractProblems.length > 0 && contractGateEnabled() ? `\n\n⚠️ RESULT contract violated (${contractProblems.join("; ")}) — ask this sub-agent to re-emit a compliant ## RESULT block or read the full transcript yourself.` : ""}`,
+						content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
 						display: true,
 					}, { deliverAs: "followUp", triggerTurn: true });
 				} else {
