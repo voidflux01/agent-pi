@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionUsage } from "../lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage } from "../lib/herdr-client.ts";
 import { formatJournalEntry, sumJournalUsage, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,6 +45,16 @@ describe("sessionUsage", () => {
 		const p = makeSession([{ role: "assistant", content: [{ type: "text", text: "no usage here" }] }]);
 		const s = sessionUsage(p);
 		expect(s.assistantMessages).toBe(0);
+	});
+});
+
+describe("live session text reading", () => {
+	test("reads the newest assistant line without scanning the whole transcript", () => {
+		const p = makeSession([
+			...Array.from({ length: 5000 }, (_, i) => ({ role: "user", content: [{ type: "text", text: `padding-${i}-` + "x".repeat(100) }] })),
+			{ role: "assistant", content: [{ type: "text", text: "latest progress" }] },
+		]);
+		expect(readLastAssistantText(p)).toEqual({ text: "latest progress", found: true });
 	});
 });
 

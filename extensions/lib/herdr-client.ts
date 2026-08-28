@@ -23,7 +23,7 @@
 // ABOUTME:  - herdr auto-updates; protocol/version are checked per call.
 
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { childEnvironment } from "./child-runtime.ts";
 
@@ -699,11 +699,43 @@ export function sessionUsage(sessionFile: string): SessionUsage {
 	return out;
 }
 
+const SESSION_TAIL_BYTES = 256 * 1024;
+
+/**
+ * Read only the newest complete JSONL lines. This function runs from live
+ * dashboard timers, so scanning a growing transcript synchronously would
+ * otherwise block the Pi TUI every few seconds. Result persistence and usage
+ * accounting still deliberately scan the full file at completion time.
+ */
+function readSessionTail(sessionFile: string): string {
+	const fd = openSync(sessionFile, "r");
+	try {
+		const size = fstatSync(fd).size;
+		const start = Math.max(0, size - SESSION_TAIL_BYTES);
+		const buffer = Buffer.alloc(size - start);
+		let offset = 0;
+		while (offset < buffer.length) {
+			const count = readSync(fd, buffer, offset, buffer.length - offset, start + offset);
+			if (count === 0) break;
+			offset += count;
+		}
+		let text = buffer.subarray(0, offset).toString("utf8");
+		if (start > 0) {
+			const firstNewline = text.indexOf("\n");
+			if (firstNewline < 0) return "";
+			text = text.slice(firstNewline + 1);
+		}
+		return text;
+	} finally {
+		closeSync(fd);
+	}
+}
+
 export function readLastAssistantText(sessionFile: string): SessionTextResult {
 	if (!existsSync(sessionFile)) return { text: "", found: false };
 	let last: string | undefined;
 	try {
-		for (const line of readFileSync(sessionFile, "utf8").split("\n")) {
+		for (const line of readSessionTail(sessionFile).split("\n")) {
 			if (!line.trim()) continue;
 			try {
 				const e = JSON.parse(line);
