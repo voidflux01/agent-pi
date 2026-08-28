@@ -45,7 +45,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
-import { run as runDispatch } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch} from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -305,6 +305,10 @@ export default function (pi: ExtensionAPI) {
 		stepIndex: number,
 		ctx: any,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
+		if (!isExplicitDispatchActive()) {
+			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
+		}
+		ctx?.ui?.notify?.(`${agentDef.name} started`, "info");
 		// Explicit project/user/frontmatter routing wins. Otherwise preserve the
 		// provider/model that launched the parent Pi session.
 		const model = resolveInheritedModel(
@@ -432,7 +436,8 @@ export default function (pi: ExtensionAPI) {
 
 			// Transport mechanics live in one runtime. This caller keeps only
 			// chain-specific parsing and widget state.
-			const runtimePromise = runDispatch({
+			const runtimePromise = withExplicitDispatch("agent-chain", () => runDispatch({
+				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...args],
 				cwd: ctx.cwd,
 				env: childEnvironment({
@@ -474,7 +479,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			});
+			}));
 			runtimePromise.then((result) => {
 				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
@@ -488,6 +493,9 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		ctx: any,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number }> {
+		if (!isExplicitDispatchActive()) {
+			return { output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
+		}
 		if (!activeChain) {
 			return { output: "No chain active", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
 		}
@@ -544,7 +552,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runAgent(agentDef, resolvedPrompt, i, ctx));
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";
@@ -590,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 				});
 			}
 
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// result.output is already the composed precision-preserving index.
 			const status = result.success ? "done" : "error";
@@ -751,7 +759,7 @@ export default function (pi: ExtensionAPI) {
 				: "Audit this codebase";
 
 			// Run the chain
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// Hide chain widget — audit is done, result goes to file
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -798,7 +806,7 @@ export default function (pi: ExtensionAPI) {
 				: "Optimize this codebase for performance";
 
 			// Run the chain
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// Hide chain widget — performance analysis is done, result goes to file
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -845,7 +853,7 @@ export default function (pi: ExtensionAPI) {
 				: "Verify Sentry setup for this project";
 
 			// Run the chain
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -892,7 +900,7 @@ export default function (pi: ExtensionAPI) {
 				: "Get Sentry issues and crashes for this project and create a fix plan";
 
 			// Run the chain
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -979,7 +987,7 @@ export default function (pi: ExtensionAPI) {
 			activateChain(codeReviewChain);
 
 			// Run the chain
-			const result = await runChain(task, ctx);
+			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);

@@ -47,7 +47,7 @@ import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock,
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
-import { run as runDispatch } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch} from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -480,6 +480,9 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		ctx: any,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number; model: string }> {
+		if (!isExplicitDispatchActive()) {
+			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0, model: "" });
+		}
 		const key = agentName.toLowerCase();
 		const state = agentStates.get(key);
 		if (!state) {
@@ -517,6 +520,7 @@ export default function (pi: ExtensionAPI) {
 		state.summary = undefined;
 		state.summaryLines = undefined;
 		state.runCount++;
+		safeNotify(ctx, `${displayName(state.def.name)} started`, "info");
 		registerAgentWidget(state, ctx);
 		updateWidget(ctx);
 
@@ -833,7 +837,7 @@ export default function (pi: ExtensionAPI) {
 								const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
 								if (argvVisible.length > 0) {
 									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
-									const tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
+									const tab = await withExplicitDispatch("agent-team", () => createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`));
 									if (tab) {
 										state.proc = { kill: () => { toolkitHerdrCancelled = true; void closeHerdrTabAsync(tab); } };
 										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
@@ -863,13 +867,13 @@ export default function (pi: ExtensionAPI) {
 							}
 						} catch { /* fall through to the external runtime */ }
 					}
-				spawnToolkitWorker(state.def, {
+				withExplicitDispatch("agent-team", () => spawnToolkitWorker(state.def, {
 					task: mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task,
 					sessionFile: agentSessionFile, cwd: runCwd, env: spawnEnv,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
-				}).then(({ exitCode, output }) => {
+				})).then(({ exitCode, output }) => {
 					const parsed = parseToolkitResult(state.def.name, output);
 					toolkitUsage = parsed.usage;
 					finish(exitCode, stderrBuf, parsed.text || undefined);
@@ -880,7 +884,8 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is centralized. Team-specific state, context
 			// warnings, Commander reconciliation, and result composition stay here.
-			runDispatch({
+			withExplicitDispatch("agent-team", () => runDispatch({
+				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...args],
 				cwd: runCwd,
 				env: spawnEnv,
@@ -907,7 +912,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			}).then((result) => {
+			})).then((result) => {
 				finish(result.exitCode, result.stderr, result.outputText);
 			}).catch((error) => {
 				finish(1, error instanceof Error ? error.message : String(error));
@@ -939,7 +944,7 @@ export default function (pi: ExtensionAPI) {
 					});
 				}
 
-				const result = await dispatchAgent(agent, task, ctx);
+				const result = await withExplicitDispatch("agent-team", () => dispatchAgent(agent, task, ctx));
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).

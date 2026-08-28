@@ -2,6 +2,7 @@
 // ABOUTME: Owns headless/herdr transport selection, process lifecycle, and launch markers.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { childEnvironment } from "./child-runtime.ts";
 import {
 	closeHerdrTabAsync,
@@ -25,6 +26,53 @@ import { journalUpdate } from "./agent-task-journal.ts";
 
 export type DispatchTransport = "auto" | "headless" | "herdr";
 
+/**
+ * A dispatch may only be started by an explicit tool/command path. The private
+ * symbol prevents callers from manufacturing a structurally valid authorization.
+ */
+export type DispatchOrigin = "agent-team" | "agent-chain" | "pipeline-team" | "subagent-command" | "subagent-tool";
+const DISPATCH_AUTHORIZATION = Symbol("explicit-dispatch");
+interface DispatchContext {
+	authorization: DispatchAuthorization;
+	active: boolean;
+}
+const dispatchContext = new AsyncLocalStorage<DispatchContext>();
+export interface DispatchAuthorization {
+	readonly origin: DispatchOrigin;
+	readonly token: symbol;
+}
+
+function authorizeDispatch(origin: DispatchOrigin): DispatchAuthorization {
+	return { origin, token: DISPATCH_AUTHORIZATION };
+}
+
+/** Run an operation in the only context allowed to create a child process. */
+export function withExplicitDispatch<T>(origin: DispatchOrigin, operation: () => T): T {
+	const context: DispatchContext = { authorization: authorizeDispatch(origin), active: true };
+	return dispatchContext.run(context, () => {
+		try {
+			return operation();
+		} finally {
+			// Do not leak spawn rights into promises/timers created by the handler.
+			context.active = false;
+		}
+	});
+}
+
+export function currentDispatchAuthorization(): DispatchAuthorization | undefined {
+	const context = dispatchContext.getStore();
+	return context?.active ? context.authorization : undefined;
+}
+
+export function isExplicitDispatchActive(): boolean {
+	return dispatchContext.getStore()?.active === true;
+}
+
+function hasDispatchAuthorization(authorization: DispatchAuthorization | undefined): boolean {
+	const context = dispatchContext.getStore();
+	return context?.active === true && authorization?.token === DISPATCH_AUTHORIZATION && authorization === context.authorization;
+}
+
 export interface DispatchProcess {
 	kill(signal?: NodeJS.Signals | number): void;
 	/** Herdr handles do not emit child-process events. */
@@ -34,6 +82,8 @@ export interface DispatchProcess {
 }
 
 export interface DispatchRuntimeSpec {
+	/** Required capability proving this call came from an explicit dispatch path. */
+	authorization?: DispatchAuthorization;
 	/** Full argv after the executable, including headless flags for auto/herdr. */
 	command: string[];
 	cwd: string;
@@ -254,6 +304,13 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
  * A pane that has taken ownership is never duplicated by a second child.
  */
 export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult> {
+	if (!hasDispatchAuthorization(spec.authorization)) {
+		const message = "Dispatch refused: an explicit tool or command authorization is required";
+		updateJournal(spec, { status: "error", exitCode: 126, note: message });
+		spec.onStderr?.(message);
+		return { exitCode: 126, stderr: message, transport: "headless" };
+	}
+
 	const transport = spec.transport ?? "auto";
 	if (transport !== "headless") {
 		const herdrResult = await runHerdr(spec);

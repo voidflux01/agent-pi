@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { run, type DispatchProcess } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, run, type DispatchProcess, withExplicitDispatch } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 
 function fakeChild() {
@@ -33,7 +33,8 @@ describe("shared dispatch runtime", () => {
 		const lines: string[] = [];
 		const errors: string[] = [];
 		let captured: DispatchProcess | undefined;
-		const promise = run({
+		const promise = withExplicitDispatch("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
 			command: ["pi", "--mode", "json", "task"],
 			cwd: dir,
 			launchDir: dir,
@@ -44,7 +45,7 @@ describe("shared dispatch runtime", () => {
 			onProcess: (process) => { captured = process; },
 			onStdoutLine: (line) => lines.push(line),
 			onStderr: (chunk) => errors.push(chunk),
-		});
+		}));
 
 		child.stdout.write('{"type":"message_update"}\npartial');
 		child.stderr.write("warning");
@@ -61,17 +62,56 @@ describe("shared dispatch runtime", () => {
 		expect(journal).toContain('"pid":4242');
 	});
 
+	it("refuses a dispatch without explicit authorization before spawning anything", async () => {
+		let starts = 0;
+		const errors: string[] = [];
+		const result = await run({
+			command: ["pi", "unexpected"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "unauthorized",
+			transport: "headless",
+			spawnProcess: (() => { starts++; return fakeChild(); }) as any,
+			onStderr: (message) => errors.push(message),
+		} as any);
+
+		expect(result.exitCode).toBe(126);
+		expect(result.stderr).toContain("explicit tool or command authorization");
+		expect(errors.join(" ")).toContain("explicit tool or command authorization");
+		expect(starts).toBe(0);
+	});
+
+	it("refuses a timer callback even when it inherits an explicit context", async () => {
+		const result = await withExplicitDispatch("agent-team", () => new Promise<any>((resolve) => {
+			setTimeout(async () => {
+				resolve(await run({
+					command: ["pi", "deferred"],
+					cwd: "/tmp",
+					launchDir: "/tmp",
+					launchId: "timer-dispatch",
+					transport: "headless",
+					authorization: currentDispatchAuthorization(),
+					spawnProcess: (() => { throw new Error("must not spawn"); }) as any,
+				}));
+			}, 0);
+		}));
+
+		expect(result.exitCode).toBe(126);
+		expect(result.stderr).toContain("explicit tool or command authorization");
+	});
+
 	it("does not start a second transport when a headless child exits with an error", async () => {
 		const child = fakeChild();
 		let starts = 0;
-		const promise = run({
+		const promise = withExplicitDispatch("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
 			launchDir: "/tmp",
 			launchId: "runtime-error",
 			transport: "headless",
 			spawnProcess: (() => { starts++; return child; }) as any,
-		});
+		}));
 		child.emit("close", 7);
 		await expect(promise).resolves.toMatchObject({ exitCode: 7, transport: "headless" });
 		expect(starts).toBe(1);

@@ -213,16 +213,22 @@ export default function (pi: ExtensionAPI) {
 
 			pi.registerCommand(cmdName, {
 				description: desc,
-				handler: async (args, _ctx) => {
+				handler: async (args, ctx) => {
 					const userArgs = (args ?? "").trim();
 					const body = cmd.body.replace(/\$ARGUMENTS/g, userArgs);
 
 					if (cmd.context === "fork") {
+						const widgetId = `toolkit-command-${cmdName}`;
+						ctx?.ui?.notify?.(`Toolkit worker ${cmdName} started`, "info");
+						ctx?.ui?.setWidget?.(widgetId, () => ({
+							invalidate() {},
+							render: () => [`Toolkit worker ${cmdName} running`],
+						}), { placement: "belowEditor" });
 						const tools = mapTools(cmd.allowedTools).join(",");
 						const model = TOOLKIT_WORKER_MODEL || DEFAULT_SUBAGENT_MODEL;
 
 						const tasksExtPath = join(dirname(fileURLToPath(import.meta.url)), "tasks.ts");
-						const proc = spawn("pi", [
+						const proc = withExplicitDispatch("subagent-command", () => spawn("pi", [
 							"--mode", "json",
 							"-p",
 							"--no-extensions",
@@ -235,7 +241,7 @@ export default function (pi: ExtensionAPI) {
 						], {
 							stdio: ["ignore", "pipe", "pipe"],
 							env: childEnvironment({ PI_SUBAGENT: "1" }),
-						});
+						}));
 
 						const MAX_WORKER_CAPTURE = 64 * 1024;
 						let output = "";
@@ -252,6 +258,7 @@ export default function (pi: ExtensionAPI) {
 						proc.stderr?.on("data", () => {});
 
 						await new Promise<void>((res) => proc.on("close", () => res()));
+						ctx?.ui?.setWidget?.(widgetId, undefined);
 
 						const truncated = output.length > 8000 || outputTruncated
 							? output.slice(0, 8000) + "\n\n... [truncated]"

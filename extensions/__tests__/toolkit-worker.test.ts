@@ -9,10 +9,23 @@ import {
 	parseToolkitResult,
 	toolkitRuntimeName,
 	toolkitVisibleCommandLine,
+	spawnToolkitWorker,
 } from "../lib/toolkit-cli.ts";
 import { resolveAgentModelString, type AgentModelsConfig } from "../lib/agent-defs.ts";
 
 describe("toolkit CLI agent detection", () => {
+	it("refuses to spawn outside an explicit dispatch context", async () => {
+		const result = await spawnToolkitWorker({
+			name: "codex-agent",
+			tools: "read",
+			systemPrompt: "test",
+		}, { task: "must not run" });
+
+		expect(result.exitCode).toBe(126);
+		expect(result.output).toContain("explicit tool or slash command");
+	});
+
+
 	it("detects toolkit agents", () => {
 		expect(isToolkitCliAgent("codex-agent")).toBe(true);
 		expect(isToolkitCliAgent("CURSOR-AGENT")).toBe(true);

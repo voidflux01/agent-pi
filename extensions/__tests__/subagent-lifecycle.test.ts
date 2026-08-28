@@ -17,6 +17,8 @@ describe("stale session lifecycle protection", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).not.toContain("preSpawnScout");
 		expect(src).not.toContain("Warming up — standing by");
+		expect(src).not.toContain("standby");
+		expect(src).not.toContain("__piScout");
 	});
 
 	it("snapshots cwd and invalidates late background callbacks", () => {

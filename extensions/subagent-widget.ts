@@ -33,7 +33,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { run as runDispatch } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch } from "./lib/dispatch-runtime.ts";
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
@@ -122,7 +122,6 @@ interface SubState {
 	autoRemove?: boolean;      // auto-remove widget ~30s after done (default: true)
 	model?: string;            // resolved model string for display
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
-	standby?: boolean;         // true = warmup spawn, suppress follow-up message
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
@@ -248,6 +247,16 @@ export default function (pi: ExtensionAPI) {
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
 		// point dereferencing the captured ctx throws and can kill pi.
+		if (!isExplicitDispatchActive()) {
+			const message = "Subagent dispatch refused: only an explicit tool or slash command may start a child";
+			state.status = "error";
+			state.summary = message;
+			notifyCurrent(message, "error");
+			return Promise.resolve();
+		}
+
+		notifyCurrent(`SA${state.id} (${state.name}) started`, "info");
+
 		const spawnCwd = contextCwd(ctx);
 		const spawnEpoch = sessionEpoch;
 
@@ -350,7 +359,6 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise<void>((resolve) => {
 			const startTime = Date.now();
-			const isScout = (globalThis as any).__piScoutId === state.id;
 			const timer = setInterval(() => {
 				if (spawnEpoch !== sessionEpoch) {
 					clearInterval(timer);
@@ -358,12 +366,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				state.elapsed = Date.now() - startTime;
 				invalidateWidget(state.id);
-				if (isScout) publishScoutStatus(state);
 			}, 1000);
 
 			// ── Watchdog: kill agent if it exceeds maxDurationMs ──────────
-			// Standby (warmup) spawns are exempt — they're short-lived by design.
-			if (!state.standby && state.maxDurationMs > 0) {
+			if (state.maxDurationMs > 0) {
 				state.watchdogTimer = setTimeout(() => {
 					if (state.status !== "running") return; // already finished
 					if (spawnEpoch !== sessionEpoch) return;
@@ -402,17 +408,6 @@ export default function (pi: ExtensionAPI) {
 				);
 				invalidateWidget(state.id);
 
-				// Capture this before an error clears the global scout fallback below.
-				const isPersistentScout = (globalThis as any).__piScoutId === state.id;
-				// If this is the pre-spawned scout, publish status for the footer pill
-				if (isPersistentScout) {
-					publishScoutStatus(state);
-					// If errored, clear the global so the main agent falls back
-					if (state.status === "error") {
-						clearScoutStatusIf(state.id);
-					}
-				}
-
 				// Post-dispatch: reconcile Commander task to terminal state
 				if (commanderAvail && cmdTaskId !== undefined) {
 					const client = getCommanderClient();
@@ -443,12 +438,10 @@ export default function (pi: ExtensionAPI) {
 				} catch {}
 				// Deterministic RESULT-contract gate (zero-token; tiber-inspired).
 				let contractProblems: string[] = [];
-				if (!state.standby) {
-					try {
-						const compliance = checkResultCompliance(result);
-						contractProblems = compliance.ok ? [] : compliance.problems;
-					} catch {}
-				}
+				try {
+					const compliance = checkResultCompliance(result);
+					contractProblems = compliance.ok ? [] : compliance.problems;
+				} catch {}
 				// Close the journal row opened at dispatch time.
 				try {
 					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
@@ -469,50 +462,37 @@ export default function (pi: ExtensionAPI) {
 					});
 				} catch {}
 
-				// Standby spawns (warmup) suppress notification and follow-up message
-				if (!state.standby) {
-					notifyCurrent(
-						`SA${state.id} (${state.name}) ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
-						state.status === "done" ? "success" : "error"
-					);
+				notifyCurrent(
+					`SA${state.id} (${state.name}) ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
+					state.status === "done" ? "success" : "error"
+				);
 
-					const compactResult = composeAgentResult({
-						agent: `SA${state.id} (${state.name})`,
-						status: state.status,
-						exitCode: code,
-						elapsedMs: state.elapsed,
-						model: state.model,
-						outputText: result,
-						fullOutputPath,
-						maxResultChars: state.resultBudgetChars,
-					});
-					try {
-						void pi.sendMessage({
-							customType: "subagent-result",
-							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
-							display: true,
-						}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
-					} catch {}
-				} else {
-					// Warmup is exempt from the watchdog, but real SCOUT turns are not.
-					// Restore the role timeout before this persistent state is reused.
-					state.standby = false;
-					if (state.maxDurationMs === 0) {
-						state.maxDurationMs = resolveTimeout(state.name);
-					}
-				}
+				const compactResult = composeAgentResult({
+					agent: `SA${state.id} (${state.name})`,
+					status: state.status,
+					exitCode: code,
+					elapsedMs: state.elapsed,
+					model: state.model,
+					outputText: result,
+					fullOutputPath,
+					maxResultChars: state.resultBudgetChars,
+				});
+				try {
+					void pi.sendMessage({
+						customType: "subagent-result",
+						content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
+						display: true,
+					}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
+				} catch {}
 
-				// Auto-remove widgets after 30s (default behavior). The pre-spawned
-				// scout is intentionally retained in `agents` for /subcont, but its
-				// active-turn widget must not remain stuck in the TUI forever.
-				const retainScoutState = isPersistentScout && state.status === "done";
-				if (shouldScheduleWidgetRemoval(state, isPersistentScout)) {
+				// Auto-remove completed widgets after 30s (default behavior).
+				if (shouldScheduleWidgetRemoval(state, false)) {
 					setTimeout(() => {
 						if (spawnEpoch !== sessionEpoch) return;
 						if (agents.has(state.id) && state.status !== "running") {
 							clearWidgetCurrent(`sub-${state.id}`);
 							widgetBoxes.delete(state.id);
-							if (!retainScoutState) agents.delete(state.id);
+							agents.delete(state.id);
 						}
 					}, 30_000);
 				}
@@ -538,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 			if (isToolkitCliAgent(state.name)) {
 				const extAgent = state.name;
 				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
-				spawnToolkitWorker({
+				withExplicitDispatch("subagent-tool", () => spawnToolkitWorker({
 					name: state.name,
 					tools,
 					systemPrompt: systemPromptArgs[1],
@@ -560,7 +540,7 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				}).then(({ exitCode, output }) => {
+				})).then(({ exitCode, output }) => {
 					const parsed = parseToolkitResult(state.name, output);
 					finish(exitCode, parsed.text || undefined, parsed.usage);
 				}).catch(() => finish(1));
@@ -569,7 +549,8 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// widget keeps watchdog, epoch, Commander, and follow-up policies local.
-			runDispatch({
+			withExplicitDispatch("subagent-tool", () => runDispatch({
+				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...argv],
 				cwd: spawnCwd,
 				env: spawnEnv,
@@ -605,7 +586,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			}).then((result) => {
+			})).then((result) => {
 				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
 		});
@@ -654,7 +635,7 @@ export default function (pi: ExtensionAPI) {
 			registerWidget(state);
 
 			// Fire-and-forget
-			spawnAgent(state, args.task, ctx);
+			withExplicitDispatch("subagent-tool", () => spawnAgent(state, args.task, ctx));
 
 			return {
 				content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
@@ -694,7 +675,7 @@ export default function (pi: ExtensionAPI) {
 	
 			// ── Guard: prevent duplicate batch spawns while agents are running ──
 			if (!args.force) {
-				const running = Array.from(agents.values()).filter(a => a.status === "running" && !a.standby);
+				const running = Array.from(agents.values()).filter(a => a.status === "running");
 				if (running.length > 0) {
 					const names = running.map(a => `SA${a.id} (${a.name})`).join(", ");
 					return {
@@ -772,7 +753,7 @@ export default function (pi: ExtensionAPI) {
 
 			for (const state of states) {
 				const peers = peerNames.filter(n => n !== `SA-${state.id}-${state.name}`);
-				spawnAgent(state, state.task, ctx, peers);
+				withExplicitDispatch("subagent-tool", () => spawnAgent(state, state.task, ctx, peers));
 			}
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
@@ -805,14 +786,14 @@ export default function (pi: ExtensionAPI) {
 			state.elapsed = 0;
 			state.turnCount++;
 
-			// Re-register widget if it was removed (e.g. after standby warmup auto-remove)
+			// Re-register widget if it was removed after the previous turn
 			if (!widgetBoxes.has(state.id)) {
 				registerWidget(state);
 			}
 			invalidateWidget(state.id);
 
 			ctx.ui.notify(`Continuing SA${args.id} (${state.name}) Turn ${state.turnCount}…`, "info");
-			spawnAgent(state, args.prompt, ctx);
+			withExplicitDispatch("subagent-tool", () => spawnAgent(state, args.prompt, ctx));
 
 			return {
 				content: [{ type: "text", text: `SA${args.id} (${state.name}) continuing conversation in background.` }],
@@ -842,7 +823,6 @@ export default function (pi: ExtensionAPI) {
 			}
 			clearWidgetCurrent(`sub-${args.id}`);
 			widgetBoxes.delete(args.id);
-			clearScoutStatusIf(args.id);
 			agents.delete(args.id);
 
 			return {
@@ -884,9 +864,6 @@ export default function (pi: ExtensionAPI) {
 			const killPromises: Promise<void>[] = [];
 
 			for (const [id, state] of Array.from(agents.entries())) {
-				// Skip the pre-spawned scout — it's managed separately
-				if ((globalThis as any).__piScoutId === id) continue;
-
 				if (state.status === "done" || state.status === "error") {
 					ctx.ui.setWidget(`sub-${id}`, undefined);
 					widgetBoxes.delete(id);
@@ -954,7 +931,7 @@ export default function (pi: ExtensionAPI) {
 			registerWidget(state);
 
 			// Fire-and-forget
-			spawnAgent(state, parsed.task, ctx);
+			withExplicitDispatch("subagent-command", () => spawnAgent(state, parsed.task, ctx));
 		},
 	});
 
@@ -1007,7 +984,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Continuing SA${num} (${state.name}) Turn ${state.turnCount}…`, "info");
 
 			// Fire-and-forget — reuses the same sessionFile for conversation history
-			spawnAgent(state, prompt, ctx);
+			withExplicitDispatch("subagent-command", () => spawnAgent(state, prompt, ctx));
 		},
 	});
 
@@ -1039,7 +1016,6 @@ export default function (pi: ExtensionAPI) {
 
 			clearWidgetCurrent(`sub-${num}`);
 			widgetBoxes.delete(num);
-			clearScoutStatusIf(num);
 			agents.delete(num);
 		},
 	});
@@ -1065,8 +1041,6 @@ export default function (pi: ExtensionAPI) {
 			if (commandEpoch !== sessionEpoch) return;
 
 			const total = agents.size;
-			(globalThis as any).__piScoutId = undefined;
-			(globalThis as any).__piScoutStatus = undefined;
 			agents.clear();
 			widgetBoxes.clear();
 			nextId = 1;
@@ -1097,29 +1071,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			try { ctx?.ui?.setWidget?.(`sub-${id}`, undefined); } catch {}
 		}
-		(globalThis as any).__piScoutId = undefined;
-		(globalThis as any).__piScoutStatus = undefined;
 		await Promise.all(killPromises);
 		agents.clear();
 		widgetBoxes.clear();
 	});
-
-	// ── Scout status helpers ────────────────────────────────────────────────
-
-	/** Publish scout status to globalThis so the footer can render a pill. */
-	function publishScoutStatus(state: SubState) {
-		(globalThis as any).__piScoutStatus = {
-			status: state.status,
-			model: state.model || "",
-			elapsed: state.elapsed,
-		};
-	}
-
-	function clearScoutStatusIf(id: number): void {
-		if ((globalThis as any).__piScoutId !== id) return;
-		(globalThis as any).__piScoutId = undefined;
-		(globalThis as any).__piScoutStatus = undefined;
-	}
 
 	// Startup only restores local state and registers controls. It must not
 	// dispatch a warmup/scout child before the user asks for one.
@@ -1147,8 +1102,6 @@ export default function (pi: ExtensionAPI) {
 		nextId = 1;
 
 		// Clear stale scout state from previous session
-		(globalThis as any).__piScoutId = undefined;
-		(globalThis as any).__piScoutStatus = undefined;
 
 		// Load model config from .pi/agents/models.json, then scan agent .md files.
 		// Models come from the JSON config; .md files provide tools + system prompts.
@@ -1201,8 +1154,6 @@ export default function (pi: ExtensionAPI) {
 		nextId = 1;
 
 		// Clear stale scout state
-		(globalThis as any).__piScoutId = undefined;
-		(globalThis as any).__piScoutStatus = undefined;
 
 	});
 }

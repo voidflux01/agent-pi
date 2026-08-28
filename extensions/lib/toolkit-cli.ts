@@ -6,6 +6,7 @@ import { accessSync, constants as fsConstants } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
+import { isExplicitDispatchActive } from "./dispatch-runtime.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
 	"cursor-agent",
@@ -152,6 +153,14 @@ export function spawnToolkitWorker(
 	agentDef: ToolkitWorkerAgentDef,
 	options: ToolkitWorkerSpawnOptions,
 ): Promise<ToolkitWorkerResult> {
+	if (!isExplicitDispatchActive()) {
+		return Promise.resolve({
+			exitCode: 126,
+			elapsed: 0,
+			output: "Toolkit worker refused: only an explicit tool or slash command may start a child",
+		});
+	}
+
 	return new Promise((resolve) => {
 		const cliCommand = getToolkitCliCommand(agentDef.name);
 		const command = cliCommand?.command || "pi";

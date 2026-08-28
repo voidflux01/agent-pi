@@ -179,13 +179,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		if (coordinationState().mode === "NORMAL") {
-			const g = globalThis as any;
-			const scoutId = typeof g.__piScoutId === "number" ? g.__piScoutId : null;
 			return { systemPrompt: buildNormalPrompt({
 				commanderAvailable: isCommanderAvailable(),
 				activeChain: coordinationState().activeChain,
 				activePipeline: coordinationState().activePipeline,
-				scoutId,
 			})};
 		}
 		if (coordinationState().mode === "PLAN") {
