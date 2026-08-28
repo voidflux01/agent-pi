@@ -237,14 +237,23 @@ export default function (pi: ExtensionAPI) {
 							env: childEnvironment({ PI_SUBAGENT: "1" }),
 						});
 
+						const MAX_WORKER_CAPTURE = 64 * 1024;
 						let output = "";
+						let outputTruncated = false;
 						proc.stdout?.setEncoding("utf-8");
-						proc.stdout?.on("data", (chunk) => { output += chunk; });
+						proc.stdout?.on("data", (chunk: string) => {
+							if (output.length >= MAX_WORKER_CAPTURE) {
+								outputTruncated = true;
+								return;
+							}
+							if (output.length + chunk.length > MAX_WORKER_CAPTURE) outputTruncated = true;
+							output += chunk.slice(0, MAX_WORKER_CAPTURE - output.length);
+						});
 						proc.stderr?.on("data", () => {});
 
 						await new Promise<void>((res) => proc.on("close", () => res()));
 
-						const truncated = output.length > 8000
+						const truncated = output.length > 8000 || outputTruncated
 							? output.slice(0, 8000) + "\n\n... [truncated]"
 							: output;
 
