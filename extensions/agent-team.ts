@@ -47,7 +47,7 @@ import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock,
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch} from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -837,7 +837,7 @@ export default function (pi: ExtensionAPI) {
 								const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
 								if (argvVisible.length > 0) {
 									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
-									const tab = await withExplicitDispatch("agent-team", () => createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`));
+									const tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
 									if (tab) {
 										state.proc = { kill: () => { toolkitHerdrCancelled = true; void closeHerdrTabAsync(tab); } };
 										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
@@ -867,13 +867,13 @@ export default function (pi: ExtensionAPI) {
 							}
 						} catch { /* fall through to the external runtime */ }
 					}
-				withExplicitDispatch("agent-team", () => spawnToolkitWorker(state.def, {
+				spawnToolkitWorker(state.def, {
 					task: mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task,
 					sessionFile: agentSessionFile, cwd: runCwd, env: spawnEnv,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
-				})).then(({ exitCode, output }) => {
+				}).then(({ exitCode, output }) => {
 					const parsed = parseToolkitResult(state.def.name, output);
 					toolkitUsage = parsed.usage;
 					finish(exitCode, stderrBuf, parsed.text || undefined);
@@ -884,7 +884,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is centralized. Team-specific state, context
 			// warnings, Commander reconciliation, and result composition stay here.
-			withExplicitDispatch("agent-team", () => runDispatch({
+			runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...args],
 				cwd: runCwd,
@@ -912,7 +912,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			})).then((result) => {
+			}).then((result) => {
 				finish(result.exitCode, result.stderr, result.outputText);
 			}).catch((error) => {
 				finish(1, error instanceof Error ? error.message : String(error));
@@ -932,7 +932,7 @@ export default function (pi: ExtensionAPI) {
 			task: Type.String({ description: "Task description for the agent to execute" }),
 		}),
 
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
 
@@ -944,7 +944,7 @@ export default function (pi: ExtensionAPI) {
 					});
 				}
 
-				const result = await withExplicitDispatch("agent-team", () => dispatchAgent(agent, task, ctx));
+				const result = await dispatchAgent(agent, task, ctx);
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
@@ -970,7 +970,7 @@ export default function (pi: ExtensionAPI) {
 					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", fullOutputPath: "", model: defModel },
 				};
 			}
-		},
+		}),
 
 		renderResult(result, options, theme) {
 			const details = result.details as any;
@@ -1469,7 +1469,7 @@ ${agentCatalog}${commanderSection}`,
 
 	// ── Reset agent boxes on /new ─────────────────────────────────────
 
-	pi.on("session_switch", async (_event, _ctx) => {
+	pi.on("session_switch", async (_event, _ctx) => withSessionLifecycle(async () => {
 		// /new fires session_switch — bind the replacement ctx before touching UI.
 		sessionEpoch++;
 		widgetCtx = _ctx;
@@ -1479,11 +1479,11 @@ ${agentCatalog}${commanderSection}`,
 			resetAgentState(state);
 		}
 		updateWidget(_ctx);
-	});
+	}));
 
 	// ── Session Start ────────────────────────────
 
-	pi.on("session_start", async (_event, _ctx) => {
+	pi.on("session_start", async (_event, _ctx) => withSessionLifecycle(async () => {
 		sessionEpoch++;
 		applyExtensionDefaults(import.meta.url, _ctx);
 		// Clear widgets using the current session ctx only.
@@ -1607,5 +1607,5 @@ ${agentCatalog}${commanderSection}`,
 			},
 			exitSelection: exitSelection,
 		});
-	});
+	}));
 }

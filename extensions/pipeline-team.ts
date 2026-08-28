@@ -44,7 +44,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch} from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -344,6 +344,9 @@ export default function (pi: ExtensionAPI) {
 		agentState: AgentState,
 		ctx: any,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
+		if (!isExplicitDispatchActive()) {
+			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
+		}
 		ctx?.ui?.notify?.(`${agentDef.name} started`, "info");
 		agentState.status = "running";
 		agentState.task = task;
@@ -476,7 +479,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Transport mechanics are shared; the pipeline owns phase scheduling
 			// and only consumes text/status callbacks for its widget.
-			const runtimePromise = withExplicitDispatch("pipeline-team", () => runDispatch({
+			const runtimePromise = runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...args],
 				cwd: ctx.cwd,
@@ -520,7 +523,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			}));
+			});
 			runtimePromise.then((result) => {
 				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
@@ -575,7 +578,7 @@ export default function (pi: ExtensionAPI) {
 					updateWidget();
 					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
-				return withExplicitDispatch("pipeline-team", () => spawnAgent(def, d.task, phaseState.agents[i], ctx));
+				return spawnAgent(def, d.task, phaseState.agents[i], ctx);
 			};
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
@@ -612,7 +615,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const task = d.task.replace(/\$INPUT/g, input);
-				const result = await withExplicitDispatch("pipeline-team", () => spawnAgent(def, task, phaseState.agents[i], ctx));
+				const result = await spawnAgent(def, task, phaseState.agents[i], ctx);
 				outputs.push(result.output);
 				fullOutputs.push(result.fullOutput || "");
 				fullOutputPaths.push(result.fullOutputPath || "");
@@ -813,7 +816,7 @@ export default function (pi: ExtensionAPI) {
 			}), { description: "Array of agents to dispatch" }),
 		}),
 
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agents } = params as { agents: { role: string; task: string }[] };
 			const phase = phaseStates[currentPhaseIndex];
 
@@ -841,7 +844,7 @@ export default function (pi: ExtensionAPI) {
 			}));
 
 			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
-			const result = await withExplicitDispatch("pipeline-team", () => dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx));
+			const result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx);
 
 			// Merge outputs into accumulated context. Each output is already a
 			// compact precision-preserving index (## RESULT + full-output path),
@@ -885,7 +888,7 @@ export default function (pi: ExtensionAPI) {
 					reviewLoop: reviewLoopCount,
 				},
 			};
-		},
+		}),
 
 		renderCall(args, theme) {
 			const agents = (args as any).agents || [];
@@ -1266,7 +1269,7 @@ ${contextSummary}${planSection}${reviewSection}
 
 	// ── Session Start ────────────────────────────
 
-	pi.on("session_start", async (_event, _ctx) => {
+	pi.on("session_start", async (_event, _ctx) => withSessionLifecycle(async () => {
 		applyExtensionDefaults(import.meta.url, _ctx);
 
 		// Clear widgets from previous session
@@ -1322,5 +1325,5 @@ ${contextSummary}${planSection}${reviewSection}
 			}
 			return false;
 		};
-	});
+	}));
 }

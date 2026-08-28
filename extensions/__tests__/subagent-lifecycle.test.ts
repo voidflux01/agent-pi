@@ -19,6 +19,7 @@ describe("stale session lifecycle protection", () => {
 		expect(src).not.toContain("Warming up — standing by");
 		expect(src).not.toContain("standby");
 		expect(src).not.toContain("__piScout");
+		expect(src).toContain("withSessionLifecycle");
 	});
 
 	it("snapshots cwd and invalidates late background callbacks", () => {

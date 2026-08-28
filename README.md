@@ -94,7 +94,7 @@ Pi discovers all extensions, themes, and skills automatically.
 
 Each mode injects a tailored system prompt. PLAN mode enforces plan-first workflow. SPEC mode drives spec-driven development. TEAM/CHAIN/PIPELINE modes activate their respective orchestration systems.
 
-**Dispatch safety:** Starting or switching a session never launches a child Pi. Herdr tabs and child processes are created only from an explicit dispatch tool or command; the shared runtime refuses calls outside a short-lived explicit dispatch context, including inherited timer callbacks.
+**Dispatch safety:** Child Pi processes and Herdr tabs start only from a tool `execute` or slash-command handler. Session start/switch/shutdown cannot spawn, even if they open a dispatch context. Timer callbacks cannot inherit spawn rights. Toolkit workers and Herdr tab creation use the same gate.
 
 ### Multi-Agent Orchestration
 

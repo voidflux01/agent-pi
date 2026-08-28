@@ -45,7 +45,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch} from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -436,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Transport mechanics live in one runtime. This caller keeps only
 			// chain-specific parsing and widget state.
-			const runtimePromise = withExplicitDispatch("agent-chain", () => runDispatch({
+			const runtimePromise = runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...args],
 				cwd: ctx.cwd,
@@ -479,7 +479,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			}));
+			});
 			runtimePromise.then((result) => {
 				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
@@ -552,7 +552,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const result = await withExplicitDispatch("agent-chain", () => runAgent(agentDef, resolvedPrompt, i, ctx));
+			const result = await runAgent(agentDef, resolvedPrompt, i, ctx);
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";
@@ -598,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 				});
 			}
 
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// result.output is already the composed precision-preserving index.
 			const status = result.success ? "done" : "error";
@@ -759,7 +759,7 @@ export default function (pi: ExtensionAPI) {
 				: "Audit this codebase";
 
 			// Run the chain
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// Hide chain widget — audit is done, result goes to file
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -806,7 +806,7 @@ export default function (pi: ExtensionAPI) {
 				: "Optimize this codebase for performance";
 
 			// Run the chain
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// Hide chain widget — performance analysis is done, result goes to file
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -853,7 +853,7 @@ export default function (pi: ExtensionAPI) {
 				: "Verify Sentry setup for this project";
 
 			// Run the chain
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -900,7 +900,7 @@ export default function (pi: ExtensionAPI) {
 				: "Get Sentry issues and crashes for this project and create a fix plan";
 
 			// Run the chain
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -987,7 +987,7 @@ export default function (pi: ExtensionAPI) {
 			activateChain(codeReviewChain);
 
 			// Run the chain
-			const result = await withExplicitDispatch("agent-chain", () => runChain(task, ctx));
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
 
 			// Hide chain widget
 			widgetCtx.ui.setWidget("agent-chain", undefined);
@@ -1290,7 +1290,7 @@ ${agentCatalog}
 
 	// ── Session Start ───────────────────────────
 
-	pi.on("session_start", async (_event, _ctx) => {
+	pi.on("session_start", async (_event, _ctx) => withSessionLifecycle(async () => {
 		applyExtensionDefaults(import.meta.url, _ctx);
 		launchModel = providerModelString(_ctx.model);
 		// Clear widget with both old and new ctx — one of them will be valid
@@ -1375,5 +1375,5 @@ ${agentCatalog}
 				updateWidget();
 			},
 		});
-	});
+	}));
 }

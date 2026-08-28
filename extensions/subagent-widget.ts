@@ -33,7 +33,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, withExplicitDispatch } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
@@ -518,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 			if (isToolkitCliAgent(state.name)) {
 				const extAgent = state.name;
 				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
-				withExplicitDispatch("subagent-tool", () => spawnToolkitWorker({
+				spawnToolkitWorker({
 					name: state.name,
 					tools,
 					systemPrompt: systemPromptArgs[1],
@@ -540,7 +540,7 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				})).then(({ exitCode, output }) => {
+				}).then(({ exitCode, output }) => {
 					const parsed = parseToolkitResult(state.name, output);
 					finish(exitCode, parsed.text || undefined, parsed.usage);
 				}).catch(() => finish(1));
@@ -549,7 +549,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// widget keeps watchdog, epoch, Commander, and follow-up policies local.
-			withExplicitDispatch("subagent-tool", () => runDispatch({
+			runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", ...argv],
 				cwd: spawnCwd,
@@ -586,7 +586,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch {}
 				},
-			})).then((result) => {
+			}).then((result) => {
 				finish(result.exitCode, result.outputText);
 			}).catch(() => finish(1));
 		});
@@ -635,7 +635,7 @@ export default function (pi: ExtensionAPI) {
 			registerWidget(state);
 
 			// Fire-and-forget
-			withExplicitDispatch("subagent-tool", () => spawnAgent(state, args.task, ctx));
+			explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx))();
 
 			return {
 				content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
@@ -753,7 +753,7 @@ export default function (pi: ExtensionAPI) {
 
 			for (const state of states) {
 				const peers = peerNames.filter(n => n !== `SA-${state.id}-${state.name}`);
-				withExplicitDispatch("subagent-tool", () => spawnAgent(state, state.task, ctx, peers));
+				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, peers))();
 			}
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
@@ -793,7 +793,7 @@ export default function (pi: ExtensionAPI) {
 			invalidateWidget(state.id);
 
 			ctx.ui.notify(`Continuing SA${args.id} (${state.name}) Turn ${state.turnCount}…`, "info");
-			withExplicitDispatch("subagent-tool", () => spawnAgent(state, args.prompt, ctx));
+			explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.prompt, ctx))();
 
 			return {
 				content: [{ type: "text", text: `SA${args.id} (${state.name}) continuing conversation in background.` }],
@@ -931,7 +931,7 @@ export default function (pi: ExtensionAPI) {
 			registerWidget(state);
 
 			// Fire-and-forget
-			withExplicitDispatch("subagent-command", () => spawnAgent(state, parsed.task, ctx));
+			explicitDispatchHandler("subagent-command", () => spawnAgent(state, parsed.task, ctx))();
 		},
 	});
 
@@ -984,7 +984,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Continuing SA${num} (${state.name}) Turn ${state.turnCount}…`, "info");
 
 			// Fire-and-forget — reuses the same sessionFile for conversation history
-			withExplicitDispatch("subagent-command", () => spawnAgent(state, prompt, ctx));
+			explicitDispatchHandler("subagent-command", () => spawnAgent(state, prompt, ctx))();
 		},
 	});
 
@@ -1057,7 +1057,7 @@ export default function (pi: ExtensionAPI) {
 	// Invalidate background callbacks before the runtime replaces this context.
 	// This handler also runs during extension reload, where the old closure can
 	// otherwise receive a late child-process event.
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", async (_event, ctx) => withSessionLifecycle(async () => {
 		sessionEpoch++;
 		widgetCtx = undefined;
 		const killPromises: Promise<void>[] = [];
@@ -1074,11 +1074,11 @@ export default function (pi: ExtensionAPI) {
 		await Promise.all(killPromises);
 		agents.clear();
 		widgetBoxes.clear();
-	});
+	}));
 
 	// Startup only restores local state and registers controls. It must not
 	// dispatch a warmup/scout child before the user asks for one.
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => withSessionLifecycle(async () => {
 		sessionEpoch++;
 		const startEpoch = sessionEpoch;
 		widgetCtx = ctx;
@@ -1130,11 +1130,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			return false;
 		};
-	});
+	}));
 
-	// ── /new resets — re-spawn scout for the new session ──────────────────────
+	// ── /new resets widgets; it must not start a child ──────────────────────
 
-	pi.on("session_switch", async (_event, ctx) => {
+	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
 		// Bind the replacement context and invalidate old callbacks before awaits.
 		sessionEpoch++;
 		const switchEpoch = sessionEpoch;
@@ -1152,8 +1152,5 @@ export default function (pi: ExtensionAPI) {
 		agents.clear();
 		widgetBoxes.clear();
 		nextId = 1;
-
-		// Clear stale scout state
-
-	});
+	}));
 }

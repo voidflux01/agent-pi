@@ -26,6 +26,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { childEnvironment } from "./child-runtime.ts";
+import { isExplicitDispatchActive, explicitDispatchHandler } from "./dispatch-gate.ts";
 
 // ── detection ─────────────────────────────────────
 
@@ -304,7 +305,7 @@ export function registerHerdrCommands(pi: any): void {
 	});
 	pi.registerCommand("herdr-reconnect", {
 		description: "Reconnect missing agent-pi Herdr panes",
-		handler: async (args: string, ctx: any) => {
+		handler: explicitDispatchHandler("subagent-command", async (args: string, ctx: any) => {
 			const cwd = ctx?.cwd ?? process.cwd();
 			const target = args.trim().toLowerCase();
 			const records = (await inspectHerdrPanesAsync(cwd)).filter((r) =>
@@ -320,7 +321,7 @@ export function registerHerdrCommands(pi: any): void {
 				results.push(`${record.key}: ${result.ok ? "reconnected" : "failed — " + result.reason}`);
 			}
 			ctx?.ui?.notify?.(results.join("\n"), results.every((line) => line.includes("reconnected")) ? "success" : "warning");
-		},
+		}),
 	});
 }
 
@@ -383,6 +384,7 @@ export function ensureHerdrWorkspace(label: string, cwd: string): string | null 
 /** Create a task tab. Uses --env ZSH_DISABLE_COMPFIX=true to avoid the zsh
  *  compinit security prompt eating input. Returns null on failure. */
 export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string): HerdrTabRef | null {
+	if (!isExplicitDispatchActive()) return null;
 	const r = herdrCli(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
 	if (r.code !== 0) return null;
 	try {
@@ -434,6 +436,7 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 
 /** Async task-tab creation for non-blocking dispatch paths. */
 export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string): Promise<HerdrTabRef | null> {
+	if (!isExplicitDispatchActive()) return null;
 	const r = await herdrCliAsync(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
 	if (r.code !== 0) return null;
 	try {

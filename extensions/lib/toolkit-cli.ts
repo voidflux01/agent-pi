@@ -6,7 +6,7 @@ import { accessSync, constants as fsConstants } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
-import { isExplicitDispatchActive } from "./dispatch-runtime.ts";
+import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
 	"cursor-agent",

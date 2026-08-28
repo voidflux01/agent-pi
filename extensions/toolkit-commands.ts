@@ -13,14 +13,14 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "child_process";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { TOOLKIT_WORKER_MODEL } from "./lib/toolkit-cli.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
+import { currentDispatchAuthorization, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -201,9 +201,9 @@ export default function (pi: ExtensionAPI) {
 	}
 	const commands = scanCommandDirs(commandsDir);
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => withSessionLifecycle(async () => {
 		applyExtensionDefaults(import.meta.url, ctx);
-	});
+	}));
 
 	for (const cmd of commands) {
 			const cmdName = cmd.name;
@@ -228,37 +228,46 @@ export default function (pi: ExtensionAPI) {
 						const model = TOOLKIT_WORKER_MODEL || DEFAULT_SUBAGENT_MODEL;
 
 						const tasksExtPath = join(dirname(fileURLToPath(import.meta.url)), "tasks.ts");
-						const proc = withExplicitDispatch("subagent-command", () => spawn("pi", [
-							"--mode", "json",
-							"-p",
-							"--no-extensions",
-							"-e", tasksExtPath,
-							"--model", model,
-							"--tools", tools,
-							"--thinking", "off",
-							"--append-system-prompt", body,
-							userArgs || "",
-						], {
-							stdio: ["ignore", "pipe", "pipe"],
-							env: childEnvironment({ PI_SUBAGENT: "1" }),
-						}));
-
+						const cwd = ctx?.cwd ?? process.cwd();
+						const launchDir = join(cwd, ".pi", "agent-sessions");
+						try { mkdirSync(launchDir, { recursive: true }); } catch {}
 						const MAX_WORKER_CAPTURE = 64 * 1024;
 						let output = "";
 						let outputTruncated = false;
-						proc.stdout?.setEncoding("utf-8");
-						proc.stdout?.on("data", (chunk: string) => {
-							if (output.length >= MAX_WORKER_CAPTURE) {
-								outputTruncated = true;
-								return;
-							}
-							if (output.length + chunk.length > MAX_WORKER_CAPTURE) outputTruncated = true;
-							output += chunk.slice(0, MAX_WORKER_CAPTURE - output.length);
-						});
-						proc.stderr?.on("data", () => {});
-
-						await new Promise<void>((res) => proc.on("close", () => res()));
-						ctx?.ui?.setWidget?.(widgetId, undefined);
+						let result: Awaited<ReturnType<typeof runDispatch>>;
+						try {
+							result = await explicitDispatchHandler("subagent-command", () => runDispatch({
+								authorization: currentDispatchAuthorization(),
+								command: ["pi",
+									"--mode", "json",
+									"-p",
+									"--no-extensions",
+									"-e", tasksExtPath,
+									"--model", model,
+									"--tools", tools,
+									"--thinking", "off",
+									"--append-system-prompt", body,
+									userArgs || "",
+								],
+								cwd,
+								env: childEnvironment({ PI_SUBAGENT: "1" }),
+								launchDir,
+								launchId: `toolkit-cmd-${cmdName}`,
+								transport: "headless",
+								onStdoutLine: (line) => {
+									if (output.length >= MAX_WORKER_CAPTURE) {
+										outputTruncated = true;
+										return;
+									}
+									const next = line + "\n";
+									if (output.length + next.length > MAX_WORKER_CAPTURE) outputTruncated = true;
+									output += next.slice(0, MAX_WORKER_CAPTURE - output.length);
+								},
+							}));
+						} finally {
+							ctx?.ui?.setWidget?.(widgetId, undefined);
+						}
+						if (result.exitCode !== 0 && result.stderr) output = (output + "\n" + result.stderr).slice(0, MAX_WORKER_CAPTURE);
 
 						const truncated = output.length > 8000 || outputTruncated
 							? output.slice(0, 8000) + "\n\n... [truncated]"

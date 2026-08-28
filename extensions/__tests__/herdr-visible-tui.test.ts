@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -173,8 +173,15 @@ describe("durable Herdr pane registry", () => {
 	});
 });
 
+describe("herdr tabs require explicit dispatch", () => {
+	it("does not create a tab outside an explicit tool or command context", async () => {
+		expect(createHerdrTaskTab("w", "/tmp", "secret")).toBeNull();
+		expect(await createHerdrTaskTabAsync("w", "/tmp", "secret")).toBeNull();
+	});
+});
+
 describe("dispatch sites stay watchable (anti-drift)", () => {
-	const files = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts", "subagent-widget.ts"];
+	const files = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts", "subagent-widget.ts", "toolkit-commands.ts"];
 
 	for (const f of files) {
 		it(`${f} delegates standard Pi transport to the shared runtime`, () => {
