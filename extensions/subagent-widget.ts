@@ -323,9 +323,12 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		// Mailbox identity must follow the visible SA id, not the role name:
+		// multiple SCOUT/BUILDER workers can run at the same time.
+		const mailboxAgent = `sa${state.id}`;
 		const spawnEnv: Record<string, string | undefined> = childEnvironment({
 			PI_SUBAGENT: "1",
-			PI_AGENT_NAME: state.name.toLowerCase(),
+			PI_AGENT_NAME: mailboxAgent,
 			PI_SESSION_FILE: state.sessionFile,
 		});
 		if (commanderAvail && cmdTaskId !== undefined) {
@@ -501,7 +504,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (isToolkitCliAgent(state.name)) {
 				const extAgent = state.name;
-				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(extAgent, ctx?.cwd ?? process.cwd())}\n\n---\n\n${prompt}` : prompt;
+				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, ctx?.cwd ?? process.cwd())}\n\n---\n\n${prompt}` : prompt;
 				spawnToolkitWorker({
 					name: state.name,
 					tools,

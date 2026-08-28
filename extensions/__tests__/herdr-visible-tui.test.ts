@@ -166,6 +166,13 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 	}
 });
 
+	it("keeps widget worker mailbox identities unique by SA id", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain("const mailboxAgent = `sa${state.id}`");
+		expect(src).toContain("PI_AGENT_NAME: mailboxAgent");
+		expect(src).toContain("buildMailboxPreamble(mailboxAgent");
+	});
+
 	it("uses the active Pi context directory for visible subagent work", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("const runCwd = ctx?.cwd ?? process.cwd();");

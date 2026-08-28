@@ -225,14 +225,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("nudge", {
-		description: "Steer a running worker mid-task: /nudge <agent> <message>",
+		description: "Steer a running worker mid-task: /nudge <SA1|agent> <message>",
 		handler: async (args: string, ctx: any) => {
 			const m = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
 			if (!m) {
-				ctx?.ui?.notify?.("usage: /nudge <agent> <message>", "info");
+				ctx?.ui?.notify?.("usage: /nudge <SA1|agent> <message>", "info");
 				return;
 			}
-			const rec = sendSteer(mailboxRoot(process.cwd()), m[1], m[2]);
+			// The widget displays SA<n>; translate that human-facing id to the
+			// unique mailbox used by subagent-widget workers. Role names remain
+			// supported for agent-team/chain/pipeline workers.
+			const target = /^sa\d+$/i.test(m[1]) ? m[1].toLowerCase() : m[1];
+			const rec = sendSteer(mailboxRoot(process.cwd()), target, m[2]);
 			ctx?.ui?.notify?.(`Steer sent to ${rec.to} (${rec.id})`, "success");
 		},
 	});

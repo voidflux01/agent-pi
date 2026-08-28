@@ -41,6 +41,14 @@ describe("ask_parent mailbox", () => {
 });
 
 
+describe("nudge target addressing", () => {
+	test("documents SA ids as unique targets for widget workers", () => {
+		const source = readFileSync(new URL("../ask-parent.ts", import.meta.url), "utf8");
+		expect(source).toContain("/^sa\\d+$/i.test(m[1])");
+		expect(source).toContain("m[1].toLowerCase()");
+	});
+});
+
 describe("fleet-mailbox", () => {
 	test("deliver is atomic + idempotent on same payload, collides on different payload", () => {
 		const root = join(mkdtempSync(join(tmpdir(), "fmb-")), "root");
