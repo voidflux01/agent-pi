@@ -482,11 +482,11 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
     inp.addEventListener('paste', (e) => {
       e.preventDefault();
       const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '');
-      for (let j = 0; j < 4 && j < text.length; j++) {
+      for (let j = 0; j < 6 && j < text.length; j++) {
         pinInputs[j].value = text[j];
       }
-      if (text.length >= 4) submitPIN(text.slice(0, 4));
-      else if (text.length > 0) pinInputs[Math.min(text.length, 3)].focus();
+      if (text.length >= 6) submitPIN(text.slice(0, 6));
+      else if (text.length > 0) pinInputs[Math.min(text.length, 5)].focus();
     });
   });
 

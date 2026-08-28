@@ -6,6 +6,8 @@ describe("web chat boundaries", () => {
 	it("keeps bearer tokens out of page JavaScript and WebSocket URLs", () => {
 		const html = generateWebChatHTML({ port: 1 });
 		expect(html).toContain("let authenticated = false");
+		expect(html).toContain("j < 6 && j < text.length");
+		expect(html).toContain("submitPIN(text.slice(0, 6))");
 		expect(html).toContain("new WebSocket(proto + '//' + location.host + '/ws')");
 		expect(html).not.toContain("authToken");
 	});
