@@ -702,6 +702,8 @@ function startChatServer(
 		});
 
 		server.listen(0, "0.0.0.0", () => {
+			// Start the idle timer even if the browser never completes its WebSocket handshake.
+			resetShutdownTimer();
 			const addr = server.address() as any;
 			resolve({ port: addr.port, server });
 		});
