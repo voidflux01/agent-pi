@@ -433,6 +433,7 @@ export default function (pi: ExtensionAPI) {
 		args.push(task);
 
 		const textChunks: string[] = [];
+		let liveText = "";
 
 		return new Promise((resolvePromise) => {
 			// Shared completion path for both transports. Persist the FULL
@@ -634,8 +635,10 @@ export default function (pi: ExtensionAPI) {
 							if (event.type === "message_update") {
 								const delta = event.assistantMessageEvent;
 								if (delta?.type === "text_delta") {
-									textChunks.push(delta.delta || "");
-									const full = textChunks.join("");
+									const deltaText = delta.delta || "";
+									textChunks.push(deltaText);
+									liveText = (liveText + deltaText).slice(-8_192);
+									const full = liveText;
 									const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 									agentState.lastWork = last;
 									updateWidget();
