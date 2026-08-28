@@ -30,6 +30,15 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("if (spawnEpoch !== sessionEpoch)");
 		expect(src).not.toContain("ctx?.cwd ?? process.cwd()");
 	});
+
+	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain("shouldAwaitSubagentResult(agentName)");
+		expect(src).toContain("if (!awaitResult)");
+		expect(src).toContain("const result = await started");
+		expect(src).toContain("if (!state.awaitResult)");
+		expect(src).toContain('deliverAs: "followUp"');
+	});
 });
 
 describe("timeout resolution", () => {

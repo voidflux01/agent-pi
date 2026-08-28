@@ -71,6 +71,12 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("synthesize");
 	});
 
+	it("makes each scout call block until RESULT", () => {
+		expect(PLAN_PROMPT).toContain("blocks until that scout RESULT returns");
+		expect(PLAN_PROMPT).toContain("Do not scan those areas yourself");
+		expect(PLAN_PROMPT).not.toContain("Do not wait for a fixed scout count");
+	});
+
 });
 
 describe("PLAN_PROMPT — structured plan format", () => {

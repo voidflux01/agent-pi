@@ -125,4 +125,10 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
 		expect(result.toLowerCase()).toContain("continue directly");
 	});
+
+	it("tells the parent the scout call blocks until RESULT", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result).toContain("blocks until the scout RESULT returns");
+		expect(result).toContain("Do not scan the same area yourself");
+	});
 });

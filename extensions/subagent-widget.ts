@@ -38,6 +38,7 @@ import { commanderAvailable as commanderAvailableState, commanderClient } from "
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
+import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -125,6 +126,8 @@ interface SubState {
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
+	/** When true, the parent tool waits for RESULT and skips the follow-up turn. */
+	awaitResult?: boolean;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -243,7 +246,7 @@ export default function (pi: ExtensionAPI) {
 		prompt: string,
 		ctx: any,
 		peerNames?: string[],
-	): Promise<void> {
+	): Promise<string> {
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
 		// point dereferencing the captured ctx throws and can kill pi.
@@ -252,7 +255,7 @@ export default function (pi: ExtensionAPI) {
 			state.status = "error";
 			state.summary = message;
 			notifyCurrent(message, "error");
-			return Promise.resolve();
+			return Promise.resolve(message);
 		}
 
 		notifyCurrent(`SA${state.id} (${state.name}) started`, "info");
@@ -357,7 +360,7 @@ export default function (pi: ExtensionAPI) {
 			spawnEnv.PI_COMMANDER_TASK_ID = String(cmdTaskId);
 		}
 
-		return new Promise<void>((resolve) => {
+		return new Promise<string>((resolve) => {
 			const startTime = Date.now();
 			const timer = setInterval(() => {
 				if (spawnEpoch !== sessionEpoch) {
@@ -395,7 +398,7 @@ export default function (pi: ExtensionAPI) {
 				// The child belongs to the replaced session. Finish timer cleanup,
 				// then stop before mutating its state or touching any session-bound UI.
 				if (spawnEpoch !== sessionEpoch) {
-					resolve();
+					resolve(`SA${state.id} (${state.name}) cancelled because the parent session changed.`);
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
@@ -477,13 +480,15 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath,
 					maxResultChars: state.resultBudgetChars,
 				});
-				try {
-					void pi.sendMessage({
-						customType: "subagent-result",
-						content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
-						display: true,
-					}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
-				} catch {}
+				if (!state.awaitResult) {
+					try {
+						void pi.sendMessage({
+							customType: "subagent-result",
+							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
+							display: true,
+						}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
+					} catch {}
+				}
 
 				// Auto-remove completed widgets after 30s (default behavior).
 				if (shouldScheduleWidgetRemoval(state, false)) {
@@ -497,7 +502,7 @@ export default function (pi: ExtensionAPI) {
 					}, 30_000);
 				}
 
-				resolve();
+				resolve(compactResult.content);
 			};
 
 			// argv for the headless path. The visible herdr transport derives its
@@ -596,7 +601,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "subagent_create",
-		description: "Spawn a background subagent to perform a task. Returns the subagent ID immediately while it runs in the background. Results will be delivered as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
+		description: "Spawn a subagent to perform a task. When `name` is scout, this call blocks until that scout finishes and returns its RESULT — do not start overlapping reconnaissance in the same turn. Other roles return the subagent ID immediately and deliver results as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
 		parameters: Type.Object({
 			task: Type.String({ description: "The complete task description for the subagent to perform" }),
 			name: Type.Optional(Type.String({ description: "Short role label (e.g. REVIEWER, SCOUT). If this matches a known agent definition, that agent's model/tools/prompt are auto-applied." })),
@@ -615,6 +620,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const id = nextId++;
 			const agentName = (args.name || "AGENT").toUpperCase();
+			const awaitResult = shouldAwaitSubagentResult(agentName);
 			const state: SubState = {
 				id,
 				status: "running",
@@ -630,15 +636,20 @@ export default function (pi: ExtensionAPI) {
 				autoRemove: args.autoRemove,
 				model: args.model, // caller-specified model override
 				maxDurationMs: resolveTimeout(agentName, args.timeout),
+				awaitResult,
 			};
 			agents.set(id, state);
 			registerWidget(state);
 
-			// Fire-and-forget
-			explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx))();
-
+			const started = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx))();
+			if (!awaitResult) {
+				return {
+					content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
+				};
+			}
+			const result = await started;
 			return {
-				content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
+				content: [{ type: "text", text: result || `SA${id} (${state.name}) finished with no output.` }],
 			};
 		},
 	});

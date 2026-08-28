@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "../lib/task-gate.ts";
+import { isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -166,6 +166,13 @@ describe("scout reconnaissance bypass", () => {
 	it("does not treat TEAM dispatch_agent as recon", () => {
 		expect(isScoutRecon("dispatch_agent", { agent: "scout" })).toBe(false);
 		expect(shouldBypassTaskGate("dispatch_agent", true, { agent: "scout" })).toBe(false);
+	});
+
+	it("blocks the parent on scout RESULT and keeps other roles background", () => {
+		expect(shouldAwaitSubagentResult("scout")).toBe(true);
+		expect(shouldAwaitSubagentResult("SCOUT")).toBe(true);
+		expect(shouldAwaitSubagentResult("builder")).toBe(false);
+		expect(shouldAwaitSubagentResult(undefined)).toBe(false);
 	});
 });
 

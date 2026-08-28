@@ -18,8 +18,13 @@ function toolArgs(args: unknown): Record<string, unknown> {
 	return args && typeof args === "object" ? args as Record<string, unknown> : {};
 }
 
-function isScoutName(value: unknown): boolean {
+export function isScoutName(value: unknown): boolean {
 	return String(value ?? "").trim().toLowerCase() === "scout";
+}
+
+/** Scout `subagent_create` blocks the parent until RESULT; other roles stay background. */
+export function shouldAwaitSubagentResult(name: unknown): boolean {
+	return isScoutName(name);
 }
 
 /** True for read-only scout reconnaissance that must not wait on a task list. */
