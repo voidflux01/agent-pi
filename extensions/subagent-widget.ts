@@ -108,6 +108,12 @@ export function resolveTimeout(name: string, explicitTimeout?: number): number {
 	return ROLE_TIMEOUT_MS[name.toUpperCase()] || DEFAULT_TIMEOUT_MS;
 }
 
+/** Toolkit harnesses keep lowercase names so herdr labels match `omp-agent`. */
+export function displayAgentName(name: string | undefined): string {
+	const raw = name || "AGENT";
+	return isToolkitCliAgent(raw) ? raw.toLowerCase() : raw.toUpperCase();
+}
+
 interface SubState {
 	id: number;
 	status: "running" | "done" | "error";
@@ -353,7 +359,10 @@ export default function (pi: ExtensionAPI) {
 		// Mailbox identity must follow the visible SA id, not the role name:
 		// multiple SCOUT/BUILDER workers can run at the same time.
 		const mailboxAgent = `sa${state.id}`;
-		const paneTitle = herdrWorkerLabel(state.name, `sa${state.id}`);
+		const paneTitle = herdrWorkerLabel(
+			isToolkitCliAgent(state.name) ? state.name.toLowerCase() : state.name,
+			`sa${state.id}`,
+		);
 		const spawnEnv: Record<string, string | undefined> = childEnvironment({
 			PI_SUBAGENT: "1",
 			PI_AGENT_NAME: mailboxAgent,
@@ -522,7 +531,6 @@ export default function (pi: ExtensionAPI) {
 				...extensions,
 				"--model", model,
 				"--tools", tools,
-				"--thinking", "off",
 				...systemPromptArgs,
 				prompt,
 			];
@@ -554,7 +562,7 @@ export default function (pi: ExtensionAPI) {
 				}).then(({ exitCode, raw }) => {
 					const parsed = parseToolkitResult(state.name, raw);
 					if (parsed.model) state.model = parsed.model;
-					finish(exitCode, parsed.text || undefined, parsed.usage);
+					finish(exitCode, parsed.text || raw || undefined, parsed.usage);
 				}).catch(() => finish(1));
 				return;
 			}
@@ -608,7 +616,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerTool({
 		name: "subagent_create",
-		description: "Spawn a subagent to perform a task. When `name` is scout, this call blocks until that scout finishes and returns its RESULT — treat that ## RESULT as the report, do not read the archived transcript unless a path is missing, and do not start overlapping reconnaissance in the same turn. Other roles return the subagent ID immediately and deliver results as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
+		description: "Spawn a subagent to perform a task. When `name` is scout, this call blocks until that scout finishes and returns its RESULT — treat that ## RESULT as the report, do not read the archived transcript unless a path is missing, and do not start overlapping reconnaissance in the same turn. Toolkit CLIs (omp-agent, prime-agent, and other named harnesses) also block until the CLI exits; do not poll with subagent_list or sleep. Other roles return the subagent ID immediately and deliver results as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team, omp-agent, prime-agent), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
 		parameters: Type.Object({
 			task: Type.String({ description: "The complete task description for the subagent to perform" }),
 			name: Type.Optional(Type.String({ description: "Short role label (e.g. REVIEWER, SCOUT). If this matches a known agent definition, that agent's model/tools/prompt are auto-applied." })),
@@ -626,7 +634,7 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `Context is at ${Math.round(contextUsage?.percent ?? 90)}%; defer subagent work until after compaction.` }] };
 			}
 			const id = nextId++;
-			const agentName = (args.name || "AGENT").toUpperCase();
+			const agentName = displayAgentName(args.name);
 			const awaitResult = shouldAwaitSubagentResult(agentName);
 			const state: SubState = {
 				id,
@@ -714,7 +722,7 @@ export default function (pi: ExtensionAPI) {
 			// Build states for all agents
 			const states: SubState[] = defs.map((def: any) => {
 				const id = nextId++;
-				const agentName = (def.name || "AGENT").toUpperCase();
+				const agentName = displayAgentName(def.name);
 				return {
 					id,
 					status: "running" as const,

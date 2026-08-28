@@ -648,7 +648,6 @@ export default function (pi: ExtensionAPI) {
 			...(commanderAvailable ? ["-e", commanderExtPath] : []),
 			"--model", model,
 			"--tools", tools,
-			"--thinking", "off",
 			"--append-system-prompt", systemPrompt,
 			"--session", agentSessionFile,
 		];
@@ -859,7 +858,7 @@ export default function (pi: ExtensionAPI) {
 					toolkitUsage = parsed.usage;
 					if (parsed.model) toolkitModel = parsed.model;
 					if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
-					finish(exitCode, stderrBuf, parsed.text || undefined);
+					finish(exitCode, stderrBuf, parsed.text || raw || undefined);
 				}).catch((err) => {
 					finish(1, stderrBuf, err instanceof Error ? err.message : String(err));
 				});

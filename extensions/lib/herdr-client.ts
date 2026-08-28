@@ -395,6 +395,62 @@ export function herdrWorkerLabel(role: string, id: string): string {
 	return i ? `${r}-${i}` : r;
 }
 
+export type HerdrAgentState = "idle" | "working" | "blocked" | "unknown";
+
+export interface HerdrIdentityOpts {
+	label: string;
+	agent: string;
+	state: HerdrAgentState;
+}
+
+/**
+ * CLI argv batches that make a worker visible in Herdr chrome: pane label,
+ * agent chip (`report-agent`), overlay title (`report-metadata`), and — only
+ * when we own the tab — the tab strip name. Sibling splits must not rename
+ * the caller's tab.
+ */
+export function herdrIdentityArgv(
+	ref: Pick<HerdrTabRef, "paneId" | "tabId" | "closeTarget">,
+	opts: HerdrIdentityOpts,
+): string[][] {
+	const label = String(opts.label || "").trim() || "agent";
+	const agent = String(opts.agent || label).trim() || label;
+	const cmds: string[][] = [
+		["pane", "rename", ref.paneId, label],
+		["pane", "report-agent", "--source", "agent-pi", "--agent", agent, "--state", opts.state, ref.paneId],
+		["pane", "report-metadata", "--source", "agent-pi", "--title", label, "--display-agent", agent, ref.paneId],
+	];
+	if (ref.closeTarget === "tab" && ref.tabId) {
+		cmds.push(["tab", "rename", ref.tabId, label]);
+	}
+	return cmds;
+}
+
+export async function stampHerdrPaneIdentityAsync(
+	ref: Pick<HerdrTabRef, "paneId" | "tabId" | "closeTarget">,
+	opts: HerdrIdentityOpts,
+): Promise<void> {
+	if (!ref.paneId) return;
+	for (const args of herdrIdentityArgv(ref, opts)) {
+		await herdrCliAsync(args, { timeoutMs: 5_000 });
+	}
+}
+
+export function stampHerdrPaneIdentity(
+	ref: Pick<HerdrTabRef, "paneId" | "tabId" | "closeTarget">,
+	opts: HerdrIdentityOpts,
+): void {
+	if (!ref.paneId) return;
+	for (const args of herdrIdentityArgv(ref, opts)) {
+		herdrCli(args, { timeoutMs: 5_000 });
+	}
+}
+
+export interface HerdrCreateOpts {
+	/** Default true: sibling-split the caller. False opens a labeled tab. */
+	preferSplit?: boolean;
+}
+
 /**
  * Wide panes split to the right so parent and child sit side by side;
  * tall or already-narrow panes split down to avoid unusable columns.
@@ -491,7 +547,7 @@ function splitCallerPane(cwd: string, label: string): HerdrTabRef | null {
 		if (orphan && orphan !== paneId) herdrCli(["pane", "close", orphan], { timeoutMs: 5_000 });
 		return null;
 	}
-	if (label) herdrCli(["pane", "rename", ref.paneId, label], { timeoutMs: 5_000 });
+	if (label) stampHerdrPaneIdentity(ref, { label, agent: label, state: "working" });
 	return ref;
 }
 
@@ -515,22 +571,24 @@ async function splitCallerPaneAsync(cwd: string, label: string): Promise<HerdrTa
 		if (orphan && orphan !== paneId) await herdrCliAsync(["pane", "close", orphan], { timeoutMs: 5_000 });
 		return null;
 	}
-	if (label) await herdrCliAsync(["pane", "rename", ref.paneId, label], { timeoutMs: 5_000 });
+	if (label) await stampHerdrPaneIdentityAsync(ref, { label, agent: label, state: "working" });
 	return ref;
 }
 
 /** Open a watchable worker: sibling split of the caller pane when possible,
  *  otherwise a background tab. Uses --env ZSH_DISABLE_COMPFIX=true to avoid
  *  the zsh compinit security prompt eating input. Returns null on failure. */
-export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string): HerdrTabRef | null {
+export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): HerdrTabRef | null {
 	if (!isExplicitDispatchActive()) return null;
-	if (preferCallerPaneSplit()) {
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = splitCallerPane(cwd, label);
 		if (split) return split;
 	}
 	const r = herdrCli(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
 	if (r.code !== 0) return null;
-	return tabRefFromCreate(r.stdout, workspaceId);
+	const ref = tabRefFromCreate(r.stdout, workspaceId);
+	if (ref && label) stampHerdrPaneIdentity(ref, { label, agent: label, state: "working" });
+	return ref;
 }
 
 /** Async workspace lookup/create for non-blocking dispatch paths.
@@ -570,15 +628,17 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 }
 
 /** Async watchable-worker creation: sibling split, else background tab. */
-export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string): Promise<HerdrTabRef | null> {
+export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): Promise<HerdrTabRef | null> {
 	if (!isExplicitDispatchActive()) return null;
-	if (preferCallerPaneSplit()) {
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = await splitCallerPaneAsync(cwd, label);
 		if (split) return split;
 	}
 	const r = await herdrCliAsync(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
 	if (r.code !== 0) return null;
-	return tabRefFromCreate(r.stdout, workspaceId);
+	const ref = tabRefFromCreate(r.stdout, workspaceId);
+	if (ref && label) await stampHerdrPaneIdentityAsync(ref, { label, agent: label, state: "working" });
+	return ref;
 }
 
 /**

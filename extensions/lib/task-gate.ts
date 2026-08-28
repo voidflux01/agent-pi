@@ -1,6 +1,8 @@
 // ABOUTME: Shared task-gate policy used by the runtime and its tests.
 // ABOUTME: NORMAL lists are strict by default; set PI_TASKS_STRICT=0 for advisory.
 
+import { isToolkitCliAgent } from "./toolkit-cli.ts";
+
 export const TASK_GATE_BYPASS_TOOLS = [
 	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "ask_user", "run_chain",
 	"advance_phase", "pipeline_status",
@@ -22,9 +24,10 @@ export function isScoutName(value: unknown): boolean {
 	return String(value ?? "").trim().toLowerCase() === "scout";
 }
 
-/** Scout `subagent_create` blocks the parent until RESULT; other roles stay background. */
+/** Scout and toolkit CLIs block until they finish; other roles stay background. */
 export function shouldAwaitSubagentResult(name: unknown): boolean {
-	return isScoutName(name);
+	if (isScoutName(name)) return true;
+	return isToolkitCliAgent(String(name ?? ""));
 }
 
 /** True for read-only scout reconnaissance that must not wait on a task list. */

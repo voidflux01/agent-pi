@@ -174,6 +174,12 @@ describe("scout reconnaissance bypass", () => {
 		expect(shouldAwaitSubagentResult("builder")).toBe(false);
 		expect(shouldAwaitSubagentResult(undefined)).toBe(false);
 	});
+
+	it("blocks the parent on toolkit CLI runtimes", () => {
+		expect(shouldAwaitSubagentResult("omp-agent")).toBe(true);
+		expect(shouldAwaitSubagentResult("OMP-AGENT")).toBe(true);
+		expect(shouldAwaitSubagentResult("prime-agent")).toBe(true);
+	});
 });
 
 describe("PI_TASKS_STRICT default", () => {

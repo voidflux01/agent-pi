@@ -70,8 +70,18 @@ are not a unit.
 ### Toolkit / multi-harness runtimes
 
 - `subagent_create` for `omp-agent` / `prime-agent` (and other toolkit CLIs)
-  uses the same Herdr sibling pane as TEAM dispatch, then falls back
-  headless.
+  uses a Herdr **sibling split** of the caller pane (same as scout / TEAM),
+  labeled `omp-agent` / `prime-agent` via pane rename + `report-agent` /
+  `report-metadata` so the chip is not `bash`. Falls back to a labeled tab,
+  then headless. omp / prime in that pane run their **interactive TUI** (no
+  `-p --mode json`, no `tee`), same idea as pi's visible transport. Headless
+  fallback still prints JSON. Finished splits stay open (labeled idle) so a
+  short PONG does not flash and vanish. Set `PI_HERDR_LINGER_MS` to auto-close
+  after N ms (`0` = close immediately).
+- Toolkit `subagent_create` blocks until the CLI exits, same as scout, so the
+  parent does not poll with `subagent_list` / `sleep`.
+- Child Pi / omp / prime dispatches no longer pass `--thinking off`; thinking
+  follows the harness default or the model the parent already selected.
 - Built-in toolkit agent defs so TEAM lists `omp-agent` and `prime-agent`
   without `.pi/agents/toolkit/*.md`.
 - Journal records the stream's real `provider/model`, not the dummy Haiku

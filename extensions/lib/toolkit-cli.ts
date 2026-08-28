@@ -2,7 +2,7 @@
 // ABOUTME: Toolkit agents represent installed CLI software and should stream real CLI stdout/stderr.
 
 import { spawn } from "child_process";
-import { accessSync, constants as fsConstants, mkdirSync, readFileSync, rmSync } from "fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
@@ -19,6 +19,8 @@ import {
 	waitForLaunchStart,
 	cleanupLaunchFiles,
 	registerHerdrPane,
+	stampHerdrPaneIdentityAsync,
+	launchDonePath,
 } from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
@@ -94,7 +96,6 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 		"-e", nudgeListenerExtPath,
 		"--model", TOOLKIT_WORKER_MODEL,
 		"--tools", agentDef.tools,
-		"--thinking", "off",
 		"--append-system-prompt", agentDef.systemPrompt,
 	];
 
@@ -171,6 +172,67 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 		default:
 			return null;
 	}
+}
+
+export function toolkitHerdrDoneExtPath(): string {
+	return join(dirname(fileURLToPath(import.meta.url)), "..", "herdr-done.ts");
+}
+
+/** omp / prime have a real TUI. Other toolkit CLIs are print-only. */
+export function toolkitHasInteractiveTui(agentName: string | undefined | null): boolean {
+	const n = (agentName || "").toLowerCase();
+	return n === "omp-agent" || n === "prime-agent";
+}
+
+/** Interactive argv for a herdr pane (no `-p` / `--mode json`, so the TTY is a TUI). */
+export function getToolkitTuiArgv(
+	agentName: string,
+	task: string,
+	sessionDir: string,
+	herdrDonePath: string,
+): string[] | null {
+	const bare = toolkitBareMode();
+	switch (agentName.toLowerCase()) {
+		case "omp-agent":
+			return [
+				"omp",
+				"--session-dir", sessionDir,
+				"-e", herdrDonePath,
+				"--auto-approve",
+				"--no-title",
+				...(bare ? ["--no-extensions", "--no-skills"] : []),
+				task,
+			];
+		case "prime-agent":
+			return [
+				"prime-agent",
+				"--session-dir", sessionDir,
+				"-e", herdrDonePath,
+				...(bare ? ["-ne", "-ns"] : []),
+				task,
+			];
+		default:
+			return null;
+	}
+}
+
+function newestJsonl(root: string): string | undefined {
+	let best: { path: string; mtime: number } | undefined;
+	const walk = (dir: string) => {
+		let ents: ReturnType<typeof readdirSync>;
+		try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+		for (const ent of ents) {
+			const p = join(dir, ent.name);
+			if (ent.isDirectory()) walk(p);
+			else if (ent.name.endsWith(".jsonl")) {
+				let mtime = 0;
+				try { mtime = statSync(p).mtimeMs; } catch {}
+				if (!best || mtime >= best.mtime) best = { path: p, mtime };
+			}
+		}
+	};
+	if (existsSync(root)) walk(root);
+	return best?.path;
 }
 
 export function spawnToolkitWorker(
@@ -321,6 +383,35 @@ export function parseToolkitResult(
 					if (c?.type === "text" && typeof c.text === "string") text += c.text;
 				}
 			}
+			if (!text) {
+				for (const line of raw.split("\n")) {
+					const t = line.trim();
+					if (!t.startsWith("{")) continue;
+					let ev: any;
+					try { ev = JSON.parse(t); } catch { continue; }
+					const msg = ev?.message || ev;
+					if (msg?.role !== "assistant" || !Array.isArray(msg?.content)) continue;
+					const u = msg.usage;
+					if (u && typeof u.totalTokens === "number") {
+						usage = {
+							input: u.input ?? 0,
+							output: u.output ?? 0,
+							cacheRead: u.cacheRead ?? 0,
+							cacheWrite: u.cacheWrite ?? 0,
+							totalTokens: u.totalTokens,
+							costUsd: Number(u.cost?.total ?? 0),
+						};
+					}
+					const provider = msg.provider;
+					const modelId = msg.model;
+					if (typeof modelId === "string" && modelId) {
+						model = typeof provider === "string" && provider ? `${provider}/${modelId}` : modelId;
+					}
+					for (const c of msg.content) {
+						if (c?.type === "text" && typeof c.text === "string" && c.text) text = c.text;
+					}
+				}
+			}
 			return { text, usage, model };
 		}
 	} catch {}
@@ -355,10 +446,49 @@ export function toolkitRuntimeName(agentName: string | undefined | null): string
 	return n.endsWith("-agent") ? n.slice(0, -"-agent".length) : n;
 }
 
+/** Canonical herdr chrome name, e.g. `omp-agent` / `prime-agent`. */
+export function toolkitHerdrAgent(agentName: string | undefined | null): string {
+	const n = (agentName || "").toLowerCase().trim();
+	return TOOLKIT_CLI_AGENTS.has(n) ? n : (n || "agent");
+}
+
+/** Tab/pane label: `omp-agent-sa1` when a run suffix is present, else `omp-agent`. */
+export function toolkitHerdrLabel(agentName: string, paneTitle?: string): string {
+	const agent = toolkitHerdrAgent(agentName);
+	const title = String(paneTitle || "").trim().toLowerCase();
+	if (title && (title === agent || title.startsWith(`${agent}-`))) return title;
+	return agent;
+}
+
+/** Auto-close delay for a finished toolkit tab. `null` keeps the labeled tab
+ *  open (default). `PI_HERDR_LINGER_MS=0` closes immediately; a positive value
+ *  waits that many ms then closes. */
+export function toolkitHerdrAutoCloseMs(): number | null {
+	const raw = process.env.PI_HERDR_LINGER_MS;
+	if (raw === undefined || raw === "") return null;
+	const n = Number(raw);
+	return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function delayMs(ms: number, aborted?: () => boolean): Promise<void> {
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		const started = Date.now();
+		const tick = () => {
+			if (aborted?.() || Date.now() - started >= ms) {
+				resolve();
+				return;
+			}
+			setTimeout(tick, 250);
+		};
+		setTimeout(tick, Math.min(250, ms));
+	});
+}
+
 /**
- * Shell command line that runs an external CLI visibly inside a herdr pane:
- * stdout AND stderr stream live in the pane while tee'ing the JSON event
- * stream (or plain output) to rawOutPath for authoritative result parsing.
+ * Shell command line that runs an external CLI visibly inside a herdr pane.
+ * omp / prime drop `-p --mode json` and `tee` so the pane is a real TUI;
+ * other CLIs still print and tee to rawOutPath for parsing.
  */
 export function toolkitVisibleCommandLine(
 	agentName: string,
@@ -366,15 +496,25 @@ export function toolkitVisibleCommandLine(
 	cwd: string | undefined,
 	rawOutPath: string,
 	paneTitle?: string,
+	tuiSessionDir?: string,
+	herdrDonePath?: string,
 ): string[] {
+	const title = (paneTitle || toolkitRuntimeName(agentName) || agentName)
+		.replace(/[^A-Za-z0-9._-]+/g, "-")
+		.slice(0, 40);
+	const osc = `printf '\\033]0;${title}\\007'`;
+	const sessionDir = tuiSessionDir || join(dirname(rawOutPath), "session");
+	const doneExt = herdrDonePath || toolkitHerdrDoneExtPath();
+	const tui = getToolkitTuiArgv(agentName, task, sessionDir, doneExt);
+	if (tui && tui.length > 0) {
+		const cmd = tui.map(shellQuote).join(" ");
+		return ["bash", "-c", `${osc}; exec ${cmd}`];
+	}
 	const cli = getToolkitCliCommand(agentName);
 	if (!cli) return [];
 	const argv = cli.args(task, cwd);
 	const cmd = [cli.command, ...argv].map(shellQuote).join(" ");
-	const title = (paneTitle || toolkitRuntimeName(agentName) || agentName)
-		.replace(/[^A-Za-z0-9._-]+/g, "-")
-		.slice(0, 40);
-	return ["bash", "-c", `printf '\\033]0;${title}\\007'; ${cmd} 2>&1 | tee ${shellQuote(rawOutPath)}`];
+	return ["bash", "-c", `${osc}; ${cmd} 2>&1 | tee ${shellQuote(rawOutPath)}`];
 }
 
 export interface ToolkitDispatchResult {
@@ -384,8 +524,9 @@ export interface ToolkitDispatchResult {
 }
 
 /**
- * Run an external toolkit CLI. Prefers a watchable Herdr sibling pane
- * (same as TEAM dispatch); falls back to a headless child process.
+ * Run an external toolkit CLI. Prefers a sibling Herdr split of the caller
+ * pane (same as scout / TEAM), labeled `omp-agent` / `prime-agent`. Falls
+ * back to a labeled tab, then to a headless child process.
  */
 export async function runToolkitDispatch(opts: {
 	agentName: string;
@@ -402,6 +543,8 @@ export async function runToolkitDispatch(opts: {
 }): Promise<ToolkitDispatchResult> {
 	const cancelled = () => !!opts.isCancelled?.();
 	const stub = { name: opts.agentName, tools: "", systemPrompt: "" };
+	const herdrAgent = toolkitHerdrAgent(opts.agentName);
+	const herdrLabel = toolkitHerdrLabel(opts.agentName, opts.paneTitle);
 
 	if (await herdrEnabledAsync()) {
 		try {
@@ -409,20 +552,29 @@ export async function runToolkitDispatch(opts: {
 			if (wsId) {
 				mkdirSync(join(opts.sessionDir, "outputs"), { recursive: true });
 				const rawPath = join(opts.sessionDir, "outputs", `${opts.runId}.raw`);
-				const argvVisible = toolkitVisibleCommandLine(opts.agentName, opts.task, opts.cwd, rawPath, opts.paneTitle);
+				const tuiSessionDir = join(opts.sessionDir, "outputs", `${opts.runId}-session`);
+				mkdirSync(tuiSessionDir, { recursive: true });
+				const argvVisible = toolkitVisibleCommandLine(
+					opts.agentName, opts.task, opts.cwd, rawPath, herdrLabel,
+					tuiSessionDir, toolkitHerdrDoneExtPath(),
+				);
 				if (argvVisible.length > 0) {
 					const refs = writeLaunchScript({
 						dir: opts.sessionDir,
 						id: opts.runId,
 						cwd: opts.cwd,
 						command: argvVisible,
-						env: { ...opts.env, PI_SUBAGENT: "1" },
+						env: {
+							...opts.env,
+							PI_SUBAGENT: "1",
+							HERDR_DONE_PATH: launchDonePath(opts.sessionDir, opts.runId),
+						},
 					});
-					const tab = await createHerdrTaskTabAsync(wsId, opts.cwd, opts.paneTitle);
+					const tab = await createHerdrTaskTabAsync(wsId, opts.cwd, herdrLabel);
 					if (tab) {
 						registerHerdrPane(opts.cwd, {
 							key: opts.runId,
-							label: opts.paneTitle,
+							label: herdrLabel,
 							cwd: opts.cwd,
 							sessionFile: "",
 							ref: tab,
@@ -439,6 +591,7 @@ export async function runToolkitDispatch(opts: {
 							},
 							__piNoExitEvent: true,
 						});
+						await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 						const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${herdrShellQuote(refs.scriptPath)}`);
 						const started = sent && await waitForLaunchStart(
 							refs.startedPath,
@@ -446,18 +599,41 @@ export async function runToolkitDispatch(opts: {
 							() => herdrCancelled || cancelled(),
 						);
 						if (started) {
+							await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 							const rc = await pollDoneFileAsync(
 								refs.donePath,
 								7 * 24 * 3600 * 1000,
 								() => herdrCancelled || cancelled(),
 							);
-							cleanupLaunchFiles(refs);
-							await closeHerdrTabAsync(tab);
 							let rawOut = "";
 							try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
 							try { rmSync(rawPath, { force: true }); } catch {}
+							if (!rawOut.trim()) {
+								const sessionFile = newestJsonl(tuiSessionDir);
+								if (sessionFile) {
+									try { rawOut = readFileSync(sessionFile, "utf8"); } catch {}
+								}
+							}
+							cleanupLaunchFiles(refs);
+							const failed = herdrCancelled || cancelled();
+							if (failed) {
+								await closeHerdrTabAsync(tab);
+							} else {
+								await stampHerdrPaneIdentityAsync(tab, {
+									label: herdrLabel,
+									agent: herdrAgent,
+									state: rc === 0 ? "idle" : "unknown",
+								});
+								const autoClose = toolkitHerdrAutoCloseMs();
+								if (autoClose !== null) {
+									void (async () => {
+										await delayMs(autoClose, () => herdrCancelled || cancelled());
+										if (!herdrCancelled && !cancelled()) await closeHerdrTabAsync(tab);
+									})();
+								}
+							}
 							return {
-								exitCode: herdrCancelled || cancelled() ? 130 : (rc ?? 1),
+								exitCode: failed ? 130 : (rc ?? 1),
 								raw: rawOut,
 								transport: "herdr",
 							};

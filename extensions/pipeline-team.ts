@@ -409,7 +409,6 @@ export default function (pi: ExtensionAPI) {
 			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
-			"--thinking", "off",
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt(),
 			"--session", agentSessionFile,
 		];

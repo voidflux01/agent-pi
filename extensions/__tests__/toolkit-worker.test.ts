@@ -11,6 +11,11 @@ import {
 	toolkitVisibleCommandLine,
 	spawnToolkitWorker,
 	toolkitBareMode,
+	toolkitHerdrAgent,
+	toolkitHerdrLabel,
+	toolkitHerdrAutoCloseMs,
+	getToolkitTuiArgv,
+	toolkitHasInteractiveTui,
 } from "../lib/toolkit-cli.ts";
 import { resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "../lib/agent-defs.ts";
 
@@ -123,6 +128,17 @@ describe("external runtime result parsing", () => {
 		expect(text).toBe("");
 		expect(usage).toBeUndefined();
 	});
+
+	it("parses interactive session jsonl when there is no message_end stream", () => {
+		const raw = [
+			'{"type":"message","message":{"role":"user","content":[{"type":"text","text":"PONG?"}]}}',
+			'{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"PONG"}],"provider":"opencode-go","model":"deepseek-v4-flash","usage":{"input":3,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":4,"cost":{"total":0.01}}}}',
+		].join("\n");
+		const { text, model, usage } = parseToolkitResult("omp-agent", raw);
+		expect(text).toBe("PONG");
+		expect(model).toBe("opencode-go/deepseek-v4-flash");
+		expect(usage?.totalTokens).toBe(4);
+	});
 });
 
 
@@ -133,16 +149,25 @@ describe("visible external runtime helpers", () => {
 		expect(toolkitRuntimeName("builder")).toBeUndefined();
 	});
 
-	it("builds a tee-redirecting visible command line for omp", () => {
-		const argv = toolkitVisibleCommandLine("omp-agent", "do it", "/tmp/x", "/tmp/x/out.raw");
+	it("builds a TUI command line for omp in a herdr pane", () => {
+		expect(toolkitHasInteractiveTui("omp-agent")).toBe(true);
+		expect(toolkitHasInteractiveTui("cursor-agent")).toBe(false);
+		const argv = toolkitVisibleCommandLine(
+			"omp-agent", "do it", "/tmp/x", "/tmp/x/out.raw", "omp-sa1", "/tmp/sess", "/ext/herdr-done.ts",
+		);
 		expect(argv[0]).toBe("bash");
 		const script = argv[2];
-		expect(script).toContain("omp -p --mode json");
-		expect(script).not.toContain("--no-extensions");
-		expect(script).toContain("tee /tmp/x/out.raw");
-		const titled = toolkitVisibleCommandLine("omp-agent", "do it", "/tmp/x", "/tmp/x/out.raw", "omp-sa1");
-		expect(titled[2]).toContain("omp-sa1");
-		expect(titled[2]).toContain("\\033]0;");
+		expect(script).toContain("exec ");
+		expect(script).toContain("omp ");
+		expect(script).toContain("--session-dir /tmp/sess");
+		expect(script).toContain("-e /ext/herdr-done.ts");
+		expect(script).not.toMatch(/(^|\s)-p(\s|$)/);
+		expect(script).not.toContain("--mode json");
+		expect(script).not.toContain("tee ");
+		expect(script).toContain("omp-sa1");
+		expect(script).toContain("\\033]0;");
+		const tui = getToolkitTuiArgv("omp-agent", "do it", "/tmp/sess", "/ext/herdr-done.ts");
+		expect(tui).toContain("--auto-approve");
 	});
 
 	it("adds --no-extensions --no-skills only when PI_TOOLKIT_BARE=1", () => {
@@ -151,10 +176,10 @@ describe("visible external runtime helpers", () => {
 		process.env.PI_TOOLKIT_BARE = "1";
 		try {
 			expect(toolkitBareMode()).toBe(true);
-			const script = toolkitVisibleCommandLine("omp-agent", "t", undefined, "/tmp/o.raw")[2];
+			const script = toolkitVisibleCommandLine("omp-agent", "t", undefined, "/tmp/o.raw", undefined, "/tmp/s", "/e.ts")[2];
 			expect(script).toContain("--no-extensions");
 			expect(script).toContain("--no-skills");
-			const prime = toolkitVisibleCommandLine("prime-agent", "t", undefined, "/tmp/o.raw")[2];
+			const prime = toolkitVisibleCommandLine("prime-agent", "t", undefined, "/tmp/o.raw", undefined, "/tmp/s", "/e.ts")[2];
 			expect(prime).toContain("-ne");
 			expect(prime).toContain("-ns");
 		} finally {
@@ -165,6 +190,29 @@ describe("visible external runtime helpers", () => {
 
 	it("returns empty command for unknown agents (falls back headless)", () => {
 		expect(toolkitVisibleCommandLine("mystery-agent", "t", undefined, "/tmp/o.raw")).toEqual([]);
+	});
+
+	it("canonicalizes herdr tab labels to omp-agent / prime-agent", () => {
+		expect(toolkitHerdrAgent("OMP-AGENT")).toBe("omp-agent");
+		expect(toolkitHerdrAgent("prime-agent")).toBe("prime-agent");
+		expect(toolkitHerdrLabel("omp-agent", "OMP-AGENT-sa1")).toBe("omp-agent-sa1");
+		expect(toolkitHerdrLabel("prime-agent", "prime-agent-sa2")).toBe("prime-agent-sa2");
+		expect(toolkitHerdrLabel("omp-agent")).toBe("omp-agent");
+	});
+
+	it("keeps finished herdr tabs open unless PI_HERDR_LINGER_MS is set", () => {
+		const prev = process.env.PI_HERDR_LINGER_MS;
+		try {
+			delete process.env.PI_HERDR_LINGER_MS;
+			expect(toolkitHerdrAutoCloseMs()).toBeNull();
+			process.env.PI_HERDR_LINGER_MS = "0";
+			expect(toolkitHerdrAutoCloseMs()).toBe(0);
+			process.env.PI_HERDR_LINGER_MS = "15000";
+			expect(toolkitHerdrAutoCloseMs()).toBe(15_000);
+		} finally {
+			if (prev === undefined) delete process.env.PI_HERDR_LINGER_MS;
+			else process.env.PI_HERDR_LINGER_MS = prev;
+		}
 	});
 });
 

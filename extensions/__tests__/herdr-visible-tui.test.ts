@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel, herdrIdentityArgv } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -18,7 +18,6 @@ const saArgv = [
 	"-e", "/ext/footer.ts",
 	"--model", "dashscope/qwen3.8-flash",
 	"--tools", "read,grep,find,ls",
-	"--thinking", "off",
 	"--append-system-prompt", "You are a scout agent.",
 	"Count the .ts files under extensions/",
 ];
@@ -32,7 +31,6 @@ const teamArgv = [
 	"-e", "/ext/ask-parent.ts",
 	"--model", "dashscope/qwen3.8-flash",
 	"--tools", "read,bash",
-	"--thinking", "off",
 	"--append-system-prompt", "SP",
 	"--session", "/tmp/team.json",
 	"-c",
@@ -78,7 +76,7 @@ describe("visiblePiTuiArgs", () => {
 		const out = visiblePiTuiArgs(saArgv, DONE);
 		for (const kept of ["--session", "/tmp/sa1.json", "--no-extensions", "-e", "/ext/tasks.ts",
 			"/ext/footer.ts", "--model", "dashscope/qwen3.8-flash", "--tools", "read,grep,find,ls",
-			"--thinking", "off", "--append-system-prompt", "You are a scout agent.",
+			"--append-system-prompt", "You are a scout agent.",
 			"Count the .ts files under extensions/"]) {
 			expect(out).toContain(kept);
 		}
@@ -285,6 +283,20 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		expect(src).toContain("cwd: spawnCwd");
 	});
 
+	it("does not force --thinking off on child Pi dispatches", () => {
+		for (const rel of [
+			"subagent-widget.ts",
+			"agent-team.ts",
+			"agent-chain.ts",
+			"pipeline-team.ts",
+			"toolkit-commands.ts",
+			"lib/toolkit-cli.ts",
+		]) {
+			const src = readFileSync(join(__dirname, "..", rel), "utf8");
+			expect(src).not.toContain('"--thinking", "off"');
+		}
+	});
+
 	it("builds the Herdr command from the full argv without doubling the binary", () => {
 		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
 		expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
@@ -293,9 +305,27 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 
 	it("labels herdr panes with the subagent role", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(src).toContain("herdrWorkerLabel(state.name");
+		expect(src).toContain("herdrWorkerLabel(");
 		expect(src).toContain("PI_PANE_TITLE: paneTitle");
 		expect(herdrWorkerLabel("scout", "sa1")).toBe("scout-sa1");
+	});
+
+	it("stamps pane, agent chip, overlay title, and owned-tab name", () => {
+		const tabCmds = herdrIdentityArgv(
+			{ paneId: "w1:p9", tabId: "w1:t9", closeTarget: "tab" },
+			{ label: "omp-agent-sa1", agent: "omp-agent", state: "working" },
+		);
+		expect(tabCmds).toEqual([
+			["pane", "rename", "w1:p9", "omp-agent-sa1"],
+			["pane", "report-agent", "--source", "agent-pi", "--agent", "omp-agent", "--state", "working", "w1:p9"],
+			["pane", "report-metadata", "--source", "agent-pi", "--title", "omp-agent-sa1", "--display-agent", "omp-agent", "w1:p9"],
+			["tab", "rename", "w1:t9", "omp-agent-sa1"],
+		]);
+		const splitCmds = herdrIdentityArgv(
+			{ paneId: "w1:p2", tabId: "w1:t1", closeTarget: "pane" },
+			{ label: "scout-sa1", agent: "scout-sa1", state: "working" },
+		);
+		expect(splitCmds.some((c) => c[0] === "tab" && c[1] === "rename")).toBe(false);
 	});
 
 	it("opens workers via createHerdrTaskTab which prefers a sibling split", () => {
@@ -308,6 +338,9 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		expect(runtime).toContain("closeHerdrTabAsync");
 		const toolkit = readFileSync(join(__dirname, "..", "lib", "toolkit-cli.ts"), "utf8");
 		expect(toolkit).toContain("createHerdrTaskTabAsync");
+		expect(toolkit).not.toContain("preferSplit: false");
+		expect(toolkit).toContain("stampHerdrPaneIdentityAsync");
+		expect(toolkit).toContain("toolkitHerdrAutoCloseMs");
 		const sa = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(sa).toContain("runToolkitDispatch");
 	});

@@ -152,11 +152,11 @@ Besides pi itself, named toolkit agents dispatch to external CLI runtimes. The f
 
 | Agent name | CLI invoked | Result text | Usage source |
 |---|---|---|---|
-| `omp-agent` | `omp -p --mode json <task>` | Assistant-role `message_end` text (same parser as prime) | Inline message usage |
-| `prime-agent` | `prime-agent -p --mode json --no-session <task>` | Assistant-role `message_end` text | Inline message usage |
+| `omp-agent` | herdr: `omp` TUI (session jsonl); headless: `omp -p --mode json` | Assistant text (stream `message_end` or session jsonl) | Inline message usage |
+| `prime-agent` | herdr: `prime-agent` TUI (session jsonl); headless: `-p --mode json --no-session` | Assistant text (same parser as omp) | Inline message usage |
 | others (`cursor-agent`, `gemini-agent`, ...) | their plain CLIs | raw stdout tail (no structured parse) | not reported |
 
-When herdr is enabled, external-CLI dispatches (`subagent_create` and TEAM `dispatch_agent`) run inside a sibling herdr pane so you can watch them work; their JSON event stream tee's to `<id>.raw` for authoritative parsing, then the pane closes. Journal rows record `runtime` and the real `provider/model` from the stream; they do not invent a pi `sessionFile`. `/agents-status` marks such rows with a runtime tag:
+When herdr is enabled, external-CLI dispatches (`subagent_create` and TEAM `dispatch_agent`) open a **sibling split** of the caller's pane labeled with the harness (`omp-agent`, `prime-agent`, …). omp and prime run their interactive TUI there (not a JSON dump); completion is the `herdr-done` marker, and the parent reads the child's session jsonl. After the first turn the pane stays open (labeled idle); set `PI_HERDR_LINGER_MS` to auto-close after N ms. Journal rows record `runtime` and the real `provider/model` from the stream; they do not invent a pi `sessionFile`. `/agents-status` marks such rows with a runtime tag:
 
 ```
 DONE  tm07-k9a1 [omp]   12s 15,398tok (0% cached) $0.0035

@@ -245,7 +245,6 @@ export default function (pi: ExtensionAPI) {
 									"-e", tasksExtPath,
 									"--model", model,
 									"--tools", tools,
-									"--thinking", "off",
 									"--append-system-prompt", body,
 									userArgs || "",
 								],
