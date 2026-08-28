@@ -353,6 +353,7 @@ export interface LaunchScriptOpts {
 export interface LaunchScriptRefs {
 	scriptPath: string;
 	donePath: string;
+	startedPath: string;
 }
 
 /** Marker-file path for a launch id. Same naming writeLaunchScript() uses, so
@@ -364,23 +365,31 @@ export function launchDonePath(dir: string, id: string): string {
 	return join(dir, `herdr-launch-${id}.done`);
 }
 
+/** Marker written when the pane's shell has accepted and started the launch script. */
+export function launchStartedPath(dir: string, id: string): string {
+	if (!SAFE_LAUNCH_ID.test(id)) throw new Error("Invalid Herdr launch id");
+	return join(dir, `herdr-launch-${id}.started`);
+}
+
 /** Write a bash script that runs the command and writes the exit code to a
  *  marker file. Returns paths. The script itself handles cwd and env. */
 export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	mkdirSync(opts.dir, { recursive: true });
 	const scriptPath = join(opts.dir, `herdr-launch-${opts.id}.sh`);
 	const donePath = launchDonePath(opts.dir, opts.id);
-	// A crashed parent can leave the previous marker behind. Never let a new
-	// launch inherit that stale completion signal.
+	const startedPath = launchStartedPath(opts.dir, opts.id);
+	// A crashed parent can leave previous markers behind. Never let a new
+	// launch inherit stale startup or completion signals.
 	rmSync(donePath, { force: true });
+	rmSync(startedPath, { force: true });
 	const envAssign = Object.entries(opts.env || {})
 		.filter(([k, v]) => v !== undefined && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
 		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)
 		.join("\n");
 	const quoted = opts.command.map(shellQuote).join(" ");
-	const script = `#!/bin/bash\n${envAssign}\ncd ${shellQuote(opts.cwd)} || exit 9\n${quoted}\nrc=$?\necho "$rc" > ${shellQuote(donePath)}\nexit $rc\n`;
+	const script = `#!/bin/bash\n${envAssign}\ncd ${shellQuote(opts.cwd)} || exit 9\nprintf 'started\n' > ${shellQuote(startedPath)}\n${quoted}\nrc=$?\necho "$rc" > ${shellQuote(donePath)}\nexit $rc\n`;
 	writeFileSync(scriptPath, script, "utf8");
-	return { scriptPath, donePath };
+	return { scriptPath, donePath, startedPath };
 }
 
 /** Blocking 1s tick without spawning a process. */
@@ -435,6 +444,20 @@ export async function pollDoneFileAsync(
 export function cleanupLaunchFiles(refs: LaunchScriptRefs): void {
 	try { rmSync(refs.scriptPath, { force: true }); } catch {}
 	try { rmSync(refs.donePath, { force: true }); } catch {}
+	try { rmSync(refs.startedPath, { force: true }); } catch {}
+}
+
+/** Wait briefly for the launch script to prove that the pane accepted it. */
+export async function waitForLaunchStart(startedPath: string, timeoutMs = 5_000, aborted?: () => boolean): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (aborted?.()) return false;
+		try {
+			if (existsSync(startedPath) && readFileSync(startedPath, "utf8").trim() === "started") return true;
+		} catch {}
+		await new Promise<void>((resolve) => setTimeout(resolve, 100));
+	}
+	return false;
 }
 
 // ── result extraction from pi session JSONL ───────

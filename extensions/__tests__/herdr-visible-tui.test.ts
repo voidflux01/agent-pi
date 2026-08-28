@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, writeLaunchScript } from "../lib/herdr-client.ts";
+import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -131,13 +131,17 @@ describe("launch marker paths", () => {
 		}
 	});
 
-	it("launchDonePath matches what writeLaunchScript actually writes", () => {
+	it("launchDonePath matches what writeLaunchScript actually writes", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "herdr-launch-"));
 		try {
 			const refs = writeLaunchScript({ dir, id: "sa7", cwd: dir, command: ["true"], env: {} });
 			expect(refs.donePath).toBe(launchDonePath(dir, "sa7"));
+			expect(refs.startedPath).toBe(launchStartedPath(dir, "sa7"));
 			// HERDR_DONE_PATH must point at the same file the script writes on exit
 			expect(readFileSync(refs.scriptPath, "utf8")).toContain(launchDonePath(dir, "sa7"));
+			expect(readFileSync(refs.scriptPath, "utf8")).toContain(`printf 'started\n' > '${launchStartedPath(dir, "sa7")}'`);
+			writeFileSync(refs.startedPath, "started\n", "utf8");
+			expect(await waitForLaunchStart(refs.startedPath, 100)).toBe(true);
 		expect(() => launchDonePath(dir, "../escape")).toThrow("Invalid Herdr launch id");
 		writeLaunchScript({ dir, id: "safe", cwd: dir, command: ["true"], env: { "BAD;KEY": "x", SAFE_KEY: "quoted'value" } });
 		const safeScript = readFileSync(join(dir, "herdr-launch-safe.sh"), "utf8");
@@ -160,6 +164,7 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 			expect(src).toContain("visiblePiTuiArgs(");
 			expect(src).toContain("herdrEnabledAsync");
 			expect(src).toContain("sendCommandToPaneAsync");
+			expect(src).toContain("waitForLaunchStart");
 			expect(src).toContain("HERDR_DONE_PATH");
 			expect(src).toMatch(/herdr-done\.ts/);
 		});

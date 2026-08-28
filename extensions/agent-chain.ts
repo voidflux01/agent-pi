@@ -31,16 +31,17 @@ import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/p
 import { spawn } from "child_process";
 import {
 	cleanupLaunchFiles,
-	closeHerdrTab,
-	createHerdrTaskTab,
-	ensureHerdrWorkspace,
-	herdrEnabled,
+	closeHerdrTabAsync,
+	createHerdrTaskTabAsync,
+	ensureHerdrWorkspaceAsync,
+	herdrEnabledAsync,
 	pollDoneFileAsync,
 	readLastAssistantText,
 	sessionUsage,
-	sendCommandToPane,
+	sendCommandToPaneAsync,
 	shellQuote,
 	writeLaunchScript,
+	waitForLaunchStart,
 	launchDonePath,
 	visiblePiTuiArgs,
 	type HerdrTabRef,
@@ -494,6 +495,12 @@ export default function (pi: ExtensionAPI) {
 
 					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
+						currentChainProc = null;
+						await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled))) {
 						currentChainProc = null;
 						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);

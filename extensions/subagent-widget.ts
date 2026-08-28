@@ -37,16 +37,17 @@ import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResu
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import {
 	cleanupLaunchFiles,
-	closeHerdrTab,
-	createHerdrTaskTab,
-	ensureHerdrWorkspace,
-	herdrEnabled,
+	closeHerdrTabAsync,
+	createHerdrTaskTabAsync,
+	ensureHerdrWorkspaceAsync,
+	herdrEnabledAsync,
 	pollDoneFileAsync,
 	readLastAssistantText,
 	sessionUsage,
-	sendCommandToPane,
+	sendCommandToPaneAsync,
 	shellQuote,
 	writeLaunchScript,
+	waitForLaunchStart,
 	launchDonePath,
 	visiblePiTuiArgs,
 	type HerdrTabRef,
@@ -582,6 +583,12 @@ export default function (pi: ExtensionAPI) {
 
 					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
+						state.proc = undefined;
+						await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled))) {
 						state.proc = undefined;
 						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);

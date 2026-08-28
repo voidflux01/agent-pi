@@ -42,7 +42,7 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText,
+import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -808,6 +808,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			let stderrBuf = "";
+			let toolkitHerdrCancelled = false;
 			if (isToolkitCliAgent(state.def.name)) {
 				// Keep all Herdr operations async so workspace/tab setup cannot freeze
 				// the parent TUI. Fall back to the external runtime directly.
@@ -823,10 +824,11 @@ export default function (pi: ExtensionAPI) {
 									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
 									const tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
 									if (tab) {
-										state.proc = { kill: () => { void closeHerdrTabAsync(tab); } };
+										state.proc = { kill: () => { toolkitHerdrCancelled = true; void closeHerdrTabAsync(tab); } };
 										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
-										if (sent) {
-											const rc = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000);
+										const started = sent && await waitForLaunchStart(refs.startedPath, 5_000, () => toolkitHerdrCancelled);
+										if (started) {
+											const rc = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => toolkitHerdrCancelled);
 											cleanupLaunchFiles(refs);
 											await closeHerdrTabAsync(tab);
 											let rawOut = "";
@@ -835,9 +837,14 @@ export default function (pi: ExtensionAPI) {
 											const parsed = parseToolkitResult(state.def.name, rawOut);
 											toolkitUsage = parsed.usage;
 											if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
-											finish(rc ?? 1, stderrBuf, parsed.text || undefined);
+											finish(toolkitHerdrCancelled ? 130 : (rc ?? 1), stderrBuf, parsed.text || undefined);
 											return;
 										}
+											if (toolkitHerdrCancelled) {
+												cleanupLaunchFiles(refs);
+												finish(130, stderrBuf);
+												return;
+											}
 											await closeHerdrTabAsync(tab);
 										}
 										cleanupLaunchFiles(refs);
@@ -908,6 +915,11 @@ export default function (pi: ExtensionAPI) {
 
 					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
+						await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						return false;
+					}
+					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => cancelled))) {
 						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
 						return false;
