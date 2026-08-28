@@ -130,5 +130,6 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
 		expect(result).toContain("blocks until the scout RESULT returns");
 		expect(result).toContain("Do not scan the same area yourself");
+		expect(result).toContain("Do not read the archived transcript");
 	});
 });

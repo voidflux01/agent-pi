@@ -76,8 +76,16 @@ describe("composeAgentResult contract gate", () => {
 		const verbose = `${GOOD}\n${"x".repeat(20_000)}`;
 		const out = composeAgentResult({ ...base, outputText: verbose });
 		expect(out.content.length).toBeLessThan(6_000);
-		expect(out.content).toMatch(/Full transcript \(20\d+ chars\):/);
+		expect(out.content).toMatch(/Archived transcript \(20\d+ chars\):/);
 		expect(out.content).toContain("/tmp/x.txt");
+		expect(out.content).toContain("Do not read this file unless ## RESULT is missing");
+		expect(out.content).not.toContain("Use the read tool on that path");
+	});
+
+	test("asks the parent to read the archive when RESULT is missing", () => {
+		const out = composeAgentResult({ ...base, outputText: "rambled output, no marker" });
+		expect(out.content).toContain("Use the read tool on that path");
+		expect(out.content).not.toContain("Do not read this file unless");
 	});
 
 	test("PI_RESULT_CONTRACT_GATE=0 silences the line but keeps problems", () => {

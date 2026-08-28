@@ -7,6 +7,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { formatDuration } from "./duration-format.ts";
 
 export const RESULT_MARKER = "## RESULT";
 export const RESULT_END_MARKER = "## END";
@@ -36,7 +37,7 @@ summary: <3-6 lines covering ALL of the fields below>
 ## END
 \`\`\`
 
-The ## RESULT block is the index the coordinator reads. Include everything the coordinator needs to act: exact file paths, exact error text, exact test results. Do NOT shorten your work to fit this block — your full transcript is preserved and can be read later. If the task FAILED, set done: false and put the exact error under "key errors". End the block with a line containing exactly: ## END`;
+The ## RESULT block is what the coordinator acts on. Put every path, finding, and exact error they need in this block so they do not have to read your transcript. The full transcript is archived only as a fallback. If the task FAILED, set done: false and put the exact error under "key errors". End the block with a line containing exactly: ## END`;
 }
 
 export interface ExtractedResult {
@@ -74,12 +75,19 @@ export function extractResultBlock(text: string): ExtractedResult {
 export function resultOneLiner(fullText: string, resultText: string): string {
 	const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 	if (resultText) {
-		const first = clean(resultText.split("\n").find((l) => /^summary:/i.test(l.trim())) || "");
+		const first = clean(
+			resultText.split("\n").find((l) => /^summary:/i.test(l.trim())) || "",
+		);
 		if (first.length > 0) return first.slice(0, 160);
 		return clean(resultText).slice(0, 160);
 	}
 	if (fullText) {
-		const last = clean(fullText.split("\n").filter((l) => l.trim()).pop() || "");
+		const last = clean(
+			fullText
+				.split("\n")
+				.filter((l) => l.trim())
+				.pop() || "",
+		);
 		if (last.length > 0) return last.slice(0, 160);
 	}
 	return "";
@@ -115,43 +123,53 @@ export interface ComposedAgentResult {
  * 1. The exact status + timing are always present.
  * 2. A ## RESULT block is used when present; otherwise a tail+head fallback
  *    with an explicit marker — never an empty result.
- * 3. The path to the FULL transcript is always included, with an explicit
- *    note about what is NOT shown, so the parent can read exact details.
+ * 3. The path to the FULL transcript is always included. When ## RESULT is
+ *    usable, the parent is told not to read it; otherwise it is told to.
  */
-export function composeAgentResult(opts: ComposeAgentResultOptions): ComposedAgentResult {
+export function composeAgentResult(
+	opts: ComposeAgentResultOptions,
+): ComposedAgentResult {
 	const maxResultChars = opts.maxResultChars ?? MAX_RESULT_CHARS;
 	const fullText = opts.outputText || "";
-	const secs = Math.round(opts.elapsedMs / 1000);
-	const header = `[${opts.agent}] ${opts.status} in ${secs}s${opts.model ? ` (${opts.model})` : ""}`;
+	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
 
 	const { found, result } = extractResultBlock(fullText);
 
 	let body: string;
 	let usedResult = false;
+	let truncated = false;
 	if (found) {
 		usedResult = true;
 		if (result.length > maxResultChars) {
+			truncated = true;
 			body = `\n\n## RESULT\n${result.slice(0, maxResultChars)}\n\n[RESULT block truncated at ${maxResultChars} chars; full transcript preserved]`;
 		} else {
 			body = `\n\n## RESULT\n${result}`;
 		}
 	} else {
 		const tail = fullText.slice(-FALLBACK_TAIL_CHARS);
-		const head = fullText.length > FALLBACK_TAIL_CHARS + FALLBACK_HEAD_CHARS
-			? fullText.slice(0, FALLBACK_HEAD_CHARS)
-			: "";
+		const head =
+			fullText.length > FALLBACK_TAIL_CHARS + FALLBACK_HEAD_CHARS
+				? fullText.slice(0, FALLBACK_HEAD_CHARS)
+				: "";
 		body = `\n\n[no ## RESULT block found — showing ${head ? `first ${FALLBACK_HEAD_CHARS} chars and ` : ""}last ${FALLBACK_TAIL_CHARS} chars]\n${head ? `\n--- transcript head ---\n${head}\n` : ""}\n--- transcript tail ---\n${tail}`;
 	}
 
 	const fullChars = fullText.length;
-	const pointer = `\n\nFull transcript (${fullChars} chars): ${opts.fullOutputPath}\nUse the read tool on that path for exact errors, diffs, and test output not shown above.`;
+	const compliance = checkResultCompliance(fullText);
+	const pointer = transcriptPointer({
+		fullChars,
+		path: opts.fullOutputPath,
+		usedResult,
+		truncated,
+		incomplete: !compliance.ok,
+	});
 
 	let content = `${header}${body}${pointer}`;
-	const compliance = checkResultCompliance(fullText);
 	if (!compliance.ok && contractGateEnabled()) {
 		content += `
 
-⚠️ RESULT contract violated (${compliance.problems.join("; ")}) — read the full transcript before acting on this result.`;
+⚠️ RESULT contract violated (${compliance.problems.join("; ")}) — read the archived transcript before acting on this result.`;
 	}
 	return {
 		content,
@@ -160,6 +178,24 @@ export function composeAgentResult(opts: ComposeAgentResultOptions): ComposedAge
 		resultChars: body.length,
 		contractProblems: compliance.problems,
 	};
+}
+
+function transcriptPointer(opts: {
+	fullChars: number;
+	path: string;
+	usedResult: boolean;
+	truncated: boolean;
+	incomplete: boolean;
+}): string {
+	if (!opts.path) return "";
+	const loc = `Archived transcript (${opts.fullChars} chars): ${opts.path}`;
+	if (opts.usedResult && !opts.truncated && !opts.incomplete) {
+		return `\n\n${loc}\nDo not read this file unless ## RESULT is missing a path or quote you need.`;
+	}
+	if (opts.usedResult && opts.truncated) {
+		return `\n\n${loc}\nRESULT was truncated; read that file only for the omitted tail.`;
+	}
+	return `\n\n${loc}\nUse the read tool on that path for exact errors, diffs, and test output not shown above.`;
 }
 
 export interface ResultCompliance {
@@ -192,7 +228,8 @@ export function checkResultCompliance(fullText: string): ResultCompliance {
 		}
 	}
 	if (!closed) problems.push("block not closed with ## END");
-	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(text)) problems.push('missing "done:" line');
+	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(text))
+		problems.push('missing "done:" line');
 	if (!/(^|\n)\s*summary:\s*\S/i.test(text)) problems.push('missing "summary:"');
 	return { ok: problems.length === 0, problems };
 }

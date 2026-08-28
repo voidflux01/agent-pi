@@ -60,7 +60,7 @@ For non-trivial, multi-file context gathering — mapping a subsystem, tracing a
 \`\`\`
 subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }
 \`\`\`
-This call blocks until the scout RESULT returns. Do not scan the same area yourself in that turn. If the scout fails, continue directly.
+This call blocks until the scout RESULT returns. Treat that ## RESULT as the report. Do not read the archived transcript unless RESULT is missing a path you need. Do not scan the same area yourself in that turn. If the scout fails, continue directly.
 
 ## When to opt into orchestration
 Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:
@@ -89,7 +89,7 @@ export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work th
 - A scout reports facts and file paths only. You synthesize the findings and remain responsible for the plan.
 - Spawn scouts with:
   \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
-  Each scout call blocks until that scout RESULT returns. For independent areas, launch multiple subagent_create calls in one message. Do not scan those areas yourself while the scouts run. Scout reconnaissance is read-only and may run before the task list exists.
+  Each scout call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. For independent areas, launch multiple subagent_create calls in one message. Do not scan those areas yourself while the scouts run. Scout reconnaissance is read-only and may run before the task list exists.
 
 ${ORCHESTRATED_TASK_PROMPT}
 

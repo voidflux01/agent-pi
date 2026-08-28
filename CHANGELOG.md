@@ -34,6 +34,20 @@ Herdr sibling panes were titled `π - security-guard` because the child's first
 like `scout-sa1`. Opt out of first-turn tool pinning with
 `PI_PIN_ORCHESTRATION_TOOLS=0`.
 
+### Scout RESULT is the report
+
+Parent-visible sub-agent results still archive the full transcript, but a
+usable `## RESULT` no longer says `Use the read tool on that path`. The
+parent is told not to read the file unless RESULT is missing a path or
+quote. Missing or broken RESULT still points at the archive.
+
+### Subagent elapsed as `Nm Ns`
+
+Completion lines (`composeAgentResult` header and the TUI
+`SAn (role) done in …` notify) use `formatDuration`: under a minute stays
+`53s`, a minute or more is `1m 12s`. Negative input clamps to `0s`; hours
+are not a unit.
+
 ### Walk-through usage fixes
 
 - `grill_record_turn` / `grill_save_results` / `/grill-me` used a missing
