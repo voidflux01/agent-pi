@@ -451,10 +451,10 @@ export default function (pi: ExtensionAPI) {
 			// before takeover falls back to the headless path below —
 			// precision never depends on herdr being present.
 			const runHerdrTransport = async (): Promise<boolean> => {
-				if (!herdrEnabled()) return false;
+				if (!(await herdrEnabledAsync())) return false;
 				let tab: HerdrTabRef | null = null;
 				try {
-					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", ctx.cwd);
+					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", ctx.cwd);
 					if (!wsId) return false;
 
 					// Watchable variant: this transport always launches a pi child, so
@@ -477,7 +477,7 @@ export default function (pi: ExtensionAPI) {
 						}),
 					});
 
-					tab = createHerdrTaskTab(wsId, ctx.cwd, `ap-${journalId}`);
+					tab = await createHerdrTaskTabAsync(wsId, ctx.cwd, `ap-${journalId}`);
 					if (!tab) {
 						cleanupLaunchFiles(refs);
 						return false;
@@ -487,15 +487,15 @@ export default function (pi: ExtensionAPI) {
 					currentChainProc = {
 						kill: () => {
 							herdrCancelled = true;
-							closeHerdrTab(tab!);
+							void closeHerdrTabAsync(tab!);
 						},
 					};
 					journalUpdate(sessionDir, journalId, { status: "running" });
 
-					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
 						currentChainProc = null;
-						closeHerdrTab(tab);
+						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
 						return false;
 					}
@@ -532,10 +532,10 @@ export default function (pi: ExtensionAPI) {
 					// Authoritative result text from the session JSONL.
 					const { text } = readLastAssistantText(agentSessionFile);
 					finish(exitCode, text || undefined);
-					closeHerdrTab(tab);
+					await closeHerdrTabAsync(tab);
 					return true;
 				} catch {
-					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					if (tab) void closeHerdrTabAsync(tab);
 					// Already driving this step in a pane — never double-run headless.
 					if (ownedByHerdr && !herdrCancelled) {
 						finish(1);

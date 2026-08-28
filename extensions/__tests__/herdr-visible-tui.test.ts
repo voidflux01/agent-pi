@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrEnabled, visiblePiTuiArgs, launchDonePath, writeLaunchScript } from "../lib/herdr-client.ts";
+import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, writeLaunchScript } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -51,6 +51,16 @@ describe("herdr transport availability", () => {
 		}
 	});
 });
+	it("async availability check is disabled without Herdr env", async () => {
+		const previous = process.env.HERDR_ENV;
+		try {
+			delete process.env.HERDR_ENV;
+			expect(await herdrEnabledAsync()).toBe(false);
+		} finally {
+			if (previous === undefined) delete process.env.HERDR_ENV;
+			else process.env.HERDR_ENV = previous;
+		}
+	});
 
 describe("visiblePiTuiArgs", () => {
 	it("drops the headless flags that make a pane unreadable", () => {
@@ -148,6 +158,8 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 			// no pane may be handed the headless argv directly
 			expect(src).not.toMatch(/command:\s*\["pi",\s*\.\.\.(args|argv|baseArgs)\]/);
 			expect(src).toContain("visiblePiTuiArgs(");
+			expect(src).toContain("herdrEnabledAsync");
+			expect(src).toContain("sendCommandToPaneAsync");
 			expect(src).toContain("HERDR_DONE_PATH");
 			expect(src).toMatch(/herdr-done\.ts/);
 		});

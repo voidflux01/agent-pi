@@ -22,7 +22,7 @@
 // ABOUTME:    loop driven by the marker file.
 // ABOUTME:  - herdr auto-updates; protocol/version are checked per call.
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { childEnvironment } from "./child-runtime.ts";
@@ -96,6 +96,37 @@ export function herdrCli(args: string[], opts: { timeoutMs?: number; session?: s
 			code: err?.status ?? 1,
 		};
 	}
+}
+
+/** Non-blocking counterpart to herdrCli for UI/event-loop code paths. */
+export function herdrCliAsync(args: string[], opts: { timeoutMs?: number; session?: string } = {}): Promise<HerdrCliResult> {
+	const session = opts.session || process.env.HERDR_SESSION || "";
+	const cmdArgs = [...(session ? ["--session", session] : []), ...args];
+	return new Promise((resolve) => {
+		execFile("herdr", cmdArgs, {
+			encoding: "utf8",
+			timeout: opts.timeoutMs ?? 30_000,
+			env: childEnvironment(),
+		}, (error, stdout, stderr) => {
+			resolve({
+				stdout: stdout?.toString?.() || "",
+				stderr: stderr?.toString?.() || error?.message || "",
+				code: error ? ((error as any).status ?? 1) : 0,
+			});
+		});
+	});
+}
+
+/** Async Herdr availability check; unlike detectHerdr it never blocks the TUI. */
+let herdrCheckInFlight: Promise<boolean> | undefined;
+export function herdrEnabledAsync(): Promise<boolean> {
+	if (process.env.PI_HERDR_SUBAGENTS === "0" || process.env.HERDR_ENV !== "1") return Promise.resolve(false);
+	if (herdrCheckInFlight) return herdrCheckInFlight;
+	herdrCheckInFlight = herdrCliAsync(["status", "--json"], { timeoutMs: 3_000 }).then((r) => {
+		if (r.code !== 0) return false;
+		try { return !!JSON.parse(r.stdout)?.server?.running; } catch { return false; }
+	}).finally(() => { herdrCheckInFlight = undefined; });
+	return herdrCheckInFlight;
 }
 
 export interface HerdrTabRef {
@@ -177,6 +208,55 @@ export function createHerdrTaskTab(workspaceId: string, cwd: string, label: stri
 	}
 }
 
+/** Async workspace lookup/create for non-blocking dispatch paths.
+ * A per-directory lock prevents concurrent agents from creating duplicate
+ * workspaces before the first ledger write becomes visible. */
+const workspaceCreationInFlight = new Map<string, Promise<string | null>>();
+export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<string | null> {
+	const key = `${cwd}\0${label}`;
+	const existing = workspaceCreationInFlight.get(key);
+	if (existing) return existing;
+	const operation = (async () => {
+		const ledger = readWorkspaceLedger(cwd);
+		const remembered = ledger[label];
+		if (remembered) {
+			const list = await herdrCliAsync(["workspace", "list"]);
+			if (list.code === 0) {
+				try {
+					const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string }>;
+					if (ws.some((w) => w.workspace_id === remembered)) return remembered;
+				} catch {}
+			}
+		}
+		const created = await herdrCliAsync(["workspace", "create", "--label", label, "--cwd", cwd]);
+		if (created.code !== 0) return null;
+		try {
+			const id = JSON.parse(created.stdout).result?.workspace?.workspace_id ?? null;
+			if (id) writeWorkspaceLedger(cwd, { ...ledger, [label]: id });
+			return id;
+		} catch { return null; }
+	})();
+	workspaceCreationInFlight.set(key, operation);
+	void operation.then(
+		() => workspaceCreationInFlight.delete(key),
+		() => workspaceCreationInFlight.delete(key),
+	);
+	return operation;
+}
+
+/** Async task-tab creation for non-blocking dispatch paths. */
+export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string): Promise<HerdrTabRef | null> {
+	const r = await herdrCliAsync(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
+	if (r.code !== 0) return null;
+	try {
+		const res = JSON.parse(r.stdout).result;
+		const tabId = res?.tab?.tab_id;
+		const paneId = res?.root_pane?.pane_id;
+		if (!tabId || !paneId) return null;
+		return { session: process.env.HERDR_SESSION || "", workspaceId, tabId, paneId };
+	} catch { return null; }
+}
+
 /**
  * Send a command to the pane robustly:
  * 1. leading Enter (clears any pending prompt state)
@@ -194,6 +274,19 @@ export function sendCommandToPane(paneId: string, command: string): boolean {
 /** Close a tab (best-effort; also used for cancel). */
 export function closeHerdrTab(tab: HerdrTabRef): void {
 	herdrCli(["tab", "close", tab.tabId], { timeoutMs: 15_000 });
+}
+
+/** Non-blocking version of sendCommandToPane; preserves command ordering. */
+export async function sendCommandToPaneAsync(paneId: string, command: string): Promise<boolean> {
+	const enter = await herdrCliAsync(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
+	const text = await herdrCliAsync(["pane", "send-text", paneId, command], { timeoutMs: 15_000 });
+	const submit = await herdrCliAsync(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
+	return enter.code === 0 && text.code === 0 && submit.code === 0;
+}
+
+/** Non-blocking best-effort tab close. */
+export async function closeHerdrTabAsync(tab: HerdrTabRef): Promise<void> {
+	await herdrCliAsync(["tab", "close", tab.tabId], { timeoutMs: 15_000 });
 }
 
 /** One shell-quoted token. */

@@ -42,7 +42,7 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { herdrEnabled, ensureHerdrWorkspace, createHerdrTaskTab, sendCommandToPane, closeHerdrTab, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText,
+import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, readLastAssistantText,
 	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -809,54 +809,45 @@ export default function (pi: ExtensionAPI) {
 
 			let stderrBuf = "";
 			if (isToolkitCliAgent(state.def.name)) {
-				// ── Visible herdr transport for external runtimes ──
-				// Runs the CLI inside a herdr pane so the operator can watch it
-				// work; output tee's to a raw file that we parse for the
-				// authoritative result text and usage. Falls back to the plain
-				// child-process spawn when herdr is unavailable.
-				if (herdrEnabled()) {
-					try {
-						const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
-						if (wsId) {
-							const rawPath = join(sessionDir, "outputs", `${journalId}.raw`);
-							const extTask = mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task;
-							const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
-							if (argvVisible.length > 0) {
-								const refs = writeLaunchScript({
-									dir: sessionDir,
-									id: journalId,
-									cwd: runCwd,
-									command: argvVisible,
-									env: { ...spawnEnv, PI_SUBAGENT: "1" },
-								});
-								const tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
-								if (tab) {
-									state.proc = { kill: () => { try { closeHerdrTab(tab); } catch {} } };
-									void pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000).then((rc) => {
+				// Keep all Herdr operations async so workspace/tab setup cannot freeze
+				// the parent TUI. Fall back to the external runtime directly.
+				void (async () => {
+					if (await herdrEnabledAsync()) {
+						try {
+							const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
+							if (wsId) {
+								const rawPath = join(sessionDir, "outputs", `${journalId}.raw`);
+								const extTask = mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task;
+								const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
+								if (argvVisible.length > 0) {
+									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
+									const tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
+									if (tab) {
+										state.proc = { kill: () => { void closeHerdrTabAsync(tab); } };
+										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+										if (sent) {
+											const rc = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000);
+											cleanupLaunchFiles(refs);
+											await closeHerdrTabAsync(tab);
+											let rawOut = "";
+											try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
+											try { rmSync(rawPath, { force: true }); } catch {}
+											const parsed = parseToolkitResult(state.def.name, rawOut);
+											toolkitUsage = parsed.usage;
+											if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
+											finish(rc ?? 1, stderrBuf, parsed.text || undefined);
+											return;
+										}
+											await closeHerdrTabAsync(tab);
+										}
 										cleanupLaunchFiles(refs);
-										try { closeHerdrTab(tab); } catch {}
-										let rawOut = "";
-										try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
-										try { rmSync(rawPath, { force: true }); } catch {}
-										const parsed = parseToolkitResult(state.def.name, rawOut);
-										toolkitUsage = parsed.usage;
-										if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
-										finish(rc ?? 1, stderrBuf, parsed.text || undefined);
-									});
-									return;
-								}
-								cleanupLaunchFiles(refs);
+									}
 							}
-						}
-					} catch {
-						// fall through to headless spawn below
+						} catch { /* fall through to the external runtime */ }
 					}
-				}
 				spawnToolkitWorker(state.def, {
 					task: mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task,
-					sessionFile: agentSessionFile,
-					cwd: runCwd,
-					env: spawnEnv,
+					sessionFile: agentSessionFile, cwd: runCwd, env: spawnEnv,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
@@ -865,6 +856,7 @@ export default function (pi: ExtensionAPI) {
 					toolkitUsage = parsed.usage;
 					finish(exitCode, stderrBuf, parsed.text || undefined);
 				});
+				})();
 				return;
 			}
 
@@ -876,13 +868,13 @@ export default function (pi: ExtensionAPI) {
 			// to the headless child-process path below — precision never depends
 			// on herdr being present.
 			const runHerdrTransport = async (): Promise<boolean> => {
-				if (!herdrEnabled()) return false;
+				if (!(await herdrEnabledAsync())) return false;
 				let tab: HerdrTabRef | null = null;
 				let cancelled = false;
 				try {
 					// Inside herdr, HERDR_WORKSPACE_ID is the parent's own workspace;
 					// otherwise use the shared "agent-pi" workspace.
-					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
+					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
 					if (!wsId) return false;
 
 					// Watchable variant: this transport always launches pi children,
@@ -899,7 +891,7 @@ export default function (pi: ExtensionAPI) {
 						command: ["pi", ...tuiArgs],
 						env: { ...spawnEnv, PI_SUBAGENT: "1", HERDR_DONE_PATH: launchDonePath(sessionDir, journalId) },
 					});
-					tab = createHerdrTaskTab(wsId, runCwd, `ap-${journalId}`);
+					tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
 					if (!tab) {
 						cleanupLaunchFiles(refs);
 						return false;
@@ -909,14 +901,14 @@ export default function (pi: ExtensionAPI) {
 					state.proc = {
 						kill: () => {
 							cancelled = true;
-							closeHerdrTab(tab!);
+							void closeHerdrTabAsync(tab!);
 						},
 					} as any;
 					journalUpdate(sessionDir, journalId, { status: "running" });
 
-					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
-						closeHerdrTab(tab);
+						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
 						return false;
 					}
@@ -956,10 +948,10 @@ export default function (pi: ExtensionAPI) {
 					// Authoritative result text from the session JSONL (no screen capture).
 					const { text } = readLastAssistantText(agentSessionFile);
 					finish(exitCode, "", text);
-					closeHerdrTab(tab);
+					await closeHerdrTabAsync(tab);
 					return true;
 				} catch {
-					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					if (tab) void closeHerdrTabAsync(tab);
 					return false;
 				}
 			};

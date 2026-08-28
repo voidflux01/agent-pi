@@ -538,11 +538,11 @@ export default function (pi: ExtensionAPI) {
 			// spawns stay headless — they are an invisible pre-optimization.
 			const runHerdrTransport = async (): Promise<boolean> => {
 				if (state.standby) return false;
-				if (!herdrEnabled()) return false;
+				if (!(await herdrEnabledAsync())) return false;
 				let tab: HerdrTabRef | null = null;
 				try {
 					const runCwd = ctx?.cwd ?? process.cwd();
-					const wsId = process.env.HERDR_WORKSPACE_ID || ensureHerdrWorkspace("agent-pi", runCwd);
+					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
 					if (!wsId) return false;
 
 					const launchId = `sa${state.id}`;
@@ -559,7 +559,7 @@ export default function (pi: ExtensionAPI) {
 						env: { ...spawnEnv, HERDR_DONE_PATH: launchDonePath(launchDir, launchId) },
 					});
 
-					tab = createHerdrTaskTab(wsId, runCwd, `ap-${launchId}`);
+					tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${launchId}`);
 					if (!tab) {
 						cleanupLaunchFiles(refs);
 						return false;
@@ -570,17 +570,17 @@ export default function (pi: ExtensionAPI) {
 					state.proc = {
 						kill: () => {
 							herdrCancelled = true;
-							closeHerdrTab(tab!);
+							void closeHerdrTabAsync(tab!);
 						},
 						once: () => {},
 						removeListener: () => {},
 						__piNoExitEvent: true,
 					} as any;
 
-					const sent = sendCommandToPane(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 					if (!sent) {
 						state.proc = undefined;
-						closeHerdrTab(tab);
+						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
 						return false;
 					}
@@ -617,10 +617,10 @@ export default function (pi: ExtensionAPI) {
 					// Authoritative result text from the session JSONL.
 					const { text } = readLastAssistantText(state.sessionFile);
 					finish(exitCode, text || undefined);
-					closeHerdrTab(tab);
+					await closeHerdrTabAsync(tab);
 					return true;
 				} catch {
-					if (tab) { try { closeHerdrTab(tab); } catch {} }
+					if (tab) void closeHerdrTabAsync(tab);
 					// Already driving this agent in a pane — never double-run headless.
 					if (ownedByHerdr && !herdrCancelled) {
 						finish(1);
