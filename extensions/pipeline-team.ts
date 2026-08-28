@@ -43,6 +43,9 @@ import {
 	waitForLaunchStart,
 	launchDonePath,
 	visiblePiTuiArgs,
+	registerHerdrPane,
+	updateHerdrPaneStatus,
+	registerHerdrCommands,
 	type HerdrTabRef,
 } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
@@ -191,6 +194,7 @@ function resolveTemplate(
 // ── Extension ────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	registerHerdrCommands(pi);
 	let allAgents: Map<string, AgentDef> = new Map();
 	let pipelineConfigs: PipelineConfig[] = [];
 	let activeConfig: PipelineConfig | null = null;
@@ -438,6 +442,7 @@ export default function (pi: ExtensionAPI) {
 				clearInterval(agentState.timer);
 				agentState.proc = null;
 				agentState.elapsed = Date.now() - startTime;
+				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
 				const output = externalFull ?? textChunks.join("");
 				agentState.output = output;
 				agentState.status = code === 0 ? "done" : "error";
@@ -551,6 +556,12 @@ export default function (pi: ExtensionAPI) {
 						cleanupLaunchFiles(refs);
 						return false;
 					}
+					registerHerdrPane(ctx.cwd, {
+						key: journalId, label: `ap-${journalId}`, cwd: ctx.cwd,
+						sessionFile: agentSessionFile, ref: tab,
+						scriptPath: refs.scriptPath, donePath: refs.donePath, startedPath: refs.startedPath,
+						status: "running",
+					});
 					ownedByHerdr = true;
 
 					// Live dashboard: poll the session JSONL for latest text.

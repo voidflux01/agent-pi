@@ -44,6 +44,9 @@ import {
 	waitForLaunchStart,
 	launchDonePath,
 	visiblePiTuiArgs,
+	registerHerdrPane,
+	updateHerdrPaneStatus,
+	registerHerdrCommands,
 	type HerdrTabRef,
 } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
@@ -164,6 +167,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 // ── Extension ────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	registerHerdrCommands(pi);
 	let allAgents: Map<string, AgentDef> = new Map();
 	let chains: ChainDef[] = [];
 	let activeChain: ChainDef | null = null;
@@ -394,6 +398,7 @@ export default function (pi: ExtensionAPI) {
 			const finish = (code: number | null, externalFull?: string) => {
 				clearInterval(timer);
 				currentChainProc = null;
+				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
 
 				const elapsed = Date.now() - startTime;
 				state.elapsed = elapsed;
@@ -508,6 +513,12 @@ export default function (pi: ExtensionAPI) {
 						cleanupLaunchFiles(refs);
 						return false;
 					}
+					registerHerdrPane(ctx.cwd, {
+						key: journalId, label: `ap-${journalId}`, cwd: ctx.cwd,
+						sessionFile: agentSessionFile, ref: tab,
+						scriptPath: refs.scriptPath, donePath: refs.donePath, startedPath: refs.startedPath,
+						status: "running",
+					});
 					ownedByHerdr = true;
 
 					// Live dashboard: poll the session JSONL for latest text.

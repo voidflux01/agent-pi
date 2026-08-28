@@ -136,6 +136,194 @@ export interface HerdrTabRef {
 	paneId: string;
 }
 
+export interface HerdrSnapshotAgent {
+	agent?: string;
+	agent_status?: string;
+	pane_id?: string;
+	tab_id?: string;
+	workspace_id?: string;
+	cwd?: string;
+}
+
+export interface HerdrSnapshot {
+	agents: HerdrSnapshotAgent[];
+	focused_pane_id?: string;
+	focused_tab_id?: string;
+}
+
+/** Read the server snapshot without blocking the Pi event loop. */
+export async function herdrSnapshotAsync(): Promise<HerdrSnapshot | null> {
+	if (process.env.HERDR_ENV !== "1") return null;
+	const result = await herdrCliAsync(["api", "snapshot"], { timeoutMs: 3_000 });
+	if (result.code !== 0) return null;
+	try {
+		const snapshot = JSON.parse(result.stdout)?.result?.snapshot;
+		return snapshot && Array.isArray(snapshot.agents)
+			? snapshot as HerdrSnapshot
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+export type HerdrPaneRecordStatus = "running" | "done" | "error";
+
+/**
+ * Durable metadata for a pane launched by agent-pi. The registry is not an
+ * authority for results; it only lets a later parent inspect or reconnect a
+ * visible worker. The session JSONL remains the source of truth.
+ */
+export interface HerdrPaneRecord {
+	key: string;
+	label: string;
+	cwd: string;
+	sessionFile?: string;
+	ref: HerdrTabRef;
+	scriptPath: string;
+	donePath: string;
+	startedPath: string;
+	status: HerdrPaneRecordStatus;
+	updatedAt: number;
+}
+
+function herdrPaneRegistryPath(cwd: string): string {
+	return join(cwd, ".pi", "agent-sessions", "herdr-panes.json");
+}
+
+function readHerdrPaneRegistry(cwd: string): HerdrPaneRecord[] {
+	try {
+		const value = JSON.parse(readFileSync(herdrPaneRegistryPath(cwd), "utf8"));
+		if (!Array.isArray(value)) return [];
+		return value.filter((r): r is HerdrPaneRecord =>
+			r && typeof r.key === "string" && typeof r.label === "string" &&
+			r.ref && typeof r.ref.paneId === "string" && typeof r.ref.tabId === "string" &&
+			typeof r.scriptPath === "string" && typeof r.donePath === "string" &&
+			typeof r.startedPath === "string");
+	} catch {
+		return [];
+	}
+}
+
+function writeHerdrPaneRegistry(cwd: string, records: HerdrPaneRecord[]): void {
+	try {
+		const file = herdrPaneRegistryPath(cwd);
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, JSON.stringify(records, null, "\t") + "\n", "utf8");
+	} catch {}
+}
+
+export function registerHerdrPane(cwd: string, record: Omit<HerdrPaneRecord, "updatedAt">): void {
+	const records = readHerdrPaneRegistry(cwd).filter((r) => r.key !== record.key);
+	records.push({ ...record, updatedAt: Date.now() });
+	writeHerdrPaneRegistry(cwd, records);
+}
+
+export function updateHerdrPaneStatus(cwd: string, key: string, status: HerdrPaneRecordStatus, ref?: HerdrTabRef): void {
+	const records = readHerdrPaneRegistry(cwd);
+	let found = false;
+	for (const record of records) {
+		if (record.key !== key) continue;
+		found = true;
+		record.status = status;
+		record.updatedAt = Date.now();
+		if (ref) record.ref = ref;
+	}
+	if (found) writeHerdrPaneRegistry(cwd, records);
+}
+
+export function herdrPaneRecords(cwd: string): HerdrPaneRecord[] {
+	return readHerdrPaneRegistry(cwd);
+}
+
+function snapshotHasPane(snapshot: HerdrSnapshot | null, ref: HerdrTabRef): boolean {
+	return !!snapshot?.agents.some((agent) =>
+		agent.pane_id === ref.paneId && agent.tab_id === ref.tabId &&
+		(!agent.workspace_id || agent.workspace_id === ref.workspaceId));
+}
+
+export interface HerdrPaneInspection extends HerdrPaneRecord {
+	health: "alive" | "missing" | "finished" | "unknown";
+}
+
+/** Inspect all persisted agent-pi panes with one Herdr snapshot request. */
+export async function inspectHerdrPanesAsync(cwd: string): Promise<HerdrPaneInspection[]> {
+	const records = readHerdrPaneRegistry(cwd);
+	const snapshot = await herdrSnapshotAsync();
+	return records.map((record) => ({
+		...record,
+		health: record.status !== "running"
+			? "finished"
+			: existsSync(record.donePath)
+				? "finished"
+				: snapshot === null ? "unknown"
+					: snapshotHasPane(snapshot, record.ref) ? "alive" : "missing",
+	}));
+}
+
+/** Recreate a missing pane and re-send its durable launch script. */
+export async function reconnectHerdrPaneAsync(record: HerdrPaneRecord): Promise<{ ok: boolean; ref?: HerdrTabRef; reason: string }> {
+	if (existsSync(record.donePath)) return { ok: false, reason: "launch already finished" };
+	if (!existsSync(record.scriptPath)) return { ok: false, reason: "launch script is missing" };
+	const snapshot = await herdrSnapshotAsync();
+	if (!snapshot) return { ok: false, reason: "Herdr server is unavailable" };
+	if (snapshotHasPane(snapshot, record.ref)) return { ok: true, ref: record.ref, reason: "pane is already alive" };
+	const tab = await createHerdrTaskTabAsync(record.ref.workspaceId, record.cwd, record.label);
+	if (!tab) return { ok: false, reason: "could not create replacement pane" };
+	// A crashed parent may have left the old startup marker behind. Clear it
+	// before sending so the handshake proves this replacement actually ran.
+	rmSync(record.startedPath, { force: true });
+	const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(record.scriptPath)}`);
+	if (!sent || !(await waitForLaunchStart(record.startedPath, 5_000))) {
+		await closeHerdrTabAsync(tab);
+		return { ok: false, reason: "replacement pane did not acknowledge launch" };
+	}
+	updateHerdrPaneStatus(record.cwd, record.key, "running", tab);
+	return { ok: true, ref: tab, reason: "replacement pane launched" };
+}
+
+
+/** Register shared Herdr diagnostics for any extension that dispatches panes. */
+export function registerHerdrCommands(pi: any): void {
+	const g = globalThis as any;
+	if (g.__piHerdrCommandsRegistered) return;
+	g.__piHerdrCommandsRegistered = true;
+	pi.registerCommand("herdr-status", {
+		description: "Show health of agent-pi Herdr panes",
+		handler: async (_args: string, ctx: any) => {
+			const cwd = ctx?.cwd ?? process.cwd();
+			const records = await inspectHerdrPanesAsync(cwd);
+			const snapshot = await herdrSnapshotAsync();
+			const lines = [`Herdr: ${snapshot ? "server reachable" : "server unavailable"}`];
+			if (records.length === 0) lines.push("Managed panes: none");
+			for (const pane of records) {
+				lines.push(`  ${pane.key} ${pane.health} — tab ${pane.ref.tabId}, pane ${pane.ref.paneId}`);
+			}
+			lines.push("Registry: " + herdrPaneRegistryPath(cwd));
+			ctx?.ui?.notify?.(lines.join("\n"), snapshot ? "info" : "warning");
+		},
+	});
+	pi.registerCommand("herdr-reconnect", {
+		description: "Reconnect missing agent-pi Herdr panes",
+		handler: async (args: string, ctx: any) => {
+			const cwd = ctx?.cwd ?? process.cwd();
+			const target = args.trim().toLowerCase();
+			const records = (await inspectHerdrPanesAsync(cwd)).filter((r) =>
+				(!target || r.key.toLowerCase() === target || r.label.toLowerCase() === target) &&
+				r.health === "missing" && r.status === "running");
+			if (records.length === 0) {
+				ctx?.ui?.notify?.(target ? `No missing running Herdr pane matched: ${target}` : "No missing running Herdr panes", "info");
+				return;
+			}
+			const results: string[] = [];
+			for (const record of records) {
+				const result = await reconnectHerdrPaneAsync(record);
+				results.push(`${record.key}: ${result.ok ? "reconnected" : "failed — " + result.reason}`);
+			}
+			ctx?.ui?.notify?.(results.join("\n"), results.every((line) => line.includes("reconnected")) ? "success" : "warning");
+		},
+	});
+}
+
 /**
  * Provenance ledger for workspaces agent-pi created, stored next to the
  * task journal. Only ids recorded here are ever reused - a user's own

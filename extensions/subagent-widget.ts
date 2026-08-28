@@ -51,6 +51,9 @@ import {
 	waitForLaunchStart,
 	launchDonePath,
 	visiblePiTuiArgs,
+	registerHerdrPane,
+	updateHerdrPaneStatus,
+	registerHerdrCommands,
 	type HerdrTabRef,
 } from "./lib/herdr-client.ts";
 
@@ -377,6 +380,11 @@ export default function (pi: ExtensionAPI) {
 				state.elapsed = Date.now() - startTime;
 				state.status = code === 0 ? "done" : "error";
 				state.proc = undefined;
+				updateHerdrPaneStatus(
+					ctx?.cwd ?? process.cwd(),
+					`sa-${state.id}`,
+					code === 0 ? "done" : "error",
+				);
 				invalidateWidget(state.id);
 
 				// Capture this before an error clears the global scout fallback below.
@@ -600,6 +608,17 @@ export default function (pi: ExtensionAPI) {
 						cleanupLaunchFiles(refs);
 						return false;
 					}
+					registerHerdrPane(runCwd, {
+						key: `sa-${state.id}`,
+						label: `ap-${launchId}`,
+						cwd: runCwd,
+						sessionFile: state.sessionFile,
+						ref: tab,
+						scriptPath: refs.scriptPath,
+						donePath: refs.donePath,
+						startedPath: refs.startedPath,
+						status: "running",
+					});
 					ownedByHerdr = true;
 
 					// Live dashboard: poll the session JSONL for latest text.
@@ -989,6 +1008,8 @@ export default function (pi: ExtensionAPI) {
 
 
 	// ── /sub <task> ───────────────────────────────────────────────────────────
+
+	registerHerdrCommands(pi);
 
 	pi.registerCommand("sub", {
 		description: "Spawn a subagent with live widget: /sub <task>",

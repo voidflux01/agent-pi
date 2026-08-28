@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript } from "../lib/herdr-client.ts";
+import { herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -147,6 +147,26 @@ describe("launch marker paths", () => {
 		const safeScript = readFileSync(join(dir, "herdr-launch-safe.sh"), "utf8");
 		expect(safeScript).not.toContain("BAD;KEY");
 		expect(safeScript).toContain("export SAFE_KEY='quoted'\\''value'");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("durable Herdr pane registry", () => {
+	it("persists pane refs and status across reads", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "herdr-registry-"));
+		try {
+			const record = {
+				key: "sa-1", label: "ap-sa1", cwd: dir,
+				ref: { session: "", workspaceId: "w1", tabId: "t1", paneId: "p1" },
+				scriptPath: join(dir, "launch.sh"), donePath: join(dir, "done"), startedPath: join(dir, "started"),
+				status: "running" as const,
+			};
+			registerHerdrPane(dir, record);
+			expect(herdrPaneRecords(dir)[0]).toMatchObject({ key: "sa-1", status: "running" });
+			updateHerdrPaneStatus(dir, "sa-1", "done");
+			expect((await inspectHerdrPanesAsync(dir))[0].health).toBe("finished");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

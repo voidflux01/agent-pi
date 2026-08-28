@@ -44,7 +44,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
-	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, type HerdrTabRef } from "./lib/herdr-client.ts";
+	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -200,6 +200,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 // ── Extension ────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+	registerHerdrCommands(pi);
 	const agentStates: Map<string, AgentState> = new Map();
 	let allAgentDefs: AgentDef[] = [];
 	let teams: Record<string, string[]> = {};
@@ -694,6 +695,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				state.proc = null;
+				updateHerdrPaneStatus(runCwd, journalId, code === 0 ? "done" : "error");
 				state.elapsed = elapsed;
 				state.status = code === 0 ? "done" : "error";
 
@@ -926,6 +928,12 @@ export default function (pi: ExtensionAPI) {
 						cleanupLaunchFiles(refs);
 						return false;
 					}
+					registerHerdrPane(runCwd, {
+						key: journalId, label: `ap-${journalId}`, cwd: runCwd,
+						sessionFile: agentSessionFile, ref: tab,
+						scriptPath: refs.scriptPath, donePath: refs.donePath, startedPath: refs.startedPath,
+						status: "running",
+					});
 
 					// Live dashboard: poll the session JSONL for the latest text so
 					// the widget shows what the agent is doing (screen capture would
