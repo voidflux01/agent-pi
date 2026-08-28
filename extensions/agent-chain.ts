@@ -34,6 +34,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -1077,6 +1078,9 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 
 		return {
 			systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}
+
+${ORCHESTRATED_TASK_PROMPT}
+
 You have full access to your own tools AND the run_chain tool to delegate to your team.
 
 ## Active Chain: ${activeChain.name}
@@ -1094,9 +1098,9 @@ ${agentCatalog}
 - When you want structured, multi-agent collaboration on a problem
 
 ## When to Work Directly
-- Simple one-off commands: reading a file, checking status, listing contents
-- Quick lookups, small edits, answering questions about the codebase
-- Anything you can handle in a single step without needing the pipeline
+- Read-only checks such as reading a file, checking status, or listing contents
+- Quick lookups and answers that do not modify the codebase
+- Any edit or execution in CHAIN mode still requires an active task; use NORMAL for trivial changes
 
 ## How run_chain Works
 - Pass a clear task description to run_chain

@@ -31,6 +31,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -1404,6 +1405,8 @@ No scout is active. Use dispatch_agent with the listed specialist whose tools fi
 
 		return {
 			systemPrompt: `You are the coordinator for TEAM mode.
+
+${ORCHESTRATED_TASK_PROMPT}
 
 ## Tool boundary
 You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through dispatch_agent. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import tasksExtension, { decideGateClaim } from "../tasks.ts";
+import { coordinationState, setCoordinationMode } from "../lib/coordination-state.ts";
 
 describe("tasks gate decision", () => {
 	it("blocks when tasks exist but none is in progress", () => {
@@ -31,8 +32,13 @@ describe("tasks gate decision", () => {
 		expect(d.reason).toContain("new-list");
 	});
 
-	it("allows an empty list so the agent can create its first task", () => {
+	it("allows an empty list in NORMAL so the agent can create its first task", () => {
 		expect(decideGateClaim([])).toEqual({ block: false });
+	});
+
+	it("blocks an empty list in orchestration modes", () => {
+		expect(decideGateClaim([], true)).toMatchObject({ block: true });
+		expect(decideGateClaim([], true).reason).toContain("tasks new-list");
 	});
 });
 
@@ -108,5 +114,80 @@ describe("transcript-backed reconstruction", () => {
 		tasksExtension(pi as any);
 		await expect(handlers.get("session_start")!(undefined, ctx)).resolves.toBeUndefined();
 		expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(false);
+	});
+});
+
+
+describe("mode-aware gate integration", () => {
+	const requiredModes = ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
+
+	it("hard-blocks empty task lists for every orchestration mode", async () => {
+		const previous = coordinationState().mode;
+		try {
+			for (const mode of requiredModes) {
+				const handlers = new Map<string, Function>();
+				const pi = {
+					registerTool() {}, registerCommand() {},
+					on(name: string, handler: Function) { handlers.set(name, handler); },
+					sendMessage() {},
+				};
+				const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+				setCoordinationMode(mode);
+				tasksExtension(pi as any);
+				for (const toolName of ["bash", "dispatch_agent", "advance_phase"]) {
+					const blocked = await handlers.get("tool_call")!({ toolName }, ctx);
+					expect(blocked.block, `${mode} should gate ${toolName}`).toBe(true);
+				}
+			}
+		} finally {
+			setCoordinationMode(previous);
+		}
+	});
+
+	it("allows delegated work after toggling a task active in every orchestration mode", async () => {
+		const previous = coordinationState().mode;
+		try {
+			for (const mode of requiredModes) {
+				let tool: any;
+				const handlers = new Map<string, Function>();
+				const pi = {
+					registerTool(def: any) { tool = def; }, registerCommand() {},
+					on(name: string, handler: Function) { handlers.set(name, handler); },
+					sendMessage() {},
+				};
+				const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+				setCoordinationMode(mode);
+				tasksExtension(pi as any);
+				await tool.execute("new-list", { action: "new-list", text: `${mode} work` }, undefined, undefined, ctx);
+				await tool.execute("add", { action: "add", text: "perform work" }, undefined, undefined, ctx);
+				const idle = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+				expect(idle.block, `${mode} should gate idle tasks`).toBe(true);
+				await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+				const active = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+				expect(active.block, `${mode} should allow an active task`).toBe(false);
+			}
+		} finally {
+			setCoordinationMode(previous);
+		}
+	});
+
+	it("keeps an empty NORMAL list advisory", async () => {
+		const previous = coordinationState().mode;
+		try {
+			const handlers = new Map<string, Function>();
+			const pi = {
+				registerTool() {}, registerCommand() {},
+				on(name: string, handler: Function) { handlers.set(name, handler); },
+				sendMessage() {},
+			};
+			const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+			setCoordinationMode("NORMAL");
+			tasksExtension(pi as any);
+			const advisory = await handlers.get("tool_call")!({ toolName: "bash" }, ctx);
+			expect(advisory.block).toBe(false);
+			expect(advisory.reason).toBeUndefined();
+		} finally {
+			setCoordinationMode(previous);
+		}
 	});
 });

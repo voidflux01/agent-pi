@@ -100,6 +100,20 @@ describe("PLAN_PROMPT — structured plan format", () => {
 	});
 });
 
+
+describe("orchestration task discipline", () => {
+	it("requires task setup before execution in PLAN", () => {
+		expect(PLAN_PROMPT).toContain("Task discipline (required in this mode)");
+		expect(PLAN_PROMPT).toContain("tasks new-list");
+		expect(PLAN_PROMPT).toContain("tasks toggle");
+	});
+
+	it("requires task setup before execution in SPEC", () => {
+		expect(SPEC_PROMPT).toContain("Task discipline (required in this mode)");
+		expect(SPEC_PROMPT).toContain("tasks add");
+	});
+});
+
 describe("SPEC_PROMPT — Commander-first enforcement", () => {
 	it("contains 'ALWAYS' for Commander usage", () => {
 		expect(SPEC_PROMPT).toContain("ALWAYS");

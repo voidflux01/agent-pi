@@ -33,6 +33,7 @@ import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -1236,13 +1237,15 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 
 		return {
 			systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
+
+${ORCHESTRATED_TASK_PROMPT}
+
 You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents, pipeline_status).
 
-## When to Work Directly (Skip the Pipeline)
-- Simple one-off commands: reading a file, checking status, listing contents
-- Quick lookups, small edits, answering questions about the codebase
-- Anything you can handle in a single step without needing the pipeline
-Use your judgment — if it's quick, just do it; if it's real work, use the pipeline.
+## Direct work inside the active pipeline
+- Read-only checks such as reading a file, checking status, or listing contents are allowed during analysis.
+- Any edit, bash command, phase advance, or agent dispatch requires an active task.
+- Trivial work should remain in NORMAL instead of activating a pipeline.
 
 ## Current Phase: ${phaseName}
 ${phase.def.description}

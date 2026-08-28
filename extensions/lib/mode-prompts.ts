@@ -14,6 +14,15 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 - Warm, professional, collaborative tone — no emojis anywhere`;
 }
 
+/** Shared task contract appended to every orchestration-mode prompt. */
+export const ORCHESTRATED_TASK_PROMPT = `## Task discipline (required in this mode)
+Before any write, edit, or bash/execution tool:
+1. Use \`tasks new-list\` for the current work.
+2. Use \`tasks add\` for each real step.
+3. Use \`tasks toggle\` to mark the current step inprogress.
+4. Keep task status current and toggle completed steps to done.
+The task gate is strict in this mode. Only read-only inspection, task management, and mode-control/status tools may proceed while setting up the list.`;
+
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
 	commanderAvailable: boolean;
@@ -54,15 +63,16 @@ ${scoutSection}
 - Do not call set_mode or create tasks for a one-file lookup, one-line fix, or routine command.
 - Do not dispatch an agent merely to make the workflow look formal.
 - Keep the user's task as the unit of work; use tasks only when tracking several real steps helps.
+- For multi-step work with clear scope and an approved direction, stay in NORMAL, create tasks, activate the current task, then work through the list.
 
 ## When to opt into orchestration
-Use set_mode only when the user asks for a workflow or the task is genuinely multi-file, multi-step, parallel, or review-heavy:
-- PLAN: write and approve a plan before implementation.
+Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:
+- PLAN: the implementation approach is not settled or the user wants a plan reviewed before coding.
 - SPEC: shape requirements for a new feature.
-- TEAM: independent parallel workstreams.
-- CHAIN: sequential agent steps.
-- PIPELINE: phased orchestration.
-Explain the reason when changing mode. Orchestration is opt-in, not a prerequisite for ordinary work.
+- TEAM: genuinely independent parallel workstreams.
+- CHAIN: a defined sequential agent workflow.
+- PIPELINE: a defined phased orchestration workflow.
+Do not enter PLAN merely because a task has several steps. If the direction is clear, stay in NORMAL and use tasks. Explain the reason when changing mode. Orchestration is opt-in.
 
 ## Active workflows
 - CHAIN: ${chainStatus}
@@ -74,12 +84,15 @@ ${commanderSection}`;
 export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work that benefits from review before implementation.
 
 ## Complexity first
-- Simple one-file fixes, renames, config edits, and quick lookups: do the work directly; do not spawn scouts.
+- Simple one-file fixes, renames, config edits, and quick lookups usually belong in NORMAL, not PLAN; do not spawn scouts for them.
+- If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 - Narrow multi-file work: use at most one focused read-only scout when it saves time.
 - Broad work: choose the smallest number of scouts that cover independent areas. Never spawn four scouts by default.
 - A scout reports facts and file paths only. You synthesize the findings and remain responsible for the plan.
 - If reconnaissance is useful, use the same dispatch path as TEAM:
   \`dispatch_agent { agent: "scout", task: "Bounded read-only reconnaissance" }\`
+
+${ORCHESTRATED_TASK_PROMPT}
 
 ## Plan workflow
 1. Understand the request and inspect the relevant code.
@@ -142,6 +155,8 @@ export function buildPlanPrompt(commanderAvailable: boolean): string {
 
 /** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
 export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-driven workflow for every feature request.
+
+${ORCHESTRATED_TASK_PROMPT}
 
 ## Workflow
 

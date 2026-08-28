@@ -3,8 +3,8 @@
 /**
  * Tasks Extension — Task discipline for the agent
  *
- * A task-driven discipline extension. The agent MUST define what it's going
- * to do (via `tasks add`) before it can use any other tools. On agent
+ * A task-driven discipline extension. NORMAL mode keeps task tracking advisory;
+ * orchestration modes require an active task before execution. On agent
  * completion, if tasks remain incomplete, the agent gets nudged to continue
  * or mark them done.
  *
@@ -49,14 +49,24 @@ import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber } from "./lib/task-list-render.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
-import { shouldBypassTaskGate, taskGateStrict } from "./lib/task-gate.ts";
-import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate } from "./lib/coordination-state.ts";
+import { shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "./lib/task-gate.ts";
+import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
 // reconstruction/compaction. The gate must never mutate task state implicitly.
-export function decideGateClaim(all: Array<{ id: number; status: string }>): { block: boolean; reason?: string } {
-	if (all.length === 0) return { block: false };
+export function decideGateClaim(
+	all: Array<{ id: number; status: string }>,
+	requireTask = false,
+): { block: boolean; reason?: string } {
+	if (all.length === 0) {
+		return requireTask
+			? {
+				block: true,
+				reason: "This mode requires task tracking. You MUST use `tasks new-list` and `tasks add` before using write or execution tools.",
+			}
+			: { block: false };
+	}
 	const pending = all.filter((t) => t.status !== "done");
 	const active = all.filter((t) => t.status === "inprogress");
 	if (pending.length === 0) {
@@ -335,20 +345,25 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, _ctx) => {
 		// Sub-agents manage their own task discipline — don't gate them
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
+
+		const mode = coordinationState().mode;
+		const requiredMode = taskRequiredForMode(mode);
 		if (event.toolName === "tasks") return { block: false };
-		// Communication, orchestration, dispatcher, and Commander MCP tools bypass the gate.
-		if (shouldBypassTaskGate(event.toolName)) return { block: false };
+		// In orchestration modes, delegated work is subject to the same hard gate
+		// as local write/execution tools. Setup and status tools remain available.
+		if (shouldBypassTaskGate(event.toolName, requiredMode)) return { block: false };
 
 		// A malformed historical tool result must not crash the extension or
 		// create an unrecoverable gate. Reconstruction normalizes this, but keep
 		// the boundary defensive for live state as well.
 		if (!Array.isArray(tasks)) return { block: false };
-		const decision = decideGateClaim(tasks);
-		if (!decision.block || taskGateStrict()) return decision;
+
+		const decision = decideGateClaim(tasks, requiredMode);
+		if (!decision.block || requiredMode || taskGateStrict()) return decision;
 
 		// NORMAL mode should not spend a tool turn on task ceremony. Keep the
-		// same guidance as a soft warning, with PI_TASKS_STRICT=1 for teams that
-		// explicitly want the legacy blocking behavior.
+		// same guidance as a soft warning. PI_TASKS_STRICT=1 is an explicit
+		// opt-in for stricter lifecycle checks in NORMAL.
 		return {
 			block: false,
 			reason: `Task suggestion: ${decision.reason} Continue if the task is small or exploratory.`,
@@ -415,7 +430,8 @@ export default function (pi: ExtensionAPI) {
 		name: "tasks",
 		label: "Tasks",
 		description:
-			"Manage an optional task list. Tasks are advisory by default; use PI_TASKS_STRICT=1 to require an in-progress task before non-read-only tools. " +
+			"Manage the task list. In NORMAL mode tasks are optional; in PLAN, SPEC, PIPELINE, TEAM, and CHAIN modes, create and activate a task before write or execution tools. " +
+			"PI_TASKS_STRICT=1 enables strict lifecycle checks for existing NORMAL task lists. " +
 			"Actions: new-list (text=title, description), add (text or texts[] for batch), toggle (id) — cycles idle→inprogress→done, remove (id), update (id + text), list, clear. " +
 			"Always toggle a task to inprogress before starting work on it, and to done when finished. " +
 			"Use new-list to start a themed list with a title and description. " +

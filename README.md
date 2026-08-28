@@ -46,8 +46,8 @@ Pi discovers all extensions, themes, and skills automatically.
 
 ### First Steps
 
-1. **Type a task** — NORMAL is the default low-ceremony mode. Work starts directly.
-2. **Shift+Tab** or **`set_mode`** — Opt into PLAN / SPEC / PIPELINE / TEAM / CHAIN when the task needs orchestration.
+1. **Type a task** — NORMAL is the default low-ceremony mode. Simple work starts directly; clear multi-step work may use a local task list without entering PLAN.
+2. **Shift+Tab** or **`set_mode`** — Opt into PLAN / SPEC / PIPELINE / TEAM / CHAIN when the task needs that workflow or approval.
 3. **Ctrl+X** — Cycle themes
 4. **`/agents-team`** — Switch between agent teams
 5. **`/chain`** — Switch between chain workflows
@@ -82,7 +82,7 @@ Pi discovers all extensions, themes, and skills automatically.
 
 | Extension | Description |
 |-----------|-------------|
-| **tasks** | Task discipline — define tasks before tools unlock; idle → inprogress → done lifecycle |
+| **tasks** | Task tracking — optional in NORMAL; required and gated in PLAN / SPEC / PIPELINE / TEAM / CHAIN; idle → inprogress → done lifecycle |
 | **commander-mcp** | Bridge exposing Commander dashboard tools as native Pi tools |
 | **commander-tracker** | Reconciles local tasks with Commander; retries failed sync |
 
@@ -92,7 +92,7 @@ Pi discovers all extensions, themes, and skills automatically.
 |-----------|-------------|
 | **mode-cycler** | Shift+Tab cycles NORMAL / PLAN / SPEC / PIPELINE / TEAM / CHAIN |
 
-Each mode injects a tailored system prompt. PLAN mode enforces plan-first workflow. SPEC mode drives spec-driven development. TEAM/CHAIN/PIPELINE modes activate their respective orchestration systems.
+Each mode injects a tailored system prompt. NORMAL keeps task tracking advisory. PLAN / SPEC / TEAM / CHAIN / PIPELINE require an active task before write or execution tools. PLAN also enforces its plan-first approval workflow.
 
 **Dispatch safety:** Child Pi processes and Herdr tabs start only from a tool `execute` or slash-command handler. Session start/switch/shutdown cannot spawn, even if they open a dispatch context. Timer callbacks cannot inherit spawn rights. Toolkit workers and Herdr tab creation use the same gate.
 

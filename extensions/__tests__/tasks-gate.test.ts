@@ -3,15 +3,26 @@
 
 import { describe, it, expect } from "vitest";
 
-import { shouldBypassTaskGate } from "../lib/task-gate.ts";
+import { shouldBypassTaskGate, taskRequiredForMode } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
 		expect(shouldBypassTaskGate("tasks")).toBe(true);
 	});
 
-	it("should bypass for 'dispatch_agent' tool", () => {
+	it("should bypass for 'set_mode' tool", () => {
+		expect(shouldBypassTaskGate("set_mode", true)).toBe(true);
+	});
+
+	it("should bypass for 'dispatch_agent' tool in NORMAL mode", () => {
 		expect(shouldBypassTaskGate("dispatch_agent")).toBe(true);
+	});
+
+	it("should not bypass delegated work in orchestration modes", () => {
+		expect(shouldBypassTaskGate("dispatch_agent", true)).toBe(false);
+		expect(shouldBypassTaskGate("dispatch_agents", true)).toBe(false);
+		expect(shouldBypassTaskGate("run_chain", true)).toBe(false);
+		expect(shouldBypassTaskGate("advance_phase", true)).toBe(false);
 	});
 
 	it("should bypass for 'dispatch_agents' tool", () => {
@@ -129,5 +140,19 @@ describe("PI_SUBAGENT env var bypass", () => {
 		expect(shouldBypassForSubagent()).toBe(false);
 		if (original === undefined) delete process.env.PI_SUBAGENT;
 		else process.env.PI_SUBAGENT = original;
+	});
+});
+
+
+describe("mode-aware task discipline", () => {
+	it("requires tasks in orchestration modes", () => {
+		for (const mode of ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"]) {
+			expect(taskRequiredForMode(mode)).toBe(true);
+		}
+	});
+
+	it("keeps task tracking optional in NORMAL", () => {
+		expect(taskRequiredForMode("NORMAL")).toBe(false);
+		expect(taskRequiredForMode(undefined)).toBe(false);
 	});
 });
