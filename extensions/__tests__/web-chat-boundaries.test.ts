@@ -22,6 +22,8 @@ describe("web chat boundaries", () => {
 		expect(source).toContain('url.pathname === "/reset"');
 		expect(source).toContain('broadcastWS(wsClients, "reset", {})');
 		expect(source).toContain("resetShutdownTimer();");
+		expect(source).toContain('broadcastWS(this.clients, "done", {});');
+		expect(source).not.toContain("This fires for every message (including tool-use)");
 		expect(source).toContain('execFileSync("which", ["cloudflared"]');
 		expect(source).toContain("env: childEnvironment()");
 		expect(source).not.toContain("execSync(");

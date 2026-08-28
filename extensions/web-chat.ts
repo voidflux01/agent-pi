@@ -289,7 +289,10 @@ class SessionBridge {
 	onAgentEnd(): void {
 		this.busy = false;
 		this.pendingFromPhone = false;
+		broadcastWS(this.clients, "done", {});
 		broadcastWS(this.clients, "status", { busy: false });
+		this.textBuffer = [];
+		this.toolNames = [];
 	}
 
 	onMessageUpdate(event: MessageUpdateEvent): void {
@@ -344,14 +347,6 @@ class SessionBridge {
 			broadcastWS(this.clients, "assistant_message", assistantMsg);
 		}
 
-		// ALWAYS signal completion — matches the working version.
-		// This fires for every message (including tool-use), which resets
-		// the phone's busy state. The phone handles this gracefully.
-		broadcastWS(this.clients, "done", {});
-		broadcastWS(this.clients, "status", { busy: false });
-		this.busy = false;
-		this.textBuffer = [];
-		this.toolNames = [];
 	}
 
 	onToolStart(event: ToolExecutionStartEvent): void {
