@@ -2,11 +2,24 @@
 // ABOUTME: Toolkit agents represent installed CLI software and should stream real CLI stdout/stderr.
 
 import { spawn } from "child_process";
-import { accessSync, constants as fsConstants } from "fs";
+import { accessSync, constants as fsConstants, mkdirSync, readFileSync, rmSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
+import {
+	herdrEnabledAsync,
+	ensureHerdrWorkspaceAsync,
+	createHerdrTaskTabAsync,
+	sendCommandToPaneAsync,
+	closeHerdrTabAsync,
+	shellQuote as herdrShellQuote,
+	writeLaunchScript,
+	pollDoneFileAsync,
+	waitForLaunchStart,
+	cleanupLaunchFiles,
+	registerHerdrPane,
+} from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
 	"cursor-agent",
@@ -93,6 +106,13 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 	return args;
 }
 
+/** Opt in to a bare CLI: no discovered extensions or skills. Default is off so
+ *  omp / prime keep their own tuned ~/.omp and ~/.prime configs. Isolation from
+ *  the parent Pi home is always via env (PI_CODING_AGENT_DIR is not forwarded). */
+export function toolkitBareMode(): boolean {
+	return process.env.PI_TOOLKIT_BARE === "1";
+}
+
 function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 	switch (agentName.toLowerCase()) {
 		case "cursor-agent":
@@ -121,18 +141,22 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				args: (task: string) => [task],
 			};
 		case "omp-agent":
-			// pi-family CLI: -p prints and exits; --mode json emits message_end
-			// events carrying inline usage (same parser as prime-agent).
 			return {
 				command: "omp",
-				args: (task: string) => ["-p", "--mode", "json", task],
+				args: (task: string) => [
+					"-p", "--mode", "json", "--no-session",
+					...(toolkitBareMode() ? ["--no-extensions", "--no-skills"] : []),
+					task,
+				],
 			};
 		case "prime-agent":
 			return {
 				command: "prime-agent",
-				// -p prints a response and exits; json mode ends each message with
-				// a message_end event carrying inline usage.
-				args: (task: string) => ["-p", "--mode", "json", "--no-session", task],
+				args: (task: string) => [
+					"-p", "--mode", "json", "--no-session",
+					...(toolkitBareMode() ? ["-ne", "-ns"] : []),
+					task,
+				],
 			};
 		case "groq-agent":
 			return {
@@ -258,12 +282,13 @@ export interface ToolkitUsage {
 export function parseToolkitResult(
 	agentName: string | undefined,
 	raw: string,
-): { text: string; usage?: ToolkitUsage } {
+): { text: string; usage?: ToolkitUsage; model?: string } {
 	const name = (agentName || "").toLowerCase();
 	try {
 		if (name === "prime-agent" || name === "omp-agent") {
 			let text = "";
 			let usage: ToolkitUsage | undefined;
+			let model: string | undefined;
 			for (const line of raw.split("\n")) {
 				const t = line.trim();
 				if (!t.startsWith("{")) continue;
@@ -287,11 +312,16 @@ export function parseToolkitResult(
 						costUsd: Number(u.cost?.total ?? 0),
 					};
 				}
+				const provider = ev?.message?.provider;
+				const modelId = ev?.message?.model;
+				if (typeof modelId === "string" && modelId) {
+					model = typeof provider === "string" && provider ? `${provider}/${modelId}` : modelId;
+				}
 				for (const c of ev?.message?.content ?? []) {
 					if (c?.type === "text" && typeof c.text === "string") text += c.text;
 				}
 			}
-			return { text, usage };
+			return { text, usage, model };
 		}
 	} catch {}
 	// Plain-text CLIs and unparsable output: no structured extraction.
@@ -335,10 +365,123 @@ export function toolkitVisibleCommandLine(
 	task: string,
 	cwd: string | undefined,
 	rawOutPath: string,
+	paneTitle?: string,
 ): string[] {
 	const cli = getToolkitCliCommand(agentName);
 	if (!cli) return [];
 	const argv = cli.args(task, cwd);
 	const cmd = [cli.command, ...argv].map(shellQuote).join(" ");
-	return ["bash", "-c", `${cmd} 2>&1 | tee ${shellQuote(rawOutPath)}`];
+	const title = (paneTitle || toolkitRuntimeName(agentName) || agentName)
+		.replace(/[^A-Za-z0-9._-]+/g, "-")
+		.slice(0, 40);
+	return ["bash", "-c", `printf '\\033]0;${title}\\007'; ${cmd} 2>&1 | tee ${shellQuote(rawOutPath)}`];
+}
+
+export interface ToolkitDispatchResult {
+	exitCode: number;
+	raw: string;
+	transport: "herdr" | "headless";
+}
+
+/**
+ * Run an external toolkit CLI. Prefers a watchable Herdr sibling pane
+ * (same as TEAM dispatch); falls back to a headless child process.
+ */
+export async function runToolkitDispatch(opts: {
+	agentName: string;
+	task: string;
+	cwd: string;
+	env?: NodeJS.ProcessEnv;
+	sessionDir: string;
+	runId: string;
+	paneTitle: string;
+	onProcess?: (proc: any) => void;
+	onStdoutLine?: (line: string) => void;
+	onStderr?: (chunk: string) => void;
+	isCancelled?: () => boolean;
+}): Promise<ToolkitDispatchResult> {
+	const cancelled = () => !!opts.isCancelled?.();
+	const stub = { name: opts.agentName, tools: "", systemPrompt: "" };
+
+	if (await herdrEnabledAsync()) {
+		try {
+			const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", opts.cwd);
+			if (wsId) {
+				mkdirSync(join(opts.sessionDir, "outputs"), { recursive: true });
+				const rawPath = join(opts.sessionDir, "outputs", `${opts.runId}.raw`);
+				const argvVisible = toolkitVisibleCommandLine(opts.agentName, opts.task, opts.cwd, rawPath, opts.paneTitle);
+				if (argvVisible.length > 0) {
+					const refs = writeLaunchScript({
+						dir: opts.sessionDir,
+						id: opts.runId,
+						cwd: opts.cwd,
+						command: argvVisible,
+						env: { ...opts.env, PI_SUBAGENT: "1" },
+					});
+					const tab = await createHerdrTaskTabAsync(wsId, opts.cwd, opts.paneTitle);
+					if (tab) {
+						registerHerdrPane(opts.cwd, {
+							key: opts.runId,
+							label: opts.paneTitle,
+							cwd: opts.cwd,
+							sessionFile: "",
+							ref: tab,
+							scriptPath: refs.scriptPath,
+							donePath: refs.donePath,
+							startedPath: refs.startedPath,
+							status: "running",
+						});
+						let herdrCancelled = false;
+						opts.onProcess?.({
+							kill: () => {
+								herdrCancelled = true;
+								void closeHerdrTabAsync(tab);
+							},
+							__piNoExitEvent: true,
+						});
+						const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${herdrShellQuote(refs.scriptPath)}`);
+						const started = sent && await waitForLaunchStart(
+							refs.startedPath,
+							5_000,
+							() => herdrCancelled || cancelled(),
+						);
+						if (started) {
+							const rc = await pollDoneFileAsync(
+								refs.donePath,
+								7 * 24 * 3600 * 1000,
+								() => herdrCancelled || cancelled(),
+							);
+							cleanupLaunchFiles(refs);
+							await closeHerdrTabAsync(tab);
+							let rawOut = "";
+							try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
+							try { rmSync(rawPath, { force: true }); } catch {}
+							return {
+								exitCode: herdrCancelled || cancelled() ? 130 : (rc ?? 1),
+								raw: rawOut,
+								transport: "herdr",
+							};
+						}
+						cleanupLaunchFiles(refs);
+						await closeHerdrTabAsync(tab);
+						if (herdrCancelled || cancelled()) {
+							return { exitCode: 130, raw: "", transport: "herdr" };
+						}
+					}
+				}
+			}
+		} catch {
+			// Fall through to the headless CLI.
+		}
+	}
+
+	const result = await spawnToolkitWorker(stub, {
+		task: opts.task,
+		cwd: opts.cwd,
+		env: opts.env,
+		onProcess: opts.onProcess,
+		onStdoutLine: opts.onStdoutLine,
+		onStderr: opts.onStderr,
+	});
+	return { exitCode: result.exitCode, raw: result.output, transport: "headless" };
 }

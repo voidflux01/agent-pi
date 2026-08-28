@@ -200,7 +200,7 @@ export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void
 	} catch {}
 }
 
-/** Update the record with the given id (first match wins). Never fabricates. */
+/** Update the record with the given id (last match wins). Never fabricates. */
 export function journalUpdate(sessionDir: string, id: string, patch: Partial<TaskJournalEntry>): void {
 	const p = journalPath(sessionDir);
 	if (!existsSync(p)) return;
@@ -210,22 +210,26 @@ export function journalUpdate(sessionDir: string, id: string, patch: Partial<Tas
 	} catch {
 		return;
 	}
-	const out: string[] = [];
-	let found = false;
+	let last = -1;
+	const parsed: Array<TaskJournalEntry | null> = [];
 	for (const line of lines) {
 		try {
 			const e = JSON.parse(line) as TaskJournalEntry;
-			if (!found && e.id === id) {
-				found = true;
-				out.push(JSON.stringify({ ...e, ...patch, id, updatedAt: Date.now() }) + "\n");
-			} else {
-				out.push(line + "\n");
-			}
+			parsed.push(e);
+			if (e.id === id) last = parsed.length - 1;
 		} catch {
-			out.push(line + "\n");
+			parsed.push(null);
 		}
 	}
-	if (!found) return;
+	if (last < 0) return;
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (i === last && parsed[i]) {
+			out.push(JSON.stringify({ ...parsed[i], ...patch, id, updatedAt: Date.now() }) + "\n");
+		} else {
+			out.push(lines[i] + "\n");
+		}
+	}
 	try {
 		writeFileSync(p, out.join(""), "utf8");
 	} catch {}

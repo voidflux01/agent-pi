@@ -32,7 +32,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
@@ -275,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 			state.name,
 			state.model || agentDef?.model || configModel || DEFAULT_SUBAGENT_MODEL,
 		);
-		state.model = model;
+		if (!isToolkitCliAgent(state.name)) state.model = model;
 		const contextUsage = ctx?.getContextUsage?.();
 		state.resultBudgetChars = subagentContextBudget(contextUsage?.percent, 1).resultChars;
 
@@ -290,8 +290,8 @@ export default function (pi: ExtensionAPI) {
 			agent: state.name.toLowerCase(),
 			runtime: toolkitRuntimeName(state.name),
 			task: prompt,
-			model: state.model || undefined,
-			sessionFile: state.sessionFile,
+			model: isToolkitCliAgent(state.name) ? undefined : (state.model || undefined),
+			sessionFile: isToolkitCliAgent(state.name) ? undefined : state.sessionFile,
 			status: "dispatched",
 			startedAt: Date.now(),
 			updatedAt: Date.now(),
@@ -337,8 +337,9 @@ export default function (pi: ExtensionAPI) {
 				peerNames,
 			}));
 		}
-		// Keep parent-visible results compact and structurally complete.
-		promptParts.push(buildAgentResultContractPrompt());
+		if (!isToolkitCliAgent(state.name)) {
+			promptParts.push(buildAgentResultContractPrompt());
+		}
 		const systemPromptArgs = ["--append-system-prompt", promptParts.join("\n\n")];
 
 		// Pre-claim: parent claims Commander task on behalf of subagent
@@ -442,19 +443,21 @@ export default function (pi: ExtensionAPI) {
 						result,
 					);
 				} catch {}
-				// Deterministic RESULT-contract gate (zero-token; tiber-inspired).
+				const toolkitRun = isToolkitCliAgent(state.name);
 				let contractProblems: string[] = [];
-				try {
-					const compliance = checkResultCompliance(result);
-					contractProblems = compliance.ok ? [] : compliance.problems;
-				} catch {}
-				// Close the journal row opened at dispatch time.
+				if (!toolkitRun) {
+					try {
+						const compliance = checkResultCompliance(result);
+						contractProblems = compliance.ok ? [] : compliance.problems;
+					} catch {}
+				}
 				try {
 					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
 						status: code === 0 ? "done" : "error",
 						exitCode: code,
 						elapsedMs: state.elapsed,
+						model: state.model || undefined,
 						outputFile: fullOutputPath || undefined,
 						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
 						usage: (externalUsage ?? saUsage).totalTokens > 0 ? {
@@ -482,6 +485,7 @@ export default function (pi: ExtensionAPI) {
 					outputText: result,
 					fullOutputPath,
 					maxResultChars: state.resultBudgetChars,
+					skipContract: toolkitRun,
 				});
 				if (!state.awaitResult) {
 					try {
@@ -489,7 +493,7 @@ export default function (pi: ExtensionAPI) {
 							customType: "subagent-result",
 							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
 							display: true,
-						}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
+						}, { deliverAs: "steer", triggerTurn: true }).catch(() => {});
 					} catch {}
 				}
 
@@ -524,17 +528,15 @@ export default function (pi: ExtensionAPI) {
 			];
 
 			if (isToolkitCliAgent(state.name)) {
-				const extAgent = state.name;
 				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
-				spawnToolkitWorker({
-					name: state.name,
-					tools,
-					systemPrompt: systemPromptArgs[1],
-				}, {
+				void runToolkitDispatch({
+					agentName: state.name,
 					task: extTask0,
-					sessionFile: state.sessionFile,
-					env: spawnEnv,
 					cwd: spawnCwd,
+					env: spawnEnv,
+					sessionDir: saDir,
+					runId: state.saRunId ?? `sa${state.id}`,
+					paneTitle,
 					onProcess: (proc: any) => {
 						if (spawnEpoch === sessionEpoch) state.proc = proc;
 					},
@@ -548,8 +550,10 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				}).then(({ exitCode, output }) => {
-					const parsed = parseToolkitResult(state.name, output);
+					isCancelled: () => spawnEpoch !== sessionEpoch,
+				}).then(({ exitCode, raw }) => {
+					const parsed = parseToolkitResult(state.name, raw);
+					if (parsed.model) state.model = parsed.model;
 					finish(exitCode, parsed.text || undefined, parsed.usage);
 				}).catch(() => finish(1));
 				return;

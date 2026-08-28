@@ -37,7 +37,7 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("if (!awaitResult)");
 		expect(src).toContain("const result = await started");
 		expect(src).toContain("if (!state.awaitResult)");
-		expect(src).toContain('deliverAs: "followUp"');
+		expect(src).toContain('deliverAs: "steer"');
 	});
 });
 
@@ -137,9 +137,11 @@ describe("timeout render warnings", () => {
 });
 
 describe("PLAN prompt complexity guidance", () => {
-	it("skips scouts for simple work", async () => {
+	it("requires a scout in PLAN unless the single file is already known", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("do not spawn scouts");
+		expect(PLAN_PROMPT).toContain("Scout first");
+		expect(PLAN_PROMPT).toContain("scout is required");
+		expect(PLAN_PROMPT).not.toContain("do not spawn scouts");
 	});
 
 	it("uses the smallest sufficient scout count", async () => {

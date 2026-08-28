@@ -7,6 +7,9 @@ const SAFE_ENV_NAMES = new Set([
 	"COMMANDER_MCP_SERVER_PATH", "HERDR_DONE_PATH", "HERDR_ENV", "HERDR_SESSION", "HERDR_WORKSPACE_ID",
 ]);
 
+/** Parent Pi home/package paths. omp/prime honor these and would load ~/.pi/agent. */
+const PARENT_PI_STATE = new Set(["PI_CODING_AGENT_DIR", "PI_PACKAGE_DIR"]);
+
 /**
  * Do not pass the parent's complete environment to a child agent. Provider keys
  * and OAuth/session secrets are intentionally excluded. An explicit opt-in is
@@ -15,7 +18,8 @@ const SAFE_ENV_NAMES = new Set([
 export function childEnvironment(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
 	const allowName = (name: string) => {
 		if (/(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)$/i.test(name)) return false;
-		return SAFE_ENV_NAMES.has(name) || name.startsWith("LC_") || (name.startsWith("PI_") && name !== "PI_CHILD_INHERIT_ENV");
+		if (PARENT_PI_STATE.has(name) || name === "PI_CHILD_INHERIT_ENV") return false;
+		return SAFE_ENV_NAMES.has(name) || name.startsWith("LC_") || name.startsWith("PI_");
 	};
 	const inherited = process.env.PI_CHILD_INHERIT_ENV === "1"
 		? { ...process.env }

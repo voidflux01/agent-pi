@@ -80,21 +80,20 @@ ${commanderSection}`;
 /** Plan-first workflow: analyze → plan → approve → implement. */
 export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work that benefits from review before implementation.
 
-## Complexity first
-- Simple one-file fixes, renames, config edits, and quick lookups usually belong in NORMAL, not PLAN; do not spawn scouts for them.
-- If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
-- Multi-file or unclear-scope work: reconnaissance is Phase 1. Spawn a read-only scout before writing the plan. Do not scan the tree yourself first and then skip the scout.
-- Narrow multi-file work: use at most one focused read-only scout.
-- Broad work: choose the smallest number of scouts that cover independent areas. Never spawn four scouts by default.
-- A scout reports facts and file paths only. You synthesize the findings and remain responsible for the plan.
-- Spawn scouts with:
-  \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
-  Each scout call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. For independent areas, launch multiple subagent_create calls in one message. Do not scan those areas yourself while the scouts run. Scout reconnaissance is read-only and may run before the task list exists.
+## Scout first
+You are already in PLAN. Do not treat the work as too small for a scout.
+Spawn one read-only scout before writing the plan unless you can already name the single file to change. If more than one source file is involved, or the paths and symbols are not already known, scout is required. Do not grep or read the tree yourself first and then skip the scout.
+A scout reports facts and file paths only. You synthesize the findings and write the plan.
+Spawn with:
+\`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
+This call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. Do not scan those areas yourself while the scout runs. Scout reconnaissance is read-only and may run before the task list exists.
+Narrow work: at most one scout. Never spawn four scouts by default.
+If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 
 ${ORCHESTRATED_TASK_PROMPT}
 
 ## Plan workflow
-1. For multi-file or unclear-scope work, spawn scout(s) and wait for their reports. For a simple one-file change, a quick read is enough.
+1. Spawn a scout and wait for its RESULT unless you already know the single file to change.
 2. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
 4. After approval, implement phase by phase and update the plan.

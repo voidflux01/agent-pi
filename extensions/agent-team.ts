@@ -25,7 +25,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
-import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -39,15 +38,14 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName, toolkitVisibleCommandLine } from "./lib/toolkit-cli.ts";
+import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
-	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel, type HerdrTabRef } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -617,9 +615,9 @@ export default function (pi: ExtensionAPI) {
 			});
 		}
 
-		// Precision-preserving result contract — appended unconditionally so the
-		// parent receives a compact but complete result index, never a lossy one.
-		systemPrompt += buildAgentResultContractPrompt();
+		if (!isToolkitCliAgent(canonicalName)) {
+			systemPrompt += buildAgentResultContractPrompt();
+		}
 
 		// Durable journal record — survives parent restarts (see /agents-status).
 		const journalId = runBaseName(agentKey, state.runCount);
@@ -630,9 +628,9 @@ export default function (pi: ExtensionAPI) {
 			agent: canonicalName,
 			runtime: isToolkitCliAgent(canonicalName) ? toolkitRuntimeName(canonicalName) : undefined,
 			task,
-			model,
+			model: isToolkitCliAgent(canonicalName) ? undefined : model,
 			cwd: runCwd,
-			sessionFile: state.sessionFile || undefined,
+			sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
 			resumed: !!state.sessionFile,
 			status: "dispatched",
 			startedAt: Date.now(),
@@ -690,6 +688,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
+			let toolkitModel: string | undefined;
 			let finished = false;
 			const finish = (code: number | null, stderrBuf: string, externalFull?: string) => {
 				if (finished) return;
@@ -722,7 +721,7 @@ export default function (pi: ExtensionAPI) {
 				state.elapsed = elapsed;
 				state.status = code === 0 ? "done" : "error";
 
-				if (code === 0) {
+				if (code === 0 && !isToolkitCliAgent(canonicalName)) {
 					state.sessionFile = agentSessionFile;
 				} else if (isContextLossError(stderrBuf)) {
 					state.sessionFile = null;
@@ -739,10 +738,11 @@ export default function (pi: ExtensionAPI) {
 						status: state.status,
 						exitCode: code,
 						elapsedMs: elapsed,
-						model,
+						model: toolkitModel || model,
 						outputText: full,
 						fullOutputPath,
 						maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
+						skipContract: isToolkitCliAgent(canonicalName),
 					}).content;
 				} catch (err: any) {
 					composed = full; // persistence failure must never lose the result itself
@@ -755,11 +755,13 @@ export default function (pi: ExtensionAPI) {
 				invalidateAgentWidget(state);
 
 				const tu = toolkitUsage ?? (state.sessionFile ? sessionUsage(state.sessionFile) : null);
+				if (toolkitModel) state.resolvedModel = toolkitModel;
 				journalUpdate(sessionDir, journalId, {
 					status: state.status,
 					exitCode: code,
 					elapsedMs: state.elapsed,
-					sessionFile: state.sessionFile || undefined,
+					model: toolkitModel || (isToolkitCliAgent(canonicalName) ? undefined : model),
+					sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
 					outputFile: fullOutputPath || undefined,
 					usage: tu && tu.totalTokens > 0 ? {
 						input: tu.input, output: tu.output, cacheRead: tu.cacheRead, cacheWrite: tu.cacheWrite,
@@ -837,62 +839,30 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			let stderrBuf = "";
-			let toolkitHerdrCancelled = false;
 			if (isToolkitCliAgent(state.def.name)) {
-				// Keep all Herdr operations async so workspace/tab setup cannot freeze
-				// the parent TUI. Fall back to the external runtime directly.
-				void (async () => {
-					if (await herdrEnabledAsync()) {
-						try {
-							const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
-							if (wsId) {
-								const rawPath = join(sessionDir, "outputs", `${journalId}.raw`);
-								const extTask = mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task;
-								const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
-								if (argvVisible.length > 0) {
-									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
-									const tab = await createHerdrTaskTabAsync(wsId, runCwd, paneTitle);
-									if (tab) {
-										state.proc = { kill: () => { toolkitHerdrCancelled = true; void closeHerdrTabAsync(tab); } };
-										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
-										const started = sent && await waitForLaunchStart(refs.startedPath, 5_000, () => toolkitHerdrCancelled);
-										if (started) {
-											const rc = await pollDoneFileAsync(refs.donePath, 7 * 24 * 3600 * 1000, () => toolkitHerdrCancelled);
-											cleanupLaunchFiles(refs);
-											await closeHerdrTabAsync(tab);
-											let rawOut = "";
-											try { rawOut = readFileSync(rawPath, "utf8"); } catch {}
-											try { rmSync(rawPath, { force: true }); } catch {}
-											const parsed = parseToolkitResult(state.def.name, rawOut);
-											toolkitUsage = parsed.usage;
-											if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
-											finish(toolkitHerdrCancelled ? 130 : (rc ?? 1), stderrBuf, parsed.text || undefined);
-											return;
-										}
-											if (toolkitHerdrCancelled) {
-												cleanupLaunchFiles(refs);
-												finish(130, stderrBuf);
-												return;
-											}
-											await closeHerdrTabAsync(tab);
-										}
-										cleanupLaunchFiles(refs);
-									}
-							}
-						} catch { /* fall through to the external runtime */ }
-					}
-				spawnToolkitWorker(state.def, {
-					task: mailboxPreambleEnabled() ? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}` : task,
-					sessionFile: agentSessionFile, cwd: runCwd, env: spawnEnv,
+				const extTask = mailboxPreambleEnabled()
+					? `${buildMailboxPreamble(canonicalName || state.def.name, runCwd)}\n\n---\n\n${task}`
+					: task;
+				void runToolkitDispatch({
+					agentName: state.def.name,
+					task: extTask,
+					cwd: runCwd,
+					env: spawnEnv,
+					sessionDir,
+					runId: journalId,
+					paneTitle,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
-				}).then(({ exitCode, output }) => {
-					const parsed = parseToolkitResult(state.def.name, output);
+				}).then(({ exitCode, raw }) => {
+					const parsed = parseToolkitResult(state.def.name, raw);
 					toolkitUsage = parsed.usage;
+					if (parsed.model) toolkitModel = parsed.model;
+					if (!parsed.text && stderrBuf.trim()) parsed.text = stderrBuf.trim();
 					finish(exitCode, stderrBuf, parsed.text || undefined);
+				}).catch((err) => {
+					finish(1, stderrBuf, err instanceof Error ? err.message : String(err));
 				});
-				})();
 				return;
 			}
 

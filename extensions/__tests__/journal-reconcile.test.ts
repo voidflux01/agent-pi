@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { reconcileJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
+import { journalUpdate, reconcileJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
 
 const RESULT = "## RESULT\nall good";
 let dir: string;
@@ -112,5 +112,20 @@ describe("reconcileJournal", () => {
 		expect(text).toContain("{corrupt line");
 		const lines = text.trim().split("\n");
 		expect(JSON.parse(lines[0]).status).toBe("done");
+	});
+});
+
+describe("journalUpdate", () => {
+	it("patches the last row with that id, not the first", () => {
+		const oldRow = baseRow({ id: "omp-agent-sa1-1", status: "done", sessionFile: "/old.jsonl" });
+		const newRow = baseRow({ id: "omp-agent-sa1-1", status: "dispatched" });
+		writeJournal([oldRow, newRow]);
+		journalUpdate(dir, "omp-agent-sa1-1", { status: "done", exitCode: 0, sessionFile: undefined });
+		const lines = readJournal().trim().split("\n").map((l) => JSON.parse(l));
+		expect(lines[0].sessionFile).toBe("/old.jsonl");
+		expect(lines[0].status).toBe("done");
+		expect(lines[1].status).toBe("done");
+		expect(lines[1].exitCode).toBe(0);
+		expect(lines[1].sessionFile).toBeUndefined();
 	});
 });

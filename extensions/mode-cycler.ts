@@ -9,15 +9,19 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
 import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
+import { rewritePayloadSystemPrompt } from "./lib/rewrite-system-prompt.ts";
 import { coordinationState, setCoordinationMode, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 
 const MODE_FILE = "/tmp/pi-current-mode.txt";
 
+/** System prompt to apply on the next provider request after set_mode in this run. */
+let midRunSystemPrompt: string | null = null;
 
 export default function (pi: ExtensionAPI) {
 	// The extension owns the session mode; initialize the shared bus once per registration.
+	midRunSystemPrompt = null;
 	setCoordinationMode("NORMAL");
 	installPinnedToolSurface(pi);
 
@@ -65,6 +69,19 @@ export default function (pi: ExtensionAPI) {
 	// the mode-block as the last aboveEditor widget (closest to the editor input).
 	function refreshModeBlock(ctx: ExtensionContext) {
 		updateWidgets(coordinationState().mode, ctx);
+	}
+
+	function systemPromptForMode(mode: Mode): string | undefined {
+		if (mode === "NORMAL") {
+			return buildNormalPrompt({
+				commanderAvailable: isCommanderAvailable(),
+				activeChain: coordinationState().activeChain,
+				activePipeline: coordinationState().activePipeline,
+			});
+		}
+		if (mode === "PLAN") return buildPlanPrompt(isCommanderAvailable());
+		if (mode === "SPEC") return SPEC_PROMPT;
+		return undefined;
 	}
 
 	function setMode(mode: Mode, ctx: ExtensionContext) {
@@ -138,25 +155,22 @@ export default function (pi: ExtensionAPI) {
 
 			const changed = upper !== coordinationState().mode;
 			setMode(upper as Mode, ctx);
-			const msg = reason
+			let msg = reason
 				? `Mode set to ${upper}. Reason: ${reason}`
 				: `Mode set to ${upper}.`;
 
-			// A mode prompt is assembled at before_agent_start, before this tool
-			// executes. Queue a fresh user turn, then abort the stale one, so the
-			// next model call actually receives the selected mode's prompt.
-			// Abort after this result is returned: calling abort() here throws and
-			// the TUI shows "This operation was aborted" instead of the mode change.
+			// before_agent_start already ran with the old mode prompt. Swap the
+			// system prompt on the next provider request in this same run so we
+			// do not abort (that printed "This operation was aborted") or inject
+			// a fake "Continue the task in PLAN mode." user turn.
 			if (changed) {
-				try {
-					pi.sendUserMessage(`Continue the task in ${upper} mode.`, { deliverAs: "followUp" });
-				} catch {}
-				if (ctx.hasUI) {
-					try { ctx.ui.notify(`Switched to ${upper}. Starting a new turn.`, "info"); } catch {}
+				midRunSystemPrompt = systemPromptForMode(upper as Mode) ?? null;
+				if (upper === "PLAN") {
+					msg += " Scout first unless you already know the single file to change, then write .context/todo.md and call show_plan. Do not implement before approval.";
 				}
-				queueMicrotask(() => {
-					try { ctx.abort(); } catch {}
-				});
+				if (ctx.hasUI) {
+					try { ctx.ui.notify(`Switched to ${upper}.`, "info"); } catch {}
+				}
 			}
 
 			return {
@@ -186,24 +200,22 @@ export default function (pi: ExtensionAPI) {
 	// ── System prompt injection per mode ─────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
-		if (coordinationState().mode === "NORMAL") {
-			return { systemPrompt: buildNormalPrompt({
-				commanderAvailable: isCommanderAvailable(),
-				activeChain: coordinationState().activeChain,
-				activePipeline: coordinationState().activePipeline,
-			})};
-		}
-		if (coordinationState().mode === "PLAN") {
-			return { systemPrompt: buildPlanPrompt(isCommanderAvailable()) };
-		}
-		if (coordinationState().mode === "SPEC") return { systemPrompt: SPEC_PROMPT };
-		return {};
+		midRunSystemPrompt = null;
+		const systemPrompt = systemPromptForMode(coordinationState().mode);
+		return systemPrompt ? { systemPrompt } : {};
+	});
+
+	pi.on("before_provider_request", (event) => {
+		if (!midRunSystemPrompt) return;
+		const { payload, applied } = rewritePayloadSystemPrompt(event.payload, midRunSystemPrompt);
+		if (applied) return payload;
 	});
 
 	// ── Session init ──────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
 		applyExtensionDefaults(import.meta.url, ctx);
+		midRunSystemPrompt = null;
 		setCoordinationMode("NORMAL");
 		(globalThis as any).__piRefreshModeBlock = () => refreshModeBlock(ctx);
 		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}

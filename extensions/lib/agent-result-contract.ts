@@ -105,6 +105,8 @@ export interface ComposeAgentResultOptions {
 	fullOutputPath: string;
 	/** Fallback character budget. Defaults to MAX_RESULT_CHARS. */
 	maxResultChars?: number;
+	/** External CLIs cannot emit ## RESULT; skip the contract warning. */
+	skipContract?: boolean;
 }
 
 export interface ComposedAgentResult {
@@ -146,6 +148,11 @@ export function composeAgentResult(
 		} else {
 			body = `\n\n## RESULT\n${result}`;
 		}
+	} else if (opts.skipContract) {
+		usedResult = true;
+		const shown = fullText.length > maxResultChars ? fullText.slice(0, maxResultChars) : fullText;
+		truncated = fullText.length > maxResultChars;
+		body = `\n\n${shown || "(empty output)"}`;
 	} else {
 		const tail = fullText.slice(-FALLBACK_TAIL_CHARS);
 		const head =
@@ -156,7 +163,7 @@ export function composeAgentResult(
 	}
 
 	const fullChars = fullText.length;
-	const compliance = checkResultCompliance(fullText);
+	const compliance = opts.skipContract ? { ok: true, problems: [] as string[] } : checkResultCompliance(fullText);
 	const pointer = transcriptPointer({
 		fullChars,
 		path: opts.fullOutputPath,
@@ -252,9 +259,9 @@ export function persistFullOutput(
 	return path;
 }
 
-/** Build a run-scoped base name, e.g. "tester-17" or "chain-reviewer-3". */
+/** Build a run-scoped base name, e.g. "tester-17-m3k2a9". */
 export function runBaseName(agentKey: string, runCount: number): string {
-	return `${agentKey}-${runCount}`;
+	return `${agentKey}-${runCount}-${Date.now().toString(36)}`;
 }
 
 export function ensureDir(p: string): void {

@@ -306,4 +306,8 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		const runtime = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
 		expect(runtime).toContain("createHerdrTaskTabAsync");
 		expect(runtime).toContain("closeHerdrTabAsync");
+		const toolkit = readFileSync(join(__dirname, "..", "lib", "toolkit-cli.ts"), "utf8");
+		expect(toolkit).toContain("createHerdrTaskTabAsync");
+		const sa = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(sa).toContain("runToolkitDispatch");
 	});

@@ -156,7 +156,7 @@ Besides pi itself, named toolkit agents dispatch to external CLI runtimes. The f
 | `prime-agent` | `prime-agent -p --mode json --no-session <task>` | Assistant-role `message_end` text | Inline message usage |
 | others (`cursor-agent`, `gemini-agent`, ...) | their plain CLIs | raw stdout tail (no structured parse) | not reported |
 
-When herdr is enabled, external-CLI dispatches run inside a herdr pane (label `ap-<id>`) so you can watch them work; their JSON event stream tee's to `<id>.raw` for authoritative parsing, then the pane closes. `/agents-status` marks such rows with a runtime tag:
+When herdr is enabled, external-CLI dispatches (`subagent_create` and TEAM `dispatch_agent`) run inside a sibling herdr pane so you can watch them work; their JSON event stream tee's to `<id>.raw` for authoritative parsing, then the pane closes. Journal rows record `runtime` and the real `provider/model` from the stream; they do not invent a pi `sessionFile`. `/agents-status` marks such rows with a runtime tag:
 
 ```
 DONE  tm07-k9a1 [omp]   12s 15,398tok (0% cached) $0.0035
@@ -166,7 +166,8 @@ DONE  tm07-k9a1 [omp]   12s 15,398tok (0% cached) $0.0035
 
 Notes:
 - Both JSON-streaming runtimes report real token/cost usage into the journal row and the `/agents-status` TOTAL footer.
-- External runtimes are one-shot executors: they do not load agent-pi extensions, so RESULT-contract checking and `ask_parent` questions apply to pi-runtime sub-agents only. The parent still archives whatever they produced and records exit/elapsed.
+- They do not inherit the parent Pi home (`PI_CODING_AGENT_DIR` is not forwarded). omp uses `~/.omp/agent`, prime uses its own dir, each with that CLI's extensions and skills. Set `PI_TOOLKIT_BARE=1` to start them with extensions and skills off.
+- They do not load agent-pi extensions, so RESULT-contract checking and `ask_parent` apply to pi-runtime sub-agents only. The parent still archives whatever they produced and records exit/elapsed.
 
 ## Tips
 

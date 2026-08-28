@@ -57,14 +57,16 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).not.toContain("dispatch_agent");
 	});
 
-	it("makes reconnaissance Phase 1 for multi-file work", () => {
-		expect(PLAN_PROMPT).toContain("reconnaissance is Phase 1");
+	it("requires a scout unless the single file is already known", () => {
+		expect(PLAN_PROMPT).toContain("Scout first");
+		expect(PLAN_PROMPT).toContain("scout is required");
+		expect(PLAN_PROMPT).toContain("Do not grep or read the tree yourself first");
 		expect(PLAN_PROMPT).toContain("may run before the task list exists");
 	});
 
-	it("provides guidance on skipping scouts for simple tasks", () => {
-		expect(PLAN_PROMPT).toContain("Simple one-file fixes");
-		expect(PLAN_PROMPT).toContain("do not spawn scouts");
+	it("does not tell PLAN to skip scouts the way NORMAL does", () => {
+		expect(PLAN_PROMPT).not.toContain("do not spawn scouts");
+		expect(PLAN_PROMPT).not.toContain("Simple one-file fixes");
 	});
 
 	it("instructs to synthesize scout findings", () => {

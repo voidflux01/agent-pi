@@ -400,8 +400,8 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Open an interactive markdown viewer overlay. Two modes:\n\n" +
 			"**Plan mode** (default): Renders a markdown plan for review. User can edit, " +
-			"reorder, toggle checkboxes, and approve or decline. If approved, an approval " +
-			"message is automatically sent to continue the conversation.\n\n" +
+			"reorder, toggle checkboxes, and approve or decline. If approved, the tool " +
+			"result continues the current turn.\n\n" +
 			"**Questions mode** (mode='questions'): Renders markdown containing follow-up " +
 			"questions. User can navigate questions, type answers inline, and submit. " +
 			"Questions are auto-detected (lines ending with '?' or containing 'Default:'). " +
@@ -446,15 +446,6 @@ export default function (pi: ExtensionAPI) {
 			if (purpose === "questions") {
 				if (result.action === "approved") {
 					const answerText = result.answers || "(no answers provided)";
-
-					piRef.sendMessage(
-						{
-							customType: "plan-viewer-answers",
-							content: `Here are my answers:\n\n${answerText}`,
-							display: true,
-						},
-						{ deliverAs: "followUp" as any, triggerTurn: true },
-					);
 
 					return {
 						content: [{
@@ -505,28 +496,11 @@ export default function (pi: ExtensionAPI) {
 						approvalContent += `\n\n✅ Grill-me interview complete (${grill.turns.length} decisions recorded — honor them exactly).`;
 					}
 				}
-				piRef.sendMessage(
-					{
-						customType: "plan-approved",
-						content: approvalContent,
-						display: true,
-					},
-					{ deliverAs: "followUp" as any, triggerTurn: true },
-				);
 
 				return {
 					content: [{
 						type: "text" as const,
-						text: (() => {
-						let msg = `Plan approved by user.${modifiedNote} The updated plan has been saved to ${file_path}.`;
-						if (grillEnabled && grill) {
-							const unres = grill.turns.filter((t3) => t3.decisionStatus !== "resolved").length;
-							if (grill.turns.length === 0) msg += " Grill-me armed but no questions asked yet — run the required design interview before implementing.";
-							else if (unres > 0) msg += ` Grill-me has ${unres} unresolved question(s) to resolve first.`;
-							else msg += ` Grill-me complete: ${grill.turns.length} decisions recorded.`;
-						}
-						return msg;
-					})(),
+						text: `${approvalContent}\n\nThe updated plan has been saved to ${file_path}.`,
 					}],
 					details: {
 						action: "approved" as const,

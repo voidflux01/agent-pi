@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
-import { isToolkitCliAgent, TOOLKIT_WORKER_MODEL } from "./toolkit-cli.ts";
+import { isToolkitCliAgent, TOOLKIT_CLI_AGENTS, TOOLKIT_WORKER_MODEL, toolkitRuntimeName } from "./toolkit-cli.ts";
 
 export interface AgentDef {
 	name: string;
@@ -227,15 +227,32 @@ export function scanAgentDefs(
 	], modelsConfig);
 }
 
+/** Built-in toolkit CLIs so TEAM / subagent_create work without toolkit/*.md. */
+export function builtinToolkitAgentDefs(): AgentDef[] {
+	return [...TOOLKIT_CLI_AGENTS].map((name) => ({
+		name,
+		description: `External ${toolkitRuntimeName(name) || name} CLI runtime`,
+		tools: "read,bash,grep,find,ls",
+		model: TOOLKIT_WORKER_MODEL,
+		systemPrompt: `You are the ${name} external coding-agent CLI. Complete the assigned task and print the answer.`,
+		file: `builtin:${name}`,
+	}));
+}
+
 export function scanToolkitAgentDefs(
 	cwd: string,
 	extProjectDir?: string,
 	modelsConfig?: AgentModelsConfig,
 ): Map<string, AgentDef> {
-	return scanAgentDirsInternal([
+	const agents = scanAgentDirsInternal([
 		join(cwd, ".pi", "agents", "toolkit"),
 		...(extProjectDir ? [join(extProjectDir, ".pi", "agents", "toolkit")] : []),
 	], modelsConfig);
+	for (const def of builtinToolkitAgentDefs()) {
+		const key = def.name.toLowerCase();
+		if (!agents.has(key)) agents.set(key, def);
+	}
+	return agents;
 }
 
 /**

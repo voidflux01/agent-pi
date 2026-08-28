@@ -26,3 +26,33 @@ describe("grill tools bind the execute context", () => {
 		expect(src).toContain("Do not implement yet.");
 	});
 });
+
+describe("viewer tools do not queue a second approval turn", () => {
+	const planSrc = readFileSync(join(extDir, "plan-viewer.ts"), "utf8");
+	const specSrc = readFileSync(join(extDir, "spec-viewer.ts"), "utf8");
+
+	function sliceToolThenCommand(src: string, commandName: string): { tool: string; command: string } {
+		const commandIdx = src.indexOf(`pi.registerCommand("${commandName}"`);
+		expect(commandIdx).toBeGreaterThan(0);
+		return { tool: src.slice(0, commandIdx), command: src.slice(commandIdx) };
+	}
+
+	it("show_plan returns the approval in the tool result, not a follow-up", () => {
+		const { tool, command } = sliceToolThenCommand(planSrc, "plan");
+		expect(tool).not.toContain('customType: "plan-approved"');
+		expect(tool).not.toContain('customType: "plan-viewer-answers"');
+		expect(tool).toContain("Proceed with implementation.");
+		expect(tool).toContain("The updated plan has been saved to");
+		expect(command).toContain('customType: "plan-approved"');
+		expect(command).toContain('deliverAs: "followUp"');
+	});
+
+	it("show_spec returns the approval in the tool result, not a follow-up", () => {
+		const { tool, command } = sliceToolThenCommand(specSrc, "spec");
+		expect(tool).not.toContain('customType: "spec-approved"');
+		expect(tool).not.toContain('customType: "spec-changes-requested"');
+		expect(tool).toContain("Proceed with implementation.");
+		expect(command).toContain('customType: "spec-approved"');
+		expect(command).toContain('deliverAs: "followUp"');
+	});
+});

@@ -10,8 +10,9 @@ import {
 	toolkitRuntimeName,
 	toolkitVisibleCommandLine,
 	spawnToolkitWorker,
+	toolkitBareMode,
 } from "../lib/toolkit-cli.ts";
-import { resolveAgentModelString, type AgentModelsConfig } from "../lib/agent-defs.ts";
+import { resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "../lib/agent-defs.ts";
 
 describe("toolkit CLI agent detection", () => {
 	it("refuses to spawn outside an explicit dispatch context", async () => {
@@ -87,15 +88,23 @@ describe("external runtime result parsing", () => {
 			'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"pon"}],"usage":{"input":9}}}',
 			'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"g"}],"usage":{"input":9,"output":1,"cacheRead":4,"cacheWrite":0,"totalTokens":10,"cost":{"total":0.5}}}}',
 		].join("\n");
-		const { text, usage } = parseToolkitResult("omp-agent", raw);
+		const { text, usage, model } = parseToolkitResult("omp-agent", raw);
 		expect(text).toBe("pong");
 		expect(usage).toEqual({ input: 9, output: 1, cacheRead: 4, cacheWrite: 0, totalTokens: 10, costUsd: 0.5 });
+		expect(model).toBeUndefined();
 	});
 
 	it("surfaces omp stream errors as result text", () => {
 		const raw = '{"type":"error","error":{"name":"UnknownError","data":{"message":"boom"}}}';
 		const { text } = parseToolkitResult("omp-agent", raw);
 		expect(text).toContain("[omp-agent error] boom");
+	});
+
+	it("records provider/model from assistant message_end", () => {
+		const raw = '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"PONG"}],"provider":"opencode-go","model":"deepseek-v4-flash","usage":{"totalTokens":10,"cost":{"total":0.1}}}}';
+		const { text, model } = parseToolkitResult("omp-agent", raw);
+		expect(text).toBe("PONG");
+		expect(model).toBe("opencode-go/deepseek-v4-flash");
 	});
 
 	it("parses prime-agent assistant message_end only (ignores echoed user message)", () => {
@@ -129,10 +138,41 @@ describe("visible external runtime helpers", () => {
 		expect(argv[0]).toBe("bash");
 		const script = argv[2];
 		expect(script).toContain("omp -p --mode json");
+		expect(script).not.toContain("--no-extensions");
 		expect(script).toContain("tee /tmp/x/out.raw");
+		const titled = toolkitVisibleCommandLine("omp-agent", "do it", "/tmp/x", "/tmp/x/out.raw", "omp-sa1");
+		expect(titled[2]).toContain("omp-sa1");
+		expect(titled[2]).toContain("\\033]0;");
+	});
+
+	it("adds --no-extensions --no-skills only when PI_TOOLKIT_BARE=1", () => {
+		expect(toolkitBareMode()).toBe(false);
+		const prev = process.env.PI_TOOLKIT_BARE;
+		process.env.PI_TOOLKIT_BARE = "1";
+		try {
+			expect(toolkitBareMode()).toBe(true);
+			const script = toolkitVisibleCommandLine("omp-agent", "t", undefined, "/tmp/o.raw")[2];
+			expect(script).toContain("--no-extensions");
+			expect(script).toContain("--no-skills");
+			const prime = toolkitVisibleCommandLine("prime-agent", "t", undefined, "/tmp/o.raw")[2];
+			expect(prime).toContain("-ne");
+			expect(prime).toContain("-ns");
+		} finally {
+			if (prev === undefined) delete process.env.PI_TOOLKIT_BARE;
+			else process.env.PI_TOOLKIT_BARE = prev;
+		}
 	});
 
 	it("returns empty command for unknown agents (falls back headless)", () => {
 		expect(toolkitVisibleCommandLine("mystery-agent", "t", undefined, "/tmp/o.raw")).toEqual([]);
+	});
+});
+
+describe("builtin toolkit agent defs", () => {
+	it("exposes omp-agent and prime-agent without toolkit markdown files", () => {
+		const defs = scanToolkitAgentDefs("/tmp/does-not-exist-agent-pi-toolkit");
+		expect(defs.get("omp-agent")?.name).toBe("omp-agent");
+		expect(defs.get("prime-agent")?.name).toBe("prime-agent");
+		expect(defs.get("omp-agent")?.file).toBe("builtin:omp-agent");
 	});
 });

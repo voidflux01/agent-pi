@@ -88,6 +88,16 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content).not.toContain("Do not read this file unless");
 	});
 
+	test("skipContract treats raw toolkit output as the result", () => {
+		const out = composeAgentResult({ ...base, outputText: "PONG", skipContract: true });
+		expect(out.usedResult).toBe(true);
+		expect(out.contractProblems).toEqual([]);
+		expect(out.content).toContain("PONG");
+		expect(out.content).not.toContain("no ## RESULT block found");
+		expect(out.content).not.toContain("⚠️");
+		expect(out.content).toContain("Do not read this file unless");
+	});
+
 	test("PI_RESULT_CONTRACT_GATE=0 silences the line but keeps problems", () => {
 		process.env.PI_RESULT_CONTRACT_GATE = "0";
 		try {

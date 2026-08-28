@@ -55,10 +55,37 @@ are not a unit.
 - `show_plan` no longer auto-arms grill-me; pass `grill: true` to opt in.
   When grill is armed and unfinished, the approval follow-up says not to
   implement yet.
-- `set_mode` returns its success result before aborting the stale turn, so
-  the TUI does not show `This operation was aborted` as the tool error.
+- `set_mode` no longer aborts the current turn or injects
+  `Continue the task in PLAN mode.` The next provider request in the same
+  run gets the new mode system prompt. PLAN's scout rule is one line:
+  scout unless you already know the single file to change.
 - Viewer open is also a display message plus a status line with the token URL.
 - `tasks` tool text states that only one task can be inprogress at a time.
+- `show_plan` / `show_spec` no longer send a `plan-approved` / `spec-approved`
+  follow-up after the tool result. The current turn continues from the
+  result; a queued follow-up used to pop `[plan-approved]` after
+  implementation finished. `/plan` and `/spec` still inject a follow-up
+  because they have no tool result.
+
+### Toolkit / multi-harness runtimes
+
+- `subagent_create` for `omp-agent` / `prime-agent` (and other toolkit CLIs)
+  uses the same Herdr sibling pane as TEAM dispatch, then falls back
+  headless.
+- Built-in toolkit agent defs so TEAM lists `omp-agent` and `prime-agent`
+  without `.pi/agents/toolkit/*.md`.
+- Journal records the stream's real `provider/model`, not the dummy Haiku
+  worker model, and omits a pi `sessionFile` that those CLIs never write.
+- External runtimes skip the `## RESULT` contract warning; parent-visible
+  output is the CLI text.
+- Background subagent results inject as `steer` after the current tool
+  batch, so a parent that keeps polling no longer blocks the result turn.
+- Child env no longer forwards `PI_CODING_AGENT_DIR` / `PI_PACKAGE_DIR`,
+  so omp / prime use their own homes instead of the parent `~/.pi/agent`.
+  Their extensions and skills stay on; set `PI_TOOLKIT_BARE=1` to pass
+  `--no-extensions --no-skills` (prime: `-ne -ns`). Journal run ids
+  include a unique suffix; updates patch the last matching row. Herdr
+  toolkit panes set an OSC title from the role name.
 
 ### Flash first-turn still has PLAN/scout tools
 

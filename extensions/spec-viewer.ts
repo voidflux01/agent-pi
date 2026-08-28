@@ -509,19 +509,10 @@ export default function (pi: ExtensionAPI) {
 						? " (spec was edited by user — use the updated version)"
 						: "";
 
-					piRef.sendMessage(
-						{
-							customType: "spec-approved",
-							content: `Spec approved! Proceed with implementation.${modifiedNote}`,
-							display: true,
-						},
-						{ deliverAs: "followUp" as any, triggerTurn: true },
-					);
-
 					return {
 						content: [{
 							type: "text" as const,
-							text: `Spec approved by user.${modifiedNote} Modified files have been saved.`,
+							text: `Spec approved! Proceed with implementation.${modifiedNote} Modified files have been saved.`,
 						}],
 						details: {
 							action: "approved" as const,
@@ -537,15 +528,6 @@ export default function (pi: ExtensionAPI) {
 					const modifiedNote = result.modified
 						? "\n\nNote: Some documents were also edited inline — check the updated files."
 						: "";
-
-					piRef.sendMessage(
-						{
-							customType: "spec-changes-requested",
-							content: `Changes requested on the spec. Here are the comments:\n\n${commentSummary}${modifiedNote}`,
-							display: true,
-						},
-						{ deliverAs: "followUp" as any, triggerTurn: true },
-					);
 
 					return {
 						content: [{
