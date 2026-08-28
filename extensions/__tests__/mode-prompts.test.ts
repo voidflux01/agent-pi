@@ -49,8 +49,9 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).toContain("Never spawn four scouts by default");
 	});
 
-	it("requires bounded read-only scout findings", () => {
+	it("uses the shared dispatch path for scout findings", () => {
 		expect(PLAN_PROMPT).toContain("read-only scout");
+		expect(PLAN_PROMPT).toContain("dispatch_agent");
 		expect(PLAN_PROMPT).toContain("file paths only");
 	});
 

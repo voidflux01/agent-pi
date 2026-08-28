@@ -78,6 +78,8 @@ export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work th
 - Narrow multi-file work: use at most one focused read-only scout when it saves time.
 - Broad work: choose the smallest number of scouts that cover independent areas. Never spawn four scouts by default.
 - A scout reports facts and file paths only. You synthesize the findings and remain responsible for the plan.
+- If reconnaissance is useful, use the same dispatch path as TEAM:
+  \`dispatch_agent { agent: "scout", task: "Bounded read-only reconnaissance" }\`
 
 ## Plan workflow
 1. Understand the request and inspect the relevant code.
