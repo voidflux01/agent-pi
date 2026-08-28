@@ -232,6 +232,8 @@ export default function (pi: ExtensionAPI) {
 	let listDescription: string | undefined;
 	let nudgedThisCycle = false;
 	let syncState: SyncState = emptySyncState();
+	// Queue tasks added while the initial Commander group request is in flight.
+	let pendingGroupTaskIds: number[] = [];
 
 	// ── Commander sync (gate-aware) ─────────────────────────────────────
 
@@ -377,6 +379,26 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" as const };
 	});
 
+	function syncTasksAddedAfterGroupCreation(localIds: number[]): void {
+		for (const localId of localIds) {
+			syncToCommander("task-create-after-group", async (client) => {
+				const task = tasks.find((candidate) => candidate.id === localId);
+				const groupId = syncState.groupId;
+				if (!task || groupId === undefined || lookupMapping(syncState, localId) !== undefined) return;
+				const res = await client.callTool("commander_task", {
+					operation: "create",
+					description: task.text,
+					working_directory: process.cwd(),
+					group_id: groupId,
+				});
+				const commanderId = parseCommanderTaskId(res);
+				if (commanderId === undefined) throw new Error("Commander did not return a task id");
+				syncState = addMapping(syncState, localId, commanderId);
+				syncState = updateMappingStatus(syncState, localId, task.status);
+			});
+		}
+	}
+
 	// ── Register tasks tool ────────────────────────────────────────────
 
 	pi.registerTool({
@@ -429,6 +451,7 @@ export default function (pi: ExtensionAPI) {
 					listTitle = params.text;
 					listDescription = params.description || undefined;
 					syncState = emptySyncState();
+					pendingGroupTaskIds = [];
 
 					// Group creation deferred to first `add` — avoids empty tasks[] rejection
 
@@ -494,6 +517,8 @@ export default function (pi: ExtensionAPI) {
 									for (const lid of localIds) {
 										syncState = updateMappingStatus(syncState, lid, "idle");
 									}
+									const queuedIds = pendingGroupTaskIds.splice(0);
+									syncTasksAddedAfterGroupCreation(queuedIds);
 								} else {
 									syncState = { ...syncState, groupCreationInFlight: false };
 								}
@@ -517,9 +542,9 @@ export default function (pi: ExtensionAPI) {
 									}
 								});
 							}
+						} else if (syncState.groupCreationInFlight) {
+							pendingGroupTaskIds.push(...added.map((task) => task.id));
 						}
-						// If groupCreationInFlight but no groupId yet, tasks are dropped
-						// (race window — the group:create hasn't returned yet)
 					}
 
 					const msg = added.length === 1
@@ -666,6 +691,7 @@ export default function (pi: ExtensionAPI) {
 						};
 					}
 					const removed = tasks.splice(idx, 1)[0];
+					pendingGroupTaskIds = pendingGroupTaskIds.filter((localId) => localId !== removed.id);
 
 					// Sync: cancel Commander task (skip if external sync owns it)
 					if (!isExternalSyncActive()) {
@@ -751,6 +777,7 @@ export default function (pi: ExtensionAPI) {
 
 					tasks = [];
 					nextId = 1;
+					pendingGroupTaskIds = [];
 					listTitle = undefined;
 					listDescription = undefined;
 					syncState = clearMappings(syncState);

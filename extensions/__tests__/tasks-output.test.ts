@@ -27,6 +27,12 @@ describe("tasks output formatting", () => {
 		expect(tasksSource).toContain("task-validation");
 	});
 
+	it("queues tasks added while Commander creates the initial group", () => {
+		expect(tasksSource).toContain("pendingGroupTaskIds");
+		expect(tasksSource).toContain("syncTasksAddedAfterGroupCreation");
+		expect(tasksSource).not.toContain("tasks are dropped");
+	});
+
 	it("should mention task validation in ABOUTME comment", () => {
 		const aboutmeLines = tasksSource.split("\n").slice(0, 3);
 		const aboutme = aboutmeLines.join("\n");
