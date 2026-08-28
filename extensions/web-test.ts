@@ -532,7 +532,7 @@ export default function (pi: ExtensionAPI) {
 					result = await doScreenshot(cfg, url, ctx.cwd, {});
 					break;
 				case "content":
-					result = await doContent(cfg, url, { selector: parts[2] });
+					result = await doContent(cfg, url, { selector: parts.length > 2 ? parts.slice(2).join(" ") : undefined });
 					break;
 				case "a11y":
 					result = await doA11y(cfg, url);
