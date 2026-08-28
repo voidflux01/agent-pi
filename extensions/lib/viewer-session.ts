@@ -10,6 +10,8 @@ export interface ActiveViewerSession {
 	kind: ActiveViewerKind;
 	title: string;
 	url: string;
+	/** Tokenized launch URL when the public `url` is not enough to load the page. */
+	launchUrl?: string;
 	server: Server;
 	onClose: () => void;
 }
@@ -46,5 +48,5 @@ export function closeActiveViewer(): { closed: boolean; kind?: ActiveViewerKind;
 }
 
 export function notifyViewerOpen(ctx: ExtensionContext, session: ActiveViewerSession): void {
-	if (ctx.hasUI) ctx.ui.notify(`${session.title} opened at ${session.url}`, "info");
+	if (ctx.hasUI) ctx.ui.notify(`${session.title} opened at ${session.launchUrl || session.url}`, "info");
 }

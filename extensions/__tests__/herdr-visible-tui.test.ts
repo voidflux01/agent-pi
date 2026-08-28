@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -289,6 +289,13 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
 		expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
 		expect(src).not.toMatch(/command:\s*\[spec\.command\[0\]/);
+	});
+
+	it("labels herdr panes with the subagent role", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain("herdrWorkerLabel(state.name");
+		expect(src).toContain("PI_PANE_TITLE: paneTitle");
+		expect(herdrWorkerLabel("scout", "sa1")).toBe("scout-sa1");
 	});
 
 	it("opens workers via createHerdrTaskTab which prefers a sibling split", () => {

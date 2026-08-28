@@ -47,7 +47,7 @@ import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { herdrEnabledAsync, ensureHerdrWorkspaceAsync, createHerdrTaskTabAsync, sendCommandToPaneAsync, closeHerdrTabAsync, shellQuote, writeLaunchScript, pollDoneFileAsync, waitForLaunchStart, readLastAssistantText,
-	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, type HerdrTabRef } from "./lib/herdr-client.ts";
+	sessionUsage, cleanupLaunchFiles, launchDonePath, visiblePiTuiArgs, registerHerdrPane, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
@@ -670,9 +670,11 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise((resolve) => {
 			// Build env — include Commander task ID when available
+			const paneTitle = herdrWorkerLabel(state.def.name, journalId);
 			const spawnEnv: Record<string, string | undefined> = childEnvironment({
 				PI_SUBAGENT: "1",
 				PI_AGENT_NAME: displayName(state.def.name).toLowerCase(),
+				PI_PANE_TITLE: paneTitle,
 				PI_SESSION_FILE: state.sessionFile || undefined,
 			});
 			if (commanderAvailable) {
@@ -849,7 +851,7 @@ export default function (pi: ExtensionAPI) {
 								const argvVisible = toolkitVisibleCommandLine(state.def.name, extTask, runCwd, rawPath);
 								if (argvVisible.length > 0) {
 									const refs = writeLaunchScript({ dir: sessionDir, id: journalId, cwd: runCwd, command: argvVisible, env: { ...spawnEnv, PI_SUBAGENT: "1" } });
-									const tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${journalId}`);
+									const tab = await createHerdrTaskTabAsync(wsId, runCwd, paneTitle);
 									if (tab) {
 										state.proc = { kill: () => { toolkitHerdrCancelled = true; void closeHerdrTabAsync(tab); } };
 										const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
@@ -905,7 +907,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: journalId,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
-				herdrLabel: `ap-${journalId}`,
+				herdrLabel: paneTitle,
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
 				isAborted: () => runEpoch !== sessionEpoch,

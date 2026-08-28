@@ -37,7 +37,7 @@ import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispa
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
-import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
@@ -351,9 +351,11 @@ export default function (pi: ExtensionAPI) {
 		// Mailbox identity must follow the visible SA id, not the role name:
 		// multiple SCOUT/BUILDER workers can run at the same time.
 		const mailboxAgent = `sa${state.id}`;
+		const paneTitle = herdrWorkerLabel(state.name, `sa${state.id}`);
 		const spawnEnv: Record<string, string | undefined> = childEnvironment({
 			PI_SUBAGENT: "1",
 			PI_AGENT_NAME: mailboxAgent,
+			PI_PANE_TITLE: paneTitle,
 			PI_SESSION_FILE: state.sessionFile,
 		});
 		if (commanderAvail && cmdTaskId !== undefined) {
@@ -563,7 +565,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: `sa${state.id}`,
 				sessionFile: state.sessionFile,
 				herdrDoneExtPath,
-				herdrLabel: `ap-sa${state.id}`,
+				herdrLabel: paneTitle,
 				herdrPaneKey: `sa-${state.id}`,
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				isAborted: () => spawnEpoch !== sessionEpoch,

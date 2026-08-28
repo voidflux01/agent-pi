@@ -30,13 +30,15 @@ function request(cookie?: string) {
 }
 
 describe("local viewer capability auth", () => {
-	it("accepts the launch token and then the HttpOnly cookie", () => {
+	it("accepts the launch token on the first request and then the HttpOnly cookie", () => {
 		const auth = createLocalServerAuth();
 		const first = responseMock();
-		expect(authorizeLocalServerRequest(request(), first as any, auth, new URL(`http://127.0.0.1/?token=${auth.token}`))).toBe(false);
-		expect(first.status).toBe(302);
+		// Serve HTML on the token URL. A 302 to "/" races Set-Cookie and leaves
+		// Chrome on a blank 401 page.
+		expect(authorizeLocalServerRequest(request(), first as any, auth, new URL(`http://127.0.0.1/?token=${auth.token}`))).toBe(true);
+		expect(first.status).toBe(0);
 		expect(first.headers.get("Set-Cookie")).toContain("HttpOnly");
-		expect(first.headers.get("Location")).toBe("/");
+		expect(first.headers.get("Location")).toBeUndefined();
 		const next = responseMock();
 		expect(authorizeLocalServerRequest(request(`pi_viewer_token=${auth.token}`), next as any, auth, new URL("http://127.0.0.1/save"))).toBe(true);
 	});

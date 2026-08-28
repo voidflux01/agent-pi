@@ -6,6 +6,7 @@ import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
 import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { coordinationState, setCoordinationMode, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
@@ -18,6 +19,7 @@ const MODE_FILE = "/tmp/pi-current-mode.txt";
 export default function (pi: ExtensionAPI) {
 	// The extension owns the session mode; initialize the shared bus once per registration.
 	setCoordinationMode("NORMAL");
+	installPinnedToolSurface(pi);
 
 
 	function updateWidgets(mode: Mode, ctx: ExtensionContext) {

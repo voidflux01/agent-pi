@@ -13,6 +13,26 @@ screen. Finished workers close only that pane — never the parent's tab.
 Falls back to a background tab if split is unavailable, and to headless if
 Herdr is absent. Opt out of splits with `PI_HERDR_SPLIT=0`.
 
+### Plan viewer empty tab
+
+`show_plan` used to 302 from `/?token=…` to `/` after Set-Cookie. Chrome often
+follows the redirect before the cookie is stored, so the tab lands on a blank
+401 page. The token URL now serves the plan on the first request; the TUI
+prints that same launch link.
+
+### Subagent pane titles show the role
+
+Herdr sibling panes were titled `π - security-guard` because the child's first
+`-e` flag is security-guard. Workers now pass `PI_PANE_TITLE` / `herdrLabel`
+like `scout-sa1`. Opt out of first-turn tool pinning with
+`PI_PIN_ORCHESTRATION_TOOLS=0`.
+
+### Flash first-turn still has PLAN/scout tools
+
+`pi-deepseek-route` narrows Flash to read/write/edit/bash on turn 1, which hid
+`set_mode`, `tasks`, `subagent_create`, and `show_plan`. agent-pi now pins those
+back onto the active surface for the first turn, then restores the full set.
+
 ## [2.2.0] — 2026-08-27
 
 ### Deterministic RESULT-Contract Gate

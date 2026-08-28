@@ -388,6 +388,13 @@ export function ensureHerdrWorkspace(label: string, cwd: string): string | null 
 	}
 }
 
+/** Herdr pane label that includes the role, e.g. `scout-sa1`. */
+export function herdrWorkerLabel(role: string, id: string): string {
+	const r = String(role || "agent").trim().replace(/\s+/g, "-").slice(0, 24) || "agent";
+	const i = String(id || "").trim().replace(/\s+/g, "-").slice(0, 40);
+	return i ? `${r}-${i}` : r;
+}
+
 /**
  * Wide panes split to the right so parent and child sit side by side;
  * tall or already-narrow panes split down to avoid unusable columns.

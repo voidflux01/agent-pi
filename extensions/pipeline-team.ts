@@ -27,7 +27,7 @@ import {
 	matchesKey, Key, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
-import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -487,13 +487,14 @@ export default function (pi: ExtensionAPI) {
 				env: childEnvironment({
 					PI_SUBAGENT: "1",
 					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
+					PI_PANE_TITLE: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 					PI_SESSION_FILE: agentSessionFile || undefined,
 				}),
 				launchDir: sessionDir,
 				launchId: journalId,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
-				herdrLabel: `ap-${journalId}`,
+				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
 				onProcess: (child) => { agentState.proc = child as any; },

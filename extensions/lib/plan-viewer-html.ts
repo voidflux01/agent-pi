@@ -1613,6 +1613,11 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
   });
 
   // ── Init ──────────────────────────────────────
+  try {
+    if (location.search.indexOf("token=") >= 0) {
+      history.replaceState(null, "", location.pathname + location.hash);
+    }
+  } catch (e) {}
   render();
 
   // Focus first answer input in questions mode

@@ -118,8 +118,7 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
  *
  * Returns null if no -e flag is present (e.g. plain `pi` with no extensions).
  */
-function primaryExtensionName(): string | null {
-	const argv = process.argv;
+function primaryExtensionName(argv: string[] = process.argv): string | null {
 	for (let i = 0; i < argv.length - 1; i++) {
 		if (argv[i] === "-e" || argv[i] === "--extension") {
 			return basename(argv[i + 1]).replace(/\.[^.]+$/, "");
@@ -129,17 +128,32 @@ function primaryExtensionName(): string | null {
 }
 
 /**
- * Set the terminal title to "π - <first-extension-name>" on session boot.
- * Reads the title from process.argv so all stacked extensions agree on the
- * same value — no coordination or shared state required.
- *
+ * Visible OSC title. Subagent panes pass PI_PANE_TITLE so herdr shows the
+ * role (scout-sa1) instead of the first stacked extension (security-guard).
+ */
+export function extensionTerminalTitle(
+	argv: string[] = process.argv,
+	env: NodeJS.ProcessEnv = process.env,
+): string | null {
+	const pane = env.PI_PANE_TITLE?.trim();
+	if (pane) return `π - ${pane}`;
+	if (env.PI_SUBAGENT === "1") {
+		const agent = env.PI_AGENT_NAME?.trim();
+		if (agent) return `π - ${agent}`;
+	}
+	const name = primaryExtensionName(argv);
+	return name ? `π - ${name}` : null;
+}
+
+/**
+ * Set the terminal title on session boot.
  * Deferred 150 ms to fire after Pi's own startup title-set.
  */
 function applyExtensionTitle(ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
-	const name = primaryExtensionName();
-	if (!name) return;
-	setTimeout(() => ctx.ui.setTitle(`π - ${name}`), 150);
+	const title = extensionTerminalTitle();
+	if (!title) return;
+	setTimeout(() => ctx.ui.setTitle(title), 150);
 }
 
 // ── Combined default ───────────────────────────────────────────────────────

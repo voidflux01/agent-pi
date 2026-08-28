@@ -76,23 +76,26 @@ export function authorizeLocalServerRequest(
 	const queryToken = url.searchParams.get("token");
 	const candidate = queryToken || cookieValue(req.headers.cookie);
 	if (!tokenMatches(auth.token, candidate)) {
-		res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
-		res.end("Unauthorized");
+		res.writeHead(401, {
+			"Content-Type": "text/html; charset=utf-8",
+			"Cache-Control": "no-store",
+		});
+		res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Viewer</title></head>
+<body style="margin:0;background:#1a1d23;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:48px 24px;line-height:1.5">
+<h1 style="font-size:20px;margin:0 0 12px">This viewer did not load</h1>
+<p style="color:#8892a0;max-width:36em">The address has no valid token. Pi opens a local link that includes <code>?token=</code>. Open that link from the Pi session, or run the viewer command again. Reloading <code>http://127.0.0.1:…/</code> after the token was stripped will stay empty.</p>
+</body></html>`);
 		return false;
 	}
 
 	res.setHeader("Cache-Control", "no-store");
 	res.setHeader("Referrer-Policy", "no-referrer");
 	if (queryToken) {
-		// Exchange the one-time URL capability for an HttpOnly cookie, then
-		// redirect so the token is not retained in browser history or address bars.
+		// Set the cookie for later POSTs, but serve this request immediately.
+		// A 302 to the token-less path races Set-Cookie: Chrome often follows
+		// Location before the cookie is stored, so the next GET is 401 and the
+		// tab looks empty.
 		res.setHeader("Set-Cookie", auth.cookie);
-		const cleanUrl = new URL(url.toString());
-		cleanUrl.searchParams.delete("token");
-		res.setHeader("Location", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
-		res.writeHead(302);
-		res.end();
-		return false;
 	}
 	return true;
 }

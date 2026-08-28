@@ -231,6 +231,7 @@ export default function (pi: ExtensionAPI) {
 			kind: purpose,
 			title: purpose === "questions" ? "Questions viewer" : "Plan viewer",
 			url,
+			launchUrl,
 			server,
 			onClose: () => {
 				activeServer = null;
