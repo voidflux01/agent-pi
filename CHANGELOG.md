@@ -17,8 +17,10 @@ Herdr is absent. Opt out of splits with `PI_HERDR_SPLIT=0`.
 
 `show_plan` used to 302 from `/?token=…` to `/` after Set-Cookie. Chrome often
 follows the redirect before the cookie is stored, so the tab lands on a blank
-401 page. The token URL now serves the plan on the first request; the TUI
-prints that same launch link.
+401 page. The token URL now serves the page on the first request. The TUI now
+prints that same launch link for every token-auth viewer (plan, spec,
+file, board, reports, research, sounds, cleanup, security, completion),
+not only `show_plan`. `web-chat` is PIN-gated and unchanged.
 
 ### Subagent pane titles show the role
 

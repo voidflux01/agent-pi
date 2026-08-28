@@ -182,6 +182,7 @@ export default function (pi: ExtensionAPI) {
         kind: "report",
         title: report.title,
         url,
+        launchUrl,
         server,
         onClose: () => {
           activeServer = null;

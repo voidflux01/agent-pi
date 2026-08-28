@@ -539,6 +539,7 @@ export default function (pi: ExtensionAPI) {
 			kind: "report" as const,
 			title: "Disk Cleanup",
 			url,
+			launchUrl,
 			server,
 			onClose: () => { activeServer = null; activeSession = null; },
 		};

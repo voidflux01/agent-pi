@@ -324,6 +324,7 @@ export default function (pi: ExtensionAPI) {
 			kind: "sounds" as const,
 			title: "Sound Browser",
 			url,
+			launchUrl,
 			server,
 			onClose: () => { activeServer = null; activeSession = null; },
 		};

@@ -530,6 +530,7 @@ export default function (pi: ExtensionAPI) {
 				kind: "report",
 				title,
 				url,
+				launchUrl,
 				server,
 				onClose: () => {
 					activeServer = null;
@@ -657,6 +658,7 @@ export default function (pi: ExtensionAPI) {
 				kind: "report",
 				title: "Completion Report",
 				url,
+				launchUrl,
 				server,
 				onClose: () => {
 					activeServer = null;

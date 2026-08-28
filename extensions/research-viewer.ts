@@ -149,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 		const url = `http://127.0.0.1:${port}`;
 		const launchUrl = `${url}/?token=${encodeURIComponent(auth.token)}`;
 		openBrowser(launchUrl);
-		if (ctx.hasUI) ctx.ui.notify(`Research browser opened at ${url}`, "info");
+		if (ctx.hasUI) ctx.ui.notify(`Research browser opened at ${launchUrl}`, "info");
 		try {
 			await waitForResult();
 		} finally {

@@ -404,6 +404,7 @@ export default function (pi: ExtensionAPI) {
 			kind: "spec",
 			title: "Spec viewer",
 			url,
+			launchUrl,
 			server,
 			onClose: () => {
 				activeServer = null;

@@ -260,6 +260,7 @@ export default function (pi: ExtensionAPI) {
 			kind: "board",
 			title,
 			url,
+			launchUrl,
 			server,
 			onClose: () => {
 				activeServer = null;
@@ -272,7 +273,7 @@ export default function (pi: ExtensionAPI) {
 		openBrowser(launchUrl);
 		notifyViewerOpen(ctx, activeSession);
 
-		return url;
+		return launchUrl;
 	}
 
 	// ── show_board tool ──────────────────────────────────────────────

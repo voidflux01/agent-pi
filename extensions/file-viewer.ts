@@ -269,6 +269,7 @@ export default function (pi: ExtensionAPI) {
 			kind: "file",
 			title: "File viewer",
 			url,
+			launchUrl,
 			server,
 			onClose: () => {
 				activeServer = null;

@@ -50,3 +50,9 @@ export function closeActiveViewer(): { closed: boolean; kind?: ActiveViewerKind;
 export function notifyViewerOpen(ctx: ExtensionContext, session: ActiveViewerSession): void {
 	if (ctx.hasUI) ctx.ui.notify(`${session.title} opened at ${session.launchUrl || session.url}`, "info");
 }
+
+/** Loopback origin plus the one-time capability URL that actually loads the page. */
+export function localViewerLaunch(port: number, token: string): { url: string; launchUrl: string } {
+	const url = `http://127.0.0.1:${port}`;
+	return { url, launchUrl: `${url}/?token=${encodeURIComponent(token)}` };
+}
