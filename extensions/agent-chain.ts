@@ -34,6 +34,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
@@ -209,7 +210,7 @@ export default function (pi: ExtensionAPI) {
 
 	function activateChain(chain: ChainDef) {
 		activeChain = chain;
-		(globalThis as any).__piActiveChain = chain.name;
+		setActiveChain(chain.name);
 		selectedStepIndex = -1;
 		stepStates = chain.steps.map(s => {
 			const agentDef = allAgents.get(s.agent.toLowerCase());
@@ -1021,7 +1022,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Mode gate: only the explicitly selected mode may inject this prompt
-		const mode = (globalThis as any).__piCurrentMode;
+		const mode = coordinationState().mode;
 		if (!modePromptMatches(mode, "CHAIN")) return {};
 
 		if (!activeChain) return {};
@@ -1052,7 +1053,7 @@ export default function (pi: ExtensionAPI) {
 			})
 			.join("\n\n");
 
-		const commanderAvailable = !!(globalThis as any).__piCommanderAvailable;
+		const commanderAvailable = isCommanderAvailable();
 		const commanderSection = commanderAvailable ? `
 
 ## Commander Integration (REQUIRED)
@@ -1294,7 +1295,7 @@ ${agentCatalog}
 		// Reset execution state — widget re-registration deferred to before_agent_start
 		stepStates = [];
 		activeChain = null;
-		(globalThis as any).__piActiveChain = null;
+		setActiveChain(null);
 		selectedStepIndex = -1;
 		pendingReset = true;
 

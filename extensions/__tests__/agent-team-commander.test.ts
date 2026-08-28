@@ -2,6 +2,7 @@
 // ABOUTME: Validates pre-dispatch claim and post-dispatch reconciliation logic.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { commanderAvailable, commanderClient, setCommanderClient, setCommanderState } from "../lib/coordination-state.ts";
 
 // ── Types mirroring agent-team internals ────────────────────────────
 
@@ -13,23 +14,21 @@ interface MockClient {
 
 /** Mirror of the commanderSync helper from agent-team.ts */
 function commanderSync(fn: (client: any) => Promise<void>): void {
-	const g = globalThis as any;
-	if (!g.__piCommanderAvailable || !g.__piCommanderClient) return;
-	fn(g.__piCommanderClient).catch(() => {});
+	const client = commanderClient();
+	if (!commanderAvailable() || !client) return;
+	fn(client).catch(() => {});
 }
 
 describe("commanderSync", () => {
 	beforeEach(() => {
-		const g = globalThis as any;
-		delete g.__piCommanderAvailable;
-		delete g.__piCommanderClient;
+		setCommanderClient(undefined);
+		setCommanderState("pending");
 	});
 
 	it("calls fn with client when Commander globals are set", async () => {
 		const client: MockClient = { callTool: vi.fn().mockResolvedValue({}) };
-		const g = globalThis as any;
-		g.__piCommanderAvailable = true;
-		g.__piCommanderClient = client;
+		setCommanderState("available");
+		setCommanderClient(client);
 
 		const fn = vi.fn().mockResolvedValue(undefined);
 		commanderSync(fn);
@@ -37,11 +36,10 @@ describe("commanderSync", () => {
 		expect(fn).toHaveBeenCalledWith(client);
 	});
 
-	it("no-ops when __piCommanderAvailable is false", () => {
+	it("no-ops when Commander is unavailable", () => {
 		const client: MockClient = { callTool: vi.fn() };
-		const g = globalThis as any;
-		g.__piCommanderAvailable = false;
-		g.__piCommanderClient = client;
+		setCommanderState("unavailable");
+		setCommanderClient(client);
 
 		const fn = vi.fn();
 		commanderSync(fn);
@@ -49,9 +47,9 @@ describe("commanderSync", () => {
 		expect(fn).not.toHaveBeenCalled();
 	});
 
-	it("no-ops when __piCommanderClient is missing", () => {
-		const g = globalThis as any;
-		g.__piCommanderAvailable = true;
+	it("no-ops when Commander client is missing", () => {
+		setCommanderState("available");
+		setCommanderClient(undefined);
 		// no client
 
 		const fn = vi.fn();
@@ -62,9 +60,8 @@ describe("commanderSync", () => {
 
 	it("swallows errors from fn", async () => {
 		const client: MockClient = { callTool: vi.fn() };
-		const g = globalThis as any;
-		g.__piCommanderAvailable = true;
-		g.__piCommanderClient = client;
+		setCommanderState("available");
+		setCommanderClient(client);
 
 		const fn = vi.fn().mockRejectedValue(new Error("boom"));
 		// Should not throw
@@ -106,10 +103,9 @@ describe("preDispatchClaim", () => {
 	let client: MockClient;
 
 	beforeEach(() => {
-		const g = globalThis as any;
 		client = { callTool: vi.fn().mockResolvedValue({}) };
-		g.__piCommanderAvailable = true;
-		g.__piCommanderClient = client;
+		setCommanderState("available");
+		setCommanderClient(client);
 	});
 
 	it("calls claim and mailbox send with correct args", async () => {
@@ -192,10 +188,9 @@ describe("postDispatchReconcile", () => {
 	let client: MockClient;
 
 	beforeEach(() => {
-		const g = globalThis as any;
 		client = { callTool: vi.fn().mockResolvedValue({}) };
-		g.__piCommanderAvailable = true;
-		g.__piCommanderClient = client;
+		setCommanderState("available");
+		setCommanderClient(client);
 	});
 
 	it("calls complete + mailbox on success", async () => {

@@ -31,6 +31,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
@@ -554,13 +555,14 @@ export default function (pi: ExtensionAPI) {
 
 		// Resolve tools — append commander tools when Commander is available
 		const g = globalThis as any;
-		const commanderAvailable = g.__piCommanderGate?.state === "available" && !!g.__piCommanderClient;
+		const commanderAvailable = isCommanderAvailable();
 
 		// Commander lifecycle: gate-aware fire-and-forget helper
 		function commanderSync(fn: (client: any) => Promise<void>): void {
-			const gate = g.__piCommanderGate;
-			if (!gate || gate.state !== "available" || !g.__piCommanderClient) return;
-			fn(g.__piCommanderClient).catch(() => {});
+			const gate = commanderGate();
+			const client = commanderClient();
+			if (!gate || !isCommanderAvailable() || !client) return;
+			fn(client).catch(() => {});
 		}
 
 		// Hoist for use in pre-dispatch claim + post-dispatch reconciliation
@@ -1374,14 +1376,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		// TEAM is an explicit orchestration mode. Never inject its prompt when the
 		// mode bus has not selected TEAM; NORMAL owns the default prompt.
-		const mode = (globalThis as any).__piCurrentMode;
+		const mode = coordinationState().mode;
 		if (!modePromptMatches(mode, "TEAM")) return {};
 
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` + (s.def.model ? `\n**Model:** ${s.def.model}` : ""))
 			.join("\n\n");
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-		const commanderAvailable = (globalThis as any).__piCommanderGate?.state === "available";
+		const commanderAvailable = isCommanderAvailable();
 		const commanderSection = commanderAvailable ? `
 
 ## Commander

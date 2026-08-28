@@ -4,6 +4,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
+import { commanderAvailable } from "./lib/coordination-state.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -57,9 +58,8 @@ export default function (pi: ExtensionAPI) {
 			// ── Try to call commander_agentmail via the MCP client ──
 			const g = globalThis as any;
 
-			// Check if Commander is available
-			const gate = g.__piCommanderGate;
-			if (!gate || gate.state !== "available") {
+			// Check the typed Commander capability state.
+			if (!commanderAvailable()) {
 				return {
 					content: [{ type: "text" as const, text: "Email sending failed: Commander is not connected. The send_email tool requires Commander with AgentMail configured." }],
 					details: { success: false, error: "commander_not_available" },

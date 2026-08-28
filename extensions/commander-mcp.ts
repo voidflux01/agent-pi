@@ -4,7 +4,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { McpClient } from "./lib/mcp-client.ts";
-import { createReadyGate, resolveGate, resetGate } from "./lib/commander-ready.ts";
+import { createReadyGate } from "./lib/commander-ready.ts";
+import { commanderAvailable, commanderGate, drainCommanderReadyCallbacks, resolveCommanderGate, resetCommanderGate, setCommanderClient, setCommanderGate, setCommanderState } from "./lib/coordination-state.ts";
 import { resolveCommanderServerPath, COMMANDER_SERVER_PATH_ENV } from "./lib/commander-server-path.ts";
 
 // ── Configuration ───────────────────────────────────────────────────
@@ -420,13 +421,11 @@ const TOOL_PARAMS: Record<string, ReturnType<typeof Type.Object>> = {
 
 export default function (pi: ExtensionAPI) {
 	const client = new McpClient(SERVER_PATH, SERVER_ENV);
-	const g = globalThis as any;
 	let healthCheckTimer: ReturnType<typeof setInterval> | undefined;
 
 	// ── Ready gate — queues ops until probe resolves ────────────────
 	const gate = createReadyGate();
-	g.__piCommanderGate = gate;
-	g.__piCommanderOnReady = g.__piCommanderOnReady || [];
+	setCommanderGate(gate);
 
 	// Helper: drain queued ops after gate resolves to available
 	function drainGateQueue(ops: { fn: (client: any) => Promise<void>; label: string }[]): void {
@@ -437,8 +436,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Helper: drain onReady callbacks registered by other extensions
 	function drainOnReadyCallbacks(): void {
-		const cbs: Array<() => void> = g.__piCommanderOnReady || [];
-		g.__piCommanderOnReady = [];
+		const cbs = drainCommanderReadyCallbacks();
 		for (const cb of cbs) {
 			try { cb(); } catch {}
 		}
@@ -489,21 +487,21 @@ export default function (pi: ExtensionAPI) {
 
 	async function probeCommander(ctx: any) {
 		if (!SERVER_PATH) {
-			g.__piCommanderAvailable = false;
+			setCommanderClient(undefined);
+			setCommanderState("unavailable");
 			ctx.ui.setStatus("Commander: not configured", "commander");
-			resolveGate(gate, false);
+			resolveCommanderGate(false);
 			return;
 		}
 		try {
 			await client.connect();
 			// Lightweight probe — 3s timeout
 			await client.callTool("commander_session", { operation: "list" }, 3000);
-			g.__piCommanderAvailable = true;
-			g.__piCommanderClient = client;
+			setCommanderClient(client);
 			ctx.ui.setStatus("Commander: connected", "commander");
 
 			// Resolve gate — drain any ops queued while we were probing
-			const queued = resolveGate(gate, true);
+			const queued = resolveCommanderGate(true);
 			drainGateQueue(queued);
 			drainOnReadyCallbacks();
 
@@ -514,30 +512,29 @@ export default function (pi: ExtensionAPI) {
 						await client.connect();
 					}
 					await client.callTool("commander_session", { operation: "list" }, 3000);
-					if (!g.__piCommanderAvailable) {
-						g.__piCommanderAvailable = true;
-						g.__piCommanderClient = client;
+					if (!commanderAvailable()) {
+						setCommanderClient(client);
 						ctx.ui.setStatus("Commander: connected", "commander");
 						// Recovery — resolve gate if it was reset during offline
-						if (gate.state !== "available") {
-							const queued = resolveGate(gate, true);
+						if (commanderGate()?.state !== "available") {
+							const queued = resolveCommanderGate(true);
 							drainGateQueue(queued);
 							drainOnReadyCallbacks();
 						}
 					}
 				} catch {
-					g.__piCommanderAvailable = false;
+					// Reset gate so operations queue again until recovery.
+					if (gate.state !== "pending") resetCommanderGate();
+					else setCommanderState("pending");
+					setCommanderClient(undefined);
 					ctx.ui.setStatus("Commander: offline", "commander");
-					// Reset gate so ops queue again until recovery
-					if (gate.state === "available") {
-						resetGate(gate);
-					}
 				}
 			}, 60_000);
 		} catch {
-			g.__piCommanderAvailable = false;
+			setCommanderClient(undefined);
+			setCommanderState("unavailable");
 			ctx.ui.setStatus("Commander: offline", "commander");
-			resolveGate(gate, false);
+			resolveCommanderGate(false);
 		}
 	}
 
@@ -546,8 +543,9 @@ export default function (pi: ExtensionAPI) {
 			clearInterval(healthCheckTimer);
 			healthCheckTimer = undefined;
 		}
-		g.__piCommanderAvailable = false;
-		resetGate(gate);
+		setCommanderState("unavailable");
+		resetCommanderGate();
+		setCommanderClient(undefined);
 		client.disconnect();
 	});
 }

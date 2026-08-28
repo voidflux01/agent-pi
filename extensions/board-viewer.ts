@@ -14,6 +14,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { generateBoardViewerHTML } from "./lib/board-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { commanderClient } from "./lib/coordination-state.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -41,8 +42,7 @@ interface BoardData {
  * Returns the parsed result or null on failure.
  */
 async function callCommander(toolName: string, params: Record<string, unknown>): Promise<any> {
-	const g = globalThis as any;
-	const client = g.__piCommanderClient;
+	const client = commanderClient();
 	if (!client) return null;
 
 	try {

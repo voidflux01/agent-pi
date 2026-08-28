@@ -14,6 +14,7 @@ import {
 	updateMappingStatus,
 	type SyncState,
 } from "./lib/commander-sync.ts";
+import { addCommanderReadyCallback, commanderClient, commanderGate } from "./lib/coordination-state.ts";
 
 export default function (pi: ExtensionAPI) {
 	const g = globalThis as any;
@@ -51,7 +52,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function reconcileNow() {
-		const client = g.__piCommanderClient;
+		const client = commanderClient();
 		if (!client) return;
 
 		// Drain retry queue
@@ -104,7 +105,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function sendHeartbeat() {
-		const client = g.__piCommanderClient;
+		const client = commanderClient();
 		const currentTask = g.__piCurrentTask;
 		if (!client || !currentTask) return;
 
@@ -117,16 +118,14 @@ export default function (pi: ExtensionAPI) {
 	// ── Lifecycle ────────────────────────────────────────────────────
 
 	pi.on("session_start", async () => {
-		const gate = g.__piCommanderGate;
+		const gate = commanderGate();
 		if (!gate) return;
 
 		if (gate.state === "available") {
 			activate();
 		} else if (gate.state === "pending") {
 			// Push callback to fire when Commander probe succeeds
-			const callbacks: Array<() => void> = g.__piCommanderOnReady || [];
-			g.__piCommanderOnReady = callbacks;
-			callbacks.push(() => activate());
+			addCommanderReadyCallback(() => activate());
 		}
 		// If unavailable, stay dormant
 	});

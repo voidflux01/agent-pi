@@ -34,6 +34,7 @@ import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModel
 import { resolveToolkitWorkerModel, isToolkitCliAgent, spawnToolkitWorker, parseToolkitResult, toolkitRuntimeName } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { run as runDispatch } from "./lib/dispatch-runtime.ts";
+import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands } from "./lib/herdr-client.ts";
@@ -41,14 +42,11 @@ import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHer
 // ── Commander availability ───────────────────────────────────────────────────
 
 function isCommanderAvailable(): boolean {
-	const g = globalThis as any;
-	return g.__piCommanderGate?.state === "available" && !!g.__piCommanderClient;
+	return commanderAvailableState();
 }
 
 function getCommanderClient(): any | undefined {
-	const g = globalThis as any;
-	if (!isCommanderAvailable()) return undefined;
-	return g.__piCommanderClient;
+	return isCommanderAvailable() ? commanderClient() : undefined;
 }
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────

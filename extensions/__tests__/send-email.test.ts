@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import sendEmailExt from "../send-email";
+import { setCommanderClient, setCommanderState } from "../lib/coordination-state.ts";
 
 // ── Test Helpers ─────────────────────────────────────────────────────
 
@@ -24,12 +25,14 @@ function createPiMock() {
 
 /** Set up the Commander gate as "available" on globalThis */
 function mockCommanderAvailable() {
-	(globalThis as any).__piCommanderGate = { state: "available" };
+	setCommanderClient({ callTool: vi.fn() });
+	setCommanderState("available");
 }
 
 /** Set up the Commander gate as NOT available */
 function mockCommanderUnavailable() {
-	(globalThis as any).__piCommanderGate = null;
+	setCommanderClient(undefined);
+	setCommanderState("unavailable");
 }
 
 /** Create a mock ctx that has callTool which captures calls */
@@ -48,15 +51,13 @@ function createMockCtx(response?: any) {
 	};
 }
 
-let savedGate: any;
-
 beforeEach(() => {
-	savedGate = (globalThis as any).__piCommanderGate;
 	mockCommanderAvailable();
 });
 
 afterEach(() => {
-	(globalThis as any).__piCommanderGate = savedGate;
+	setCommanderClient(undefined);
+	setCommanderState("pending");
 	vi.restoreAllMocks();
 });
 

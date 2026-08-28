@@ -2,6 +2,7 @@
 // ABOUTME: Listens for raw terminal ESC input and detects two presses within 400ms.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { coordinationState } from "./lib/coordination-state.ts";
 import { matchesKey } from "@mariozechner/pi-tui";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
@@ -85,12 +86,12 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Check chain
-		if (g.__piActiveChain && typeof g.__piHasRunningChain === "function" && g.__piHasRunningChain()) {
+		if (coordinationState().activeChain && typeof g.__piHasRunningChain === "function" && g.__piHasRunningChain()) {
 			return true;
 		}
 
 		// Check pipeline
-		if (g.__piActivePipeline && typeof g.__piHasRunningPipeline === "function" && g.__piHasRunningPipeline()) {
+		if (coordinationState().activePipeline && typeof g.__piHasRunningPipeline === "function" && g.__piHasRunningPipeline()) {
 			return true;
 		}
 

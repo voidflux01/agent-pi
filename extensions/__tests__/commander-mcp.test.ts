@@ -2,6 +2,7 @@
 // ABOUTME: Verifies tool registration, MCP client proxying, and error handling.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { commanderState, commanderClient } from "../lib/coordination-state.ts";
 
 // ── Mock the MCP client ─────────────────────────────────────────────
 
@@ -176,11 +177,7 @@ describe("commander-mcp extension", () => {
 	const flush = () => new Promise(r => setTimeout(r, 0));
 
 	describe("availability probe on session_start", () => {
-		it("should set __piCommanderAvailable=true when probe succeeds", async () => {
-			const g = globalThis as any;
-			delete g.__piCommanderAvailable;
-			delete g.__piCommanderClient;
-
+		it("should mark Commander available when probe succeeds", async () => {
 			mockConnect.mockResolvedValue(undefined);
 			mockIsConnected.mockReturnValue(true);
 			mockCallTool.mockResolvedValue({
@@ -192,19 +189,15 @@ describe("commander-mcp extension", () => {
 			await startHandler({}, ctx);
 			await flush();
 
-			expect(g.__piCommanderAvailable).toBe(true);
-			expect(g.__piCommanderClient).toBeDefined();
+			expect(commanderState().state).toBe("available");
+			expect(commanderClient()).toBeDefined();
 			expect(ctx.ui.setStatus).toHaveBeenCalledWith(
 				expect.stringContaining("connected"),
 				"commander",
 			);
 		});
 
-		it("should set __piCommanderAvailable=false when probe fails", async () => {
-			const g = globalThis as any;
-			delete g.__piCommanderAvailable;
-			delete g.__piCommanderClient;
-
+		it("should mark Commander unavailable when probe fails", async () => {
 			mockConnect.mockRejectedValue(new Error("Connection refused"));
 
 			const ctx = createMockCtx();
@@ -212,17 +205,15 @@ describe("commander-mcp extension", () => {
 			await startHandler({}, ctx);
 			await flush();
 
-			expect(g.__piCommanderAvailable).toBe(false);
+			expect(commanderState().state).toBe("unavailable");
+			expect(commanderClient()).toBeUndefined();
 			expect(ctx.ui.setStatus).toHaveBeenCalledWith(
 				expect.stringContaining("offline"),
 				"commander",
 			);
 		});
 
-		it("should set __piCommanderAvailable=false when probe call times out", async () => {
-			const g = globalThis as any;
-			delete g.__piCommanderAvailable;
-
+		it("should mark Commander unavailable when probe call times out", async () => {
 			mockConnect.mockResolvedValue(undefined);
 			mockIsConnected.mockReturnValue(true);
 			mockCallTool.mockRejectedValue(new Error("MCP tool call timeout"));
@@ -232,7 +223,7 @@ describe("commander-mcp extension", () => {
 			await startHandler({}, ctx);
 			await flush();
 
-			expect(g.__piCommanderAvailable).toBe(false);
+			expect(commanderState().state).toBe("unavailable");
 		});
 
 		it("should not block session_start (returns immediately)", async () => {
@@ -253,8 +244,6 @@ describe("commander-mcp extension", () => {
 
 	describe("health check", () => {
 		it("should clear health check timer on session_shutdown", async () => {
-			const g = globalThis as any;
-
 			// Simulate a successful start to create a health check timer
 			mockConnect.mockResolvedValue(undefined);
 			mockIsConnected.mockReturnValue(true);
@@ -272,8 +261,9 @@ describe("commander-mcp extension", () => {
 			await shutdownHandler({}, ctx);
 			expect(mockDisconnect).toHaveBeenCalled();
 
-			// Verify globals are cleaned up
-			expect(g.__piCommanderAvailable).toBe(false);
+			// Verify the typed bus is reset after shutdown
+			expect(commanderState().state).toBe("pending");
+			expect(commanderClient()).toBeUndefined();
 		});
 	});
 });

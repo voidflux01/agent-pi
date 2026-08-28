@@ -8,6 +8,7 @@ import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
+import { coordinationState, setCoordinationMode, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 
@@ -15,7 +16,9 @@ const MODE_FILE = "/tmp/pi-current-mode.txt";
 
 
 export default function (pi: ExtensionAPI) {
-	let currentMode: Mode = "NORMAL";
+	// The extension owns the session mode; initialize the shared bus once per registration.
+	setCoordinationMode("NORMAL");
+
 
 	function updateWidgets(mode: Mode, ctx: ExtensionContext) {
 		if (!ctx.hasUI) return;
@@ -59,12 +62,11 @@ export default function (pi: ExtensionAPI) {
 	// Expose refresh function so other extensions (e.g. agent-team) can re-pin
 	// the mode-block as the last aboveEditor widget (closest to the editor input).
 	function refreshModeBlock(ctx: ExtensionContext) {
-		updateWidgets(currentMode, ctx);
+		updateWidgets(coordinationState().mode, ctx);
 	}
 
 	function setMode(mode: Mode, ctx: ExtensionContext) {
-		currentMode = mode;
-		(globalThis as any).__piCurrentMode = mode;
+		setCoordinationMode(mode);
 
 		// Write to temp file for statusline
 		try { writeFileSync(MODE_FILE, mode, "utf-8"); } catch {}
@@ -99,7 +101,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Picker
 			const items = MODES.map(m => {
-				const active = m === currentMode ? " (active)" : "";
+				const active = m === coordinationState().mode ? " (active)" : "";
 				return `${m}${active}`;
 			});
 			const selected = await ctx.ui.select("Select Mode", items);
@@ -132,7 +134,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const changed = upper !== currentMode;
+			const changed = upper !== coordinationState().mode;
 			setMode(upper as Mode, ctx);
 			const msg = reason
 				? `Mode set to ${upper}. Reason: ${reason}`
@@ -176,21 +178,21 @@ export default function (pi: ExtensionAPI) {
 	// ── System prompt injection per mode ─────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
-		if (currentMode === "NORMAL") {
+		if (coordinationState().mode === "NORMAL") {
 			const g = globalThis as any;
 			const scoutId = typeof g.__piScoutId === "number" ? g.__piScoutId : null;
 			return { systemPrompt: buildNormalPrompt({
-				commanderAvailable: !!g.__piCommanderAvailable,
-				activeChain: g.__piActiveChain || null,
-				activePipeline: g.__piActivePipeline || null,
+				commanderAvailable: isCommanderAvailable(),
+				activeChain: coordinationState().activeChain,
+				activePipeline: coordinationState().activePipeline,
 				scoutId,
 			})};
 		}
-		if (currentMode === "PLAN") {
+		if (coordinationState().mode === "PLAN") {
 			const g = globalThis as any;
-			return { systemPrompt: buildPlanPrompt(!!g.__piCommanderAvailable) };
+			return { systemPrompt: buildPlanPrompt(isCommanderAvailable()) };
 		}
-		if (currentMode === "SPEC") return { systemPrompt: SPEC_PROMPT };
+		if (coordinationState().mode === "SPEC") return { systemPrompt: SPEC_PROMPT };
 		return {};
 	});
 
@@ -198,8 +200,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		applyExtensionDefaults(import.meta.url, ctx);
-		currentMode = "NORMAL";
-		(globalThis as any).__piCurrentMode = "NORMAL";
+		setCoordinationMode("NORMAL");
 		(globalThis as any).__piRefreshModeBlock = () => refreshModeBlock(ctx);
 		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}
 		if (ctx.hasUI) {
@@ -216,7 +217,7 @@ export default function (pi: ExtensionAPI) {
 		// re-set widgets here to ensure mode-block (if any) renders before banner is re-set
 		// Use process.nextTick to ensure banner's session_switch handler runs first
 		process.nextTick(() => {
-			updateWidgets(currentMode, ctx);
+			updateWidgets(coordinationState().mode, ctx);
 		});
 	});
 }

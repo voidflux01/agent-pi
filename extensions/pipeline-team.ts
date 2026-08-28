@@ -33,6 +33,7 @@ import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
+import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
@@ -233,7 +234,7 @@ export default function (pi: ExtensionAPI) {
 
 	function activatePipeline(config: PipelineConfig) {
 		activeConfig = config;
-		(globalThis as any).__piActivePipeline = config.name;
+		setActivePipeline(config.name);
 		currentPhaseIndex = 0;
 		taskSummary = "";
 		accContext = "";
@@ -1041,7 +1042,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			activeConfig = null;
-			(globalThis as any).__piActivePipeline = null;
+			setActivePipeline(null);
 			phaseStates = [];
 			clearPipelineUI();
 			ctx.ui.notify("Pipeline deactivated. Use /pipeline to select one.", "info");
@@ -1115,7 +1116,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		// Mode gate: only the explicitly selected mode may inject this prompt
-		const mode = (globalThis as any).__piCurrentMode;
+		const mode = coordinationState().mode;
 		if (!modePromptMatches(mode, "PIPELINE")) return {};
 
 		if (!activeConfig || phaseStates.length === 0) return {};
@@ -1210,7 +1211,7 @@ After reviewing the output:
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}
 
-		const commanderAvailable = !!(globalThis as any).__piCommanderAvailable;
+		const commanderAvailable = isCommanderAvailable();
 		const commanderSection = commanderAvailable ? `
 
 ## Commander Integration (REQUIRED)
@@ -1291,7 +1292,7 @@ ${contextSummary}${planSection}${reviewSection}
 		// Opt-in: do NOT auto-activate. User must run /pipeline to start.
 		// Ensure no pipeline UI is shown until user explicitly activates one.
 		activeConfig = null;
-		(globalThis as any).__piActivePipeline = null;
+		setActivePipeline(null);
 		phaseStates = [];
 		clearPipelineUI();
 

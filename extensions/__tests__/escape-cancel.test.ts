@@ -1,6 +1,7 @@
 // ABOUTME: Tests for escape-cancel extension — double-tap ESC detection and cancel-all logic.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { coordinationState, setActiveChain, setActivePipeline } from "../lib/coordination-state.ts";
 
 // ── Double-tap detection logic (extracted for testability) ────────
 
@@ -87,6 +88,8 @@ describe("escape-cancel", () => {
 			delete g.__piHasRunningPipeline;
 			delete g.__piKillTeamProcs;
 			delete g.__piHasRunningTeam;
+			setActiveChain(null);
+			setActivePipeline(null);
 		});
 
 		afterEach(() => {
@@ -98,6 +101,8 @@ describe("escape-cancel", () => {
 			delete g.__piHasRunningPipeline;
 			delete g.__piKillTeamProcs;
 			delete g.__piHasRunningTeam;
+			setActiveChain(null);
+			setActivePipeline(null);
 		});
 
 		it("hasRunningOperations returns false when nothing is registered", () => {
@@ -110,13 +115,13 @@ describe("escape-cancel", () => {
 		});
 
 		it("hasRunningOperations detects running chain", () => {
-			g.__piActiveChain = "test-chain";
+			setActiveChain("test-chain");
 			g.__piHasRunningChain = () => true;
 			expect(hasRunningOperations()).toBe(true);
 		});
 
 		it("hasRunningOperations detects running pipeline", () => {
-			g.__piActivePipeline = "test-pipeline";
+			setActivePipeline("test-pipeline");
 			g.__piHasRunningPipeline = () => true;
 			expect(hasRunningOperations()).toBe(true);
 		});
@@ -212,11 +217,11 @@ function hasRunningOperations(): boolean {
 		return true;
 	}
 
-	if (g.__piActiveChain && typeof g.__piHasRunningChain === "function" && g.__piHasRunningChain()) {
+	if (coordinationState().activeChain && typeof g.__piHasRunningChain === "function" && g.__piHasRunningChain()) {
 		return true;
 	}
 
-	if (g.__piActivePipeline && typeof g.__piHasRunningPipeline === "function" && g.__piHasRunningPipeline()) {
+	if (coordinationState().activePipeline && typeof g.__piHasRunningPipeline === "function" && g.__piHasRunningPipeline()) {
 		return true;
 	}
 

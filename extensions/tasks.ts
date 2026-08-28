@@ -50,6 +50,7 @@ import { stripLeadingNumber } from "./lib/task-list-render.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
 import { shouldBypassTaskGate, taskGateStrict } from "./lib/task-gate.ts";
+import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate } from "./lib/coordination-state.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
@@ -241,7 +242,7 @@ export default function (pi: ExtensionAPI) {
 
 	function syncToCommander(label: string, fn: (client: any) => Promise<void>): void {
 		const g = globalThis as any;
-		const gate = g.__piCommanderGate;
+		const gate = commanderGate();
 		if (!gate) return; // commander-mcp not loaded
 		const wrappedFn = async (client: any) => {
 			try { await fn(client); }
@@ -252,7 +253,7 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 		};
-		enqueueOrExecute(gate, { fn: wrappedFn, label }, g.__piCommanderClient);
+		enqueueOrExecute(gate, { fn: wrappedFn, label }, commanderClient());
 	}
 
 	// ── Snapshot for details ───────────────────────────────────────────
@@ -274,7 +275,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const refreshUI = (ctx: ExtensionContext) => {
-		const syncIndicator = (globalThis as any).__piCommanderGate?.state === "available" ? "(synced)" : "(local)";
+		const syncIndicator = isCommanderAvailable() ? "(synced)" : "(local)";
 		if (tasks.length === 0) {
 			ctx.ui.setStatus(`Tasks: none ${syncIndicator}`, "tasks");
 		} else {
@@ -608,8 +609,8 @@ export default function (pi: ExtensionAPI) {
 
 					// Sync: update Commander task status (skip if external sync owns it)
 					if (!isExternalSyncActive()) {
-						const gate = g.__piCommanderGate;
-						const client = g.__piCommanderClient;
+						const gate = commanderGate();
+						const client = commanderClient();
 
 						if (gate?.state === "available" && client) {
 							// Commander available: await sync for per-task verification

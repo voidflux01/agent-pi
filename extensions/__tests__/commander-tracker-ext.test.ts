@@ -2,13 +2,11 @@
 // ABOUTME: Verifies activation via onReady, reconcile interval, heartbeat, and deactivation.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { addCommanderReadyCallback, commanderGate, commanderState, drainCommanderReadyCallbacks, resolveCommanderGate, setCommanderClient, setCommanderGate, setCommanderState } from "../lib/coordination-state.ts";
 
 // Minimal mock for the extension's dependencies
 function makeGlobalState() {
 	return {
-		__piCommanderGate: null as any,
-		__piCommanderOnReady: [] as Array<() => void>,
-		__piCommanderClient: null as any,
 		__piCommanderTracker: null as any,
 		__piCurrentTask: null as any,
 		__piTaskList: null as any,
@@ -17,7 +15,7 @@ function makeGlobalState() {
 
 // Import the pure functions we're testing
 import { createTrackerState, addRetry, popRetries, computeReconcileActions } from "../lib/commander-tracker.ts";
-import { createReadyGate, resolveGate } from "../lib/commander-ready.ts";
+import { createReadyGate } from "../lib/commander-ready.ts";
 
 describe("commander-tracker extension behavior", () => {
 	let g: ReturnType<typeof makeGlobalState>;
@@ -26,6 +24,10 @@ describe("commander-tracker extension behavior", () => {
 		g = makeGlobalState();
 		// Patch globalThis
 		Object.assign(globalThis, g);
+		setCommanderGate(createReadyGate());
+		setCommanderClient(undefined);
+		setCommanderState("pending");
+		drainCommanderReadyCallbacks();
 	});
 
 	afterEach(() => {
@@ -37,32 +39,30 @@ describe("commander-tracker extension behavior", () => {
 
 	describe("activation", () => {
 		it("registers onReady callback when gate is pending", () => {
-			const gate = createReadyGate();
-			(globalThis as any).__piCommanderGate = gate;
-			(globalThis as any).__piCommanderOnReady = [];
+				const gate = createReadyGate();
+			setCommanderGate(gate);
 
 			// Simulate what commander-tracker.ts does: push callback when pending
-			const callbacks = (globalThis as any).__piCommanderOnReady;
-			expect(gate.state).toBe("pending");
-			callbacks.push(() => { /* activate */ });
-			expect(callbacks).toHaveLength(1);
+			expect(commanderGate()?.state).toBe("pending");
+			addCommanderReadyCallback(() => { /* activate */ });
+			expect(commanderState().onReady).toHaveLength(1);
 		});
 
 		it("activates immediately when gate is already available", () => {
 			const gate = createReadyGate();
-			resolveGate(gate, true);
-			(globalThis as any).__piCommanderGate = gate;
+			setCommanderGate(gate);
+			resolveCommanderGate(true);
 
-			expect(gate.state).toBe("available");
+			expect(commanderGate()?.state).toBe("available");
 			// When state is already available, extension can activate synchronously
 		});
 
 		it("does not activate when gate resolves as unavailable", () => {
 			const gate = createReadyGate();
-			resolveGate(gate, false);
-			(globalThis as any).__piCommanderGate = gate;
+			setCommanderGate(gate);
+			resolveCommanderGate(false);
 
-			expect(gate.state).toBe("unavailable");
+			expect(commanderGate()?.state).toBe("unavailable");
 		});
 	});
 
