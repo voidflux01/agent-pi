@@ -503,7 +503,8 @@ export function shellQuote(s: string): string {
  * inserted right after the last existing `-e` to keep the explicit extension
  * group together.
  *
- * Returns the argv unchanged when there is nothing headless to strip.
+ * Expects argv *after* the executable. Returns the argv unchanged when there
+ * is nothing headless to strip.
  */
 export function visiblePiTuiArgs(args: string[], herdrDoneExtPath: string): string[] {
 	const stripped: string[] = [];
@@ -528,6 +529,28 @@ export function visiblePiTuiArgs(args: string[], herdrDoneExtPath: string): stri
 		if (stripped[i] === "-e" || stripped[i] === "--extension") insertAt = i + 2;
 	}
 	return [...stripped.slice(0, insertAt), "-e", herdrDoneExtPath, ...stripped.slice(insertAt)];
+}
+
+/** Split a full command (`["pi", ...flags, task]`) into executable + argv. */
+export function splitPiCommand(command: string[]): { executable: string; args: string[] } {
+	const first = command[0];
+	if (first && !first.startsWith("-")) {
+		return { executable: first, args: command.slice(1) };
+	}
+	return { executable: "pi", args: command };
+}
+
+/**
+ * Watchable Herdr launch argv, including the executable once.
+ *
+ * Callers pass the same `command` used for headless spawn (`["pi", ...args]`).
+ * Passing that array through `visiblePiTuiArgs` and then prepending `pi` again
+ * produces `pi pi ...`, and the extra `pi` becomes the child's first user
+ * message.
+ */
+export function visiblePiTuiCommand(command: string[], herdrDoneExtPath: string): string[] {
+	const { executable, args } = splitPiCommand(command);
+	return [executable, ...visiblePiTuiArgs(args, herdrDoneExtPath)];
 }
 
 export interface LaunchScriptOpts {

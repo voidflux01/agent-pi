@@ -501,7 +501,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			// argv for the headless path. The visible herdr transport derives its
-			// watchable variant from this with visiblePiTuiArgs().
+			// watchable variant from `["pi", ...argv]` via visiblePiTuiCommand().
 			const argv = [
 				"--mode", "json",
 				"-p",

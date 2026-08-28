@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -118,6 +118,24 @@ describe("visiblePiTuiArgs", () => {
 	});
 });
 
+describe("visiblePiTuiCommand", () => {
+	it("keeps the pi binary exactly once when given a full command", () => {
+		const out = visiblePiTuiCommand(["pi", ...saArgv], DONE);
+		expect(out[0]).toBe("pi");
+		expect(out.filter((t) => t === "pi")).toHaveLength(1);
+		expect(out).not.toContain("--mode");
+		expect(out).not.toContain("-p");
+		expect(out[out.length - 1]).toBe("Count the .ts files under extensions/");
+	});
+
+	it("prepends pi once when the caller omitted the executable", () => {
+		const out = visiblePiTuiCommand(saArgv, DONE);
+		expect(out[0]).toBe("pi");
+		expect(out.filter((t) => t === "pi")).toHaveLength(1);
+		expect(out.slice(1)).toEqual(visiblePiTuiArgs(saArgv, DONE));
+	});
+});
+
 describe("launch marker paths", () => {
 	it("clears a stale completion marker before writing a new launch", () => {
 		const dir = mkdtempSync(join(tmpdir(), "herdr-stale-"));
@@ -205,4 +223,10 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("const spawnCwd = contextCwd(ctx);");
 		expect(src).toContain("cwd: spawnCwd");
+	});
+
+	it("builds the Herdr command from the full argv without doubling the binary", () => {
+		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
+		expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
+		expect(src).not.toMatch(/command:\s*\[spec\.command\[0\]/);
 	});

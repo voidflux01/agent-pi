@@ -17,7 +17,7 @@ import {
 	sendCommandToPaneAsync,
 	shellQuote,
 	updateHerdrPaneStatus,
-	visiblePiTuiArgs,
+	visiblePiTuiCommand,
 	waitForLaunchStart,
 	writeLaunchScript,
 	type HerdrTabRef,
@@ -46,7 +46,7 @@ export interface DispatchProcess {
 export interface DispatchRuntimeSpec {
 	/** Required capability proving this call came from an explicit dispatch path. */
 	authorization?: DispatchAuthorization;
-	/** Full argv after the executable, including headless flags for auto/herdr. */
+	/** Full argv including the executable (e.g. `["pi", "--mode", "json", ..., task]`). */
 	command: string[];
 	cwd: string;
 	env?: NodeJS.ProcessEnv;
@@ -174,12 +174,11 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			await ensureHerdrWorkspaceAsync("agent-pi", spec.cwd);
 		if (!workspaceId) return null;
 
-		const tuiArgs = visiblePiTuiArgs(spec.command, spec.herdrDoneExtPath);
 		refs = writeLaunchScript({
 			dir: spec.launchDir,
 			id: spec.launchId,
 			cwd: spec.cwd,
-			command: [spec.command[0] || "pi", ...tuiArgs],
+			command: visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath),
 			env: {
 				...(spec.env || childEnvironment()),
 				HERDR_DONE_PATH: launchDonePath(spec.launchDir, spec.launchId),
