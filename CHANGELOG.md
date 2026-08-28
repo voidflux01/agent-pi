@@ -2,6 +2,17 @@
 
 All notable changes to agent-pi will be documented in this file.
 
+## Unreleased
+
+### Herdr sibling splits for sub-agents
+
+When the parent is already inside Herdr, `subagent_create` / team / chain /
+pipeline workers open as a **sibling split of the caller's pane** (wide →
+right, tall → down, `--no-focus`) so you can watch the child TUI on the same
+screen. Finished workers close only that pane — never the parent's tab.
+Falls back to a background tab if split is unavailable, and to headless if
+Herdr is absent. Opt out of splits with `PI_HERDR_SPLIT=0`.
+
 ## [2.2.0] — 2026-08-27
 
 ### Deterministic RESULT-Contract Gate

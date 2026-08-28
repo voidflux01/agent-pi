@@ -262,7 +262,9 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 /**
  * Run one standard Pi child. Herdr is attempted only in auto/herdr mode and
  * falls back to headless until the visible pane has acknowledged the launch.
- * A pane that has taken ownership is never duplicated by a second child.
+ * Inside Herdr the worker is a sibling split of the caller (watchable on the
+ * same screen); a pane that has taken ownership is never duplicated by a
+ * second child.
  */
 export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult> {
 	if (!authorizationMatchesActive(spec.authorization)) {

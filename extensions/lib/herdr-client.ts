@@ -1,9 +1,10 @@
 // ABOUTME: Herdr transport for sub-agent dispatch (all pi child runtimes).
 // ABOUTME: When the parent runs inside Herdr (HERDR_ENV=1) and a server is
-// ABOUTME: reachable, sub-agents run inside a Herdr pane: pi children in
-// ABOUTME: pi's real interactive TUI (visiblePiTuiArgs() drops the headless
-// ABOUTME: `--mode json`/`-p` so the tab is watchable, never a JSON stream),
-// ABOUTME: external runtimes as their own CLI with output tee'd for parsing.
+// ABOUTME: reachable, sub-agents run in a sibling split of the caller's pane
+// ABOUTME: (watchable on the same screen). Fallback is a background tab when
+// ABOUTME: split is unavailable. Pi children use the real interactive TUI
+// ABOUTME: (visiblePiTuiArgs() drops `--mode json`/`-p` so the pane is never
+// ABOUTME: a JSON stream); external runtimes tee output for parsing.
 // ABOUTME: Panes stay persistent across parent restarts and resumable via the
 // ABOUTME: session file. When Herdr is unavailable, callers fall back to the
 // ABOUTME: existing headless child-process path — precision never depends on
@@ -17,9 +18,11 @@
 // ABOUTME:    session JSONL file on disk.
 // ABOUTME:  - pane run / send-text can drop the first character when the pane
 // ABOUTME:    shell is not ready, and zsh's compinit security prompt can eat
-// ABOUTME:    input. Mitigations: --env ZSH_DISABLE_COMPFIX=true on tab
-// ABOUTME:    create, a leading Enter before the command, and a verify/retry
-// ABOUTME:    loop driven by the marker file.
+// ABOUTME:    input. Mitigations: --env ZSH_DISABLE_COMPFIX=true on pane split
+// ABOUTME:    / tab create, a leading Enter before the command, and a
+// ABOUTME:    verify/retry loop driven by the marker file.
+// ABOUTME:  - closing a split must `pane close` the child only — never the
+// ABOUTME:    parent's tab. Tab-created workers still close their own tab.
 // ABOUTME:  - herdr auto-updates; protocol/version are checked per call.
 
 import { execFile, execFileSync } from "node:child_process";
@@ -130,11 +133,15 @@ export function herdrEnabledAsync(): Promise<boolean> {
 	return herdrCheckInFlight;
 }
 
+export type HerdrCloseTarget = "tab" | "pane";
+
 export interface HerdrTabRef {
 	session: string;
 	workspaceId: string;
 	tabId: string;
 	paneId: string;
+	/** `pane` = sibling split (close only that pane). `tab` = we created the tab. */
+	closeTarget?: HerdrCloseTarget;
 }
 
 export interface HerdrSnapshotAgent {
@@ -381,21 +388,142 @@ export function ensureHerdrWorkspace(label: string, cwd: string): string | null 
 	}
 }
 
-/** Create a task tab. Uses --env ZSH_DISABLE_COMPFIX=true to avoid the zsh
- *  compinit security prompt eating input. Returns null on failure. */
-export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string): HerdrTabRef | null {
-	if (!isExplicitDispatchActive()) return null;
-	const r = herdrCli(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
-	if (r.code !== 0) return null;
+/**
+ * Wide panes split to the right so parent and child sit side by side;
+ * tall or already-narrow panes split down to avoid unusable columns.
+ */
+export function splitDirectionFromRect(rect: { width: number; height: number }): "right" | "down" {
+	const width = Number(rect.width);
+	const height = Number(rect.height);
+	if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return "right";
+	return width >= height * 1.25 ? "right" : "down";
+}
+
+export function parseCallerPaneRect(layoutStdout: string, paneId: string): { width: number; height: number } | null {
 	try {
-		const res = JSON.parse(r.stdout).result;
-		const tabId = res?.tab?.tab_id;
-		const paneId = res?.root_pane?.pane_id;
-		if (!tabId || !paneId) return null;
-		return { session: process.env.HERDR_SESSION || "", workspaceId, tabId, paneId };
+		const panes = JSON.parse(layoutStdout)?.result?.layout?.panes;
+		if (!Array.isArray(panes)) return null;
+		const mine = panes.find((p: { pane_id?: string }) => p?.pane_id === paneId);
+		const rect = mine?.rect;
+		if (!rect || typeof rect.width !== "number" || typeof rect.height !== "number") return null;
+		return { width: rect.width, height: rect.height };
 	} catch {
 		return null;
 	}
+}
+
+export function parseSplitPaneRef(splitStdout: string, fallback: { tabId?: string; workspaceId?: string } = {}): HerdrTabRef | null {
+	try {
+		const pane = JSON.parse(splitStdout)?.result?.pane;
+		const paneId = pane?.pane_id;
+		const tabId = pane?.tab_id || fallback.tabId;
+		const workspaceId = pane?.workspace_id || fallback.workspaceId;
+		if (!paneId || !tabId || !workspaceId) return null;
+		return {
+			session: process.env.HERDR_SESSION || "",
+			workspaceId,
+			tabId,
+			paneId,
+			closeTarget: "pane",
+		};
+	} catch {
+		return null;
+	}
+}
+
+/** CLI args that dispose a worker without touching the caller's own tab. */
+export function herdrCloseArgs(tab: HerdrTabRef): string[] {
+	const callerPane = process.env.HERDR_PANE_ID;
+	const callerTab = process.env.HERDR_TAB_ID;
+	if (callerPane && tab.paneId === callerPane) return [];
+	const target = tab.closeTarget ?? "tab";
+	if (target === "pane") return ["pane", "close", tab.paneId];
+	if (callerTab && tab.tabId === callerTab) return ["pane", "close", tab.paneId];
+	return ["tab", "close", tab.tabId];
+}
+
+function preferCallerPaneSplit(): boolean {
+	return process.env.PI_HERDR_SPLIT !== "0" && !!process.env.HERDR_PANE_ID;
+}
+
+function tabRefFromCreate(stdout: string, workspaceId: string): HerdrTabRef | null {
+	try {
+		const res = JSON.parse(stdout).result;
+		const tabId = res?.tab?.tab_id;
+		const paneId = res?.root_pane?.pane_id;
+		if (!tabId || !paneId) return null;
+		return {
+			session: process.env.HERDR_SESSION || "",
+			workspaceId,
+			tabId,
+			paneId,
+			closeTarget: "tab",
+		};
+	} catch {
+		return null;
+	}
+}
+
+function splitCallerPane(cwd: string, label: string): HerdrTabRef | null {
+	const paneId = process.env.HERDR_PANE_ID;
+	if (!paneId) return null;
+	const layout = herdrCli(["pane", "layout", "--pane", paneId], { timeoutMs: 5_000 });
+	const rect = layout.code === 0 ? parseCallerPaneRect(layout.stdout, paneId) : null;
+	const direction = rect ? splitDirectionFromRect(rect) : "right";
+	const split = herdrCli([
+		"pane", "split", "--pane", paneId, "--direction", direction,
+		"--cwd", cwd, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true",
+	], { timeoutMs: 30_000 });
+	if (split.code !== 0) return null;
+	const ref = parseSplitPaneRef(split.stdout, {
+		tabId: process.env.HERDR_TAB_ID,
+		workspaceId: process.env.HERDR_WORKSPACE_ID,
+	});
+	if (!ref || ref.paneId === paneId) {
+		const orphan = parseSplitPaneRef(split.stdout)?.paneId;
+		if (orphan && orphan !== paneId) herdrCli(["pane", "close", orphan], { timeoutMs: 5_000 });
+		return null;
+	}
+	if (label) herdrCli(["pane", "rename", ref.paneId, label], { timeoutMs: 5_000 });
+	return ref;
+}
+
+async function splitCallerPaneAsync(cwd: string, label: string): Promise<HerdrTabRef | null> {
+	const paneId = process.env.HERDR_PANE_ID;
+	if (!paneId) return null;
+	const layout = await herdrCliAsync(["pane", "layout", "--pane", paneId], { timeoutMs: 5_000 });
+	const rect = layout.code === 0 ? parseCallerPaneRect(layout.stdout, paneId) : null;
+	const direction = rect ? splitDirectionFromRect(rect) : "right";
+	const split = await herdrCliAsync([
+		"pane", "split", "--pane", paneId, "--direction", direction,
+		"--cwd", cwd, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true",
+	], { timeoutMs: 30_000 });
+	if (split.code !== 0) return null;
+	const ref = parseSplitPaneRef(split.stdout, {
+		tabId: process.env.HERDR_TAB_ID,
+		workspaceId: process.env.HERDR_WORKSPACE_ID,
+	});
+	if (!ref || ref.paneId === paneId) {
+		const orphan = parseSplitPaneRef(split.stdout)?.paneId;
+		if (orphan && orphan !== paneId) await herdrCliAsync(["pane", "close", orphan], { timeoutMs: 5_000 });
+		return null;
+	}
+	if (label) await herdrCliAsync(["pane", "rename", ref.paneId, label], { timeoutMs: 5_000 });
+	return ref;
+}
+
+/** Open a watchable worker: sibling split of the caller pane when possible,
+ *  otherwise a background tab. Uses --env ZSH_DISABLE_COMPFIX=true to avoid
+ *  the zsh compinit security prompt eating input. Returns null on failure. */
+export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string): HerdrTabRef | null {
+	if (!isExplicitDispatchActive()) return null;
+	if (preferCallerPaneSplit()) {
+		const split = splitCallerPane(cwd, label);
+		if (split) return split;
+	}
+	const r = herdrCli(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
+	if (r.code !== 0) return null;
+	return tabRefFromCreate(r.stdout, workspaceId);
 }
 
 /** Async workspace lookup/create for non-blocking dispatch paths.
@@ -434,18 +562,16 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 	return operation;
 }
 
-/** Async task-tab creation for non-blocking dispatch paths. */
+/** Async watchable-worker creation: sibling split, else background tab. */
 export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string): Promise<HerdrTabRef | null> {
 	if (!isExplicitDispatchActive()) return null;
+	if (preferCallerPaneSplit()) {
+		const split = await splitCallerPaneAsync(cwd, label);
+		if (split) return split;
+	}
 	const r = await herdrCliAsync(["tab", "create", "--workspace", workspaceId, "--cwd", cwd, "--label", label, "--no-focus", "--env", "ZSH_DISABLE_COMPFIX=true"], { timeoutMs: 30_000 });
 	if (r.code !== 0) return null;
-	try {
-		const res = JSON.parse(r.stdout).result;
-		const tabId = res?.tab?.tab_id;
-		const paneId = res?.root_pane?.pane_id;
-		if (!tabId || !paneId) return null;
-		return { session: process.env.HERDR_SESSION || "", workspaceId, tabId, paneId };
-	} catch { return null; }
+	return tabRefFromCreate(r.stdout, workspaceId);
 }
 
 /**
@@ -462,9 +588,13 @@ export function sendCommandToPane(paneId: string, command: string): boolean {
 	return enter.code === 0 && text.code === 0 && submit.code === 0;
 }
 
-/** Close a tab (best-effort; also used for cancel). */
+/** Close a worker we created (best-effort; also used for cancel).
+ *  Split workers close only their pane; tab workers close their tab.
+ *  Never closes the caller's own pane or tab. */
 export function closeHerdrTab(tab: HerdrTabRef): void {
-	herdrCli(["tab", "close", tab.tabId], { timeoutMs: 15_000 });
+	const args = herdrCloseArgs(tab);
+	if (args.length === 0) return;
+	herdrCli(args, { timeoutMs: 15_000 });
 }
 
 /** Non-blocking version of sendCommandToPane; preserves command ordering. */
@@ -475,9 +605,11 @@ export async function sendCommandToPaneAsync(paneId: string, command: string): P
 	return enter.code === 0 && text.code === 0 && submit.code === 0;
 }
 
-/** Non-blocking best-effort tab close. */
+/** Non-blocking best-effort worker close (pane or tab, never the caller). */
 export async function closeHerdrTabAsync(tab: HerdrTabRef): Promise<void> {
-	await herdrCliAsync(["tab", "close", tab.tabId], { timeoutMs: 15_000 });
+	const args = herdrCloseArgs(tab);
+	if (args.length === 0) return;
+	await herdrCliAsync(args, { timeoutMs: 15_000 });
 }
 
 /** One shell-quoted token. */

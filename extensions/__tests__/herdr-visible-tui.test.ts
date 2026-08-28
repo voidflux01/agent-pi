@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -198,6 +198,66 @@ describe("herdr tabs require explicit dispatch", () => {
 	});
 });
 
+describe("herdr sibling splits", () => {
+	it("splits wide panes right and tall panes down", () => {
+		expect(splitDirectionFromRect({ width: 160, height: 40 })).toBe("right");
+		expect(splitDirectionFromRect({ width: 40, height: 80 })).toBe("down");
+		expect(splitDirectionFromRect({ width: 0, height: 10 })).toBe("right");
+	});
+
+	it("reads the caller pane rect from a layout snapshot", () => {
+		const stdout = JSON.stringify({
+			result: {
+				layout: {
+					panes: [
+						{ pane_id: "w1:p1", rect: { width: 80, height: 24 } },
+						{ pane_id: "w1:p2", rect: { width: 200, height: 24 } },
+					],
+				},
+			},
+		});
+		expect(parseCallerPaneRect(stdout, "w1:p2")).toEqual({ width: 200, height: 24 });
+		expect(parseCallerPaneRect(stdout, "missing")).toBeNull();
+		expect(parseCallerPaneRect("not-json", "w1:p2")).toBeNull();
+	});
+
+	it("parses a split response as a pane-owned worker", () => {
+		const stdout = JSON.stringify({
+			result: { pane: { pane_id: "w1:p9", tab_id: "w1:t1", workspace_id: "w1" } },
+		});
+		expect(parseSplitPaneRef(stdout)).toMatchObject({
+			paneId: "w1:p9", tabId: "w1:t1", workspaceId: "w1", closeTarget: "pane",
+		});
+		expect(parseSplitPaneRef("{}", { tabId: "t", workspaceId: "w" })).toBeNull();
+	});
+
+	it("closes a split pane, a created tab, and never the caller", () => {
+		const previousPane = process.env.HERDR_PANE_ID;
+		const previousTab = process.env.HERDR_TAB_ID;
+		try {
+			process.env.HERDR_PANE_ID = "w1:p1";
+			process.env.HERDR_TAB_ID = "w1:t1";
+			expect(herdrCloseArgs({
+				session: "", workspaceId: "w1", tabId: "w1:t1", paneId: "w1:p9", closeTarget: "pane",
+			})).toEqual(["pane", "close", "w1:p9"]);
+			expect(herdrCloseArgs({
+				session: "", workspaceId: "w1", tabId: "w1:t2", paneId: "w1:p8", closeTarget: "tab",
+			})).toEqual(["tab", "close", "w1:t2"]);
+			expect(herdrCloseArgs({
+				session: "", workspaceId: "w1", tabId: "w1:t1", paneId: "w1:p7",
+			})).toEqual(["pane", "close", "w1:p7"]);
+			expect(herdrCloseArgs({
+				session: "", workspaceId: "w1", tabId: "w1:t1", paneId: "w1:p1", closeTarget: "pane",
+			})).toEqual([]);
+		} finally {
+			if (previousPane === undefined) delete process.env.HERDR_PANE_ID;
+			else process.env.HERDR_PANE_ID = previousPane;
+			if (previousTab === undefined) delete process.env.HERDR_TAB_ID;
+			else process.env.HERDR_TAB_ID = previousTab;
+		}
+	});
+});
+
 describe("dispatch sites stay watchable (anti-drift)", () => {
 	const files = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts", "subagent-widget.ts", "toolkit-commands.ts"];
 
@@ -229,4 +289,14 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
 		expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
 		expect(src).not.toMatch(/command:\s*\[spec\.command\[0\]/);
+	});
+
+	it("opens workers via createHerdrTaskTab which prefers a sibling split", () => {
+		const client = readFileSync(join(__dirname, "..", "lib", "herdr-client.ts"), "utf8");
+		expect(client).toContain('pane", "split"');
+		expect(client).toContain("preferCallerPaneSplit");
+		expect(client).toContain('PI_HERDR_SPLIT');
+		const runtime = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
+		expect(runtime).toContain("createHerdrTaskTabAsync");
+		expect(runtime).toContain("closeHerdrTabAsync");
 	});
