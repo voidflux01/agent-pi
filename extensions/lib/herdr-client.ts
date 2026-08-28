@@ -509,26 +509,6 @@ function preferCallerPaneSplit(): boolean {
 	return process.env.PI_HERDR_SPLIT !== "0" && !!process.env.HERDR_PANE_ID;
 }
 
-/** Sibling-split only when the caller is the sole pane in its tab.
- *  A tab that already has grok + parent (or leftover children) gets a new tab. */
-export function shouldSiblingSplit(tabPaneCount: number): boolean {
-	return tabPaneCount <= 1;
-}
-
-/** How many panes share the caller's tab in a `herdr pane list` payload. */
-export function parseCallerTabPaneCount(listStdout: string, paneId: string): number {
-	try {
-		const panes = JSON.parse(listStdout)?.result?.panes;
-		if (!Array.isArray(panes)) return 1;
-		const mine = panes.find((p: { pane_id?: string }) => p?.pane_id === paneId);
-		const tabId = mine?.tab_id;
-		if (!tabId) return 1;
-		return panes.filter((p: { tab_id?: string }) => p?.tab_id === tabId).length;
-	} catch {
-		return 1;
-	}
-}
-
 const lingeringPanes = new Map<string, { tab: HerdrTabRef; timer: ReturnType<typeof setTimeout> }>();
 
 function lingerKey(tab: HerdrTabRef): string {
@@ -561,22 +541,6 @@ export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number): void {
 		void closeHerdrTabAsync(tab);
 	}, ms);
 	lingeringPanes.set(key, { tab, timer });
-}
-
-function callerTabPaneCountSync(): number {
-	const paneId = process.env.HERDR_PANE_ID;
-	if (!paneId) return 1;
-	const list = herdrCli(["pane", "list"], { timeoutMs: 5_000 });
-	if (list.code !== 0) return 1;
-	return parseCallerTabPaneCount(list.stdout, paneId);
-}
-
-async function callerTabPaneCountAsync(): Promise<number> {
-	const paneId = process.env.HERDR_PANE_ID;
-	if (!paneId) return 1;
-	const list = await herdrCliAsync(["pane", "list"], { timeoutMs: 5_000 });
-	if (list.code !== 0) return 1;
-	return parseCallerTabPaneCount(list.stdout, paneId);
 }
 
 function tabRefFromCreate(stdout: string, workspaceId: string): HerdrTabRef | null {
@@ -651,7 +615,7 @@ async function splitCallerPaneAsync(cwd: string, label: string): Promise<HerdrTa
 export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): HerdrTabRef | null {
 	if (!isExplicitDispatchActive()) return null;
 	closeLingeringHerdrPanes();
-	if ((opts.preferSplit ?? true) && preferCallerPaneSplit() && shouldSiblingSplit(callerTabPaneCountSync())) {
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = splitCallerPane(cwd, label);
 		if (split) return split;
 	}
@@ -702,7 +666,7 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): Promise<HerdrTabRef | null> {
 	if (!isExplicitDispatchActive()) return null;
 	closeLingeringHerdrPanes();
-	if ((opts.preferSplit ?? true) && preferCallerPaneSplit() && shouldSiblingSplit(await callerTabPaneCountAsync())) {
+	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = await splitCallerPaneAsync(cwd, label);
 		if (split) return split;
 	}

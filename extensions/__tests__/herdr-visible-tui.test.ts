@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel, herdrIdentityArgv, shouldSiblingSplit, parseCallerTabPaneCount } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel, herdrIdentityArgv } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -203,21 +203,12 @@ describe("herdr sibling splits", () => {
 		expect(splitDirectionFromRect({ width: 0, height: 10 })).toBe("right");
 	});
 
-	it("sibling-splits only when the caller is alone in its tab", () => {
-		expect(shouldSiblingSplit(1)).toBe(true);
-		expect(shouldSiblingSplit(2)).toBe(false);
-		const list = JSON.stringify({
-			result: {
-				panes: [
-					{ pane_id: "w15:p2", tab_id: "w15:t2" },
-					{ pane_id: "w15:p1G", tab_id: "w15:t2" },
-					{ pane_id: "w14:p1", tab_id: "w14:t1" },
-				],
-			},
-		});
-		expect(parseCallerTabPaneCount(list, "w15:p1G")).toBe(2);
-		expect(parseCallerTabPaneCount(list, "w14:p1")).toBe(1);
-		expect(parseCallerTabPaneCount("not-json", "w15:p1G")).toBe(1);
+	it("always sibling-splits a dispatch when the caller pane is known", () => {
+		const client = readFileSync(join(__dirname, "..", "lib", "herdr-client.ts"), "utf8");
+		expect(client).toContain("preferCallerPaneSplit");
+		expect(client).toContain('pane", "split"');
+		expect(client).not.toContain("shouldSiblingSplit");
+		expect(client).not.toContain("callerTabPaneCount");
 	});
 
 	it("reads the caller pane rect from a layout snapshot", () => {

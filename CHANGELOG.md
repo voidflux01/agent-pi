@@ -107,9 +107,9 @@ are not a unit.
   `run_chain`; after the chain returns, quote RESULT only.
 - TEAM / scout cards poll the child session jsonl while running so Tools
   is not stuck at 0 until exit.
-- A new herdr worker closes lingered siblings first, and sibling-splits only
-  when the caller is the sole pane in its tab (avoids stacking onto grok +
-  parent). Crowded tabs open a labeled background tab instead.
+- A new herdr worker closes lingered siblings first, then always sibling-splits
+  the caller pane (`PI_HERDR_SPLIT=0` still opts out). Tab-create is only the
+  fallback when split is unavailable.
 - Orchestration prompts tell the parent to treat ## RESULT as the report and
   not re-run child verification. Herdr TUI tool counts are read from the
   session file when the JSON stream is absent.
