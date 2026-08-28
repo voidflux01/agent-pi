@@ -2,6 +2,8 @@
 // ABOUTME: Validates watchdog timeout resolution, stale cleanup, and duplicate batch prevention
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderSubagentWidget, type SubRenderState } from "../lib/subagent-render.ts";
 import { resolveTimeout } from "../subagent-widget.ts";
 
@@ -9,6 +11,17 @@ import { resolveTimeout } from "../subagent-widget.ts";
 // We can't import resolveTimeout directly (it's a module-scoped function inside
 // the extension default export), so we test the behavior via the render output
 // and validate the constants match our expectations.
+
+describe("stale session lifecycle protection", () => {
+	it("snapshots cwd and invalidates late background callbacks", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain('pi.on("session_shutdown"');
+		expect(src).toContain("const spawnCwd = contextCwd(ctx);");
+		expect(src).toContain("const spawnEpoch = sessionEpoch;");
+		expect(src).toContain("if (spawnEpoch !== sessionEpoch)");
+		expect(src).not.toContain("ctx?.cwd ?? process.cwd()");
+	});
+});
 
 describe("timeout resolution", () => {
 	it("uses a five-minute default for SCOUT", () => {

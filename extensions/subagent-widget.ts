@@ -153,7 +153,26 @@ export default function (pi: ExtensionAPI) {
 	const agents: Map<number, SubState> = new Map();
 	let nextId = 1;
 	let widgetCtx: any;
+	// Incremented whenever the parent session is replaced. Background child
+	// processes can finish after that point, but must not touch the old ctx.
+	let sessionEpoch = 0;
 	const widgetBoxes = new Map<number, { invalidate: () => void }>();
+
+	function contextCwd(ctx: any): string {
+		// Reading cwd from a context after session replacement throws, even with
+		// optional chaining. Snapshot it while the context is known to be live.
+		try { return ctx?.cwd || process.cwd(); } catch { return process.cwd(); }
+	}
+
+	function notifyCurrent(message: string, level: string): void {
+		// Timers and child-process callbacks outlive the ctx that started them.
+		// The current context may also disappear during extension reload.
+		try { widgetCtx?.ui?.notify?.(message, level); } catch {}
+	}
+
+	function clearWidgetCurrent(key: string): void {
+		try { widgetCtx?.ui?.setWidget?.(key, undefined); } catch {}
+	}
 
 	// ── Agent definition registry (loaded from .md files + models.json) ───────
 	// Maps lowercase agent names to their definitions. Model assignments come from
@@ -247,6 +266,12 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		peerNames?: string[],
 	): Promise<void> {
+		// Snapshot all session-bound values before any asynchronous work starts.
+		// A child may finish after /new, /resume, or extension reload, at which
+		// point dereferencing the captured ctx throws and can kill pi.
+		const spawnCwd = contextCwd(ctx);
+		const spawnEpoch = sessionEpoch;
+
 		// Model resolution priority:
 		// 1) Caller-specified override (state.model set by tool call)
 		// 2) Agent definition model (from .md file, resolved via models.json)
@@ -263,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 		state.resultBudgetChars = subagentContextBudget(contextUsage?.percent, 1).resultChars;
 
 		// Journal the dispatch — id doubles as the archived-transcript base name.
-		const saDir = path.join(ctx?.cwd ?? process.cwd(), ".pi", "agent-sessions");
+		const saDir = path.join(spawnCwd, ".pi", "agent-sessions");
 		const saBase = runBaseName(`${state.name.toLowerCase()}-sa${state.id}`, state.turnCount);
 		state.saRunId = saBase;
 		journalAppend(saDir, {
@@ -348,6 +373,10 @@ export default function (pi: ExtensionAPI) {
 			const startTime = Date.now();
 			const isScout = (globalThis as any).__piScoutId === state.id;
 			const timer = setInterval(() => {
+				if (spawnEpoch !== sessionEpoch) {
+					clearInterval(timer);
+					return;
+				}
 				state.elapsed = Date.now() - startTime;
 				invalidateWidget(state.id);
 				if (isScout) publishScoutStatus(state);
@@ -358,9 +387,10 @@ export default function (pi: ExtensionAPI) {
 			if (!state.standby && state.maxDurationMs > 0) {
 				state.watchdogTimer = setTimeout(() => {
 					if (state.status !== "running") return; // already finished
+					if (spawnEpoch !== sessionEpoch) return;
 					const mins = Math.round(state.maxDurationMs / 60_000);
 					state.textChunks.push(`\n[TIMEOUT] Agent timed out after ${mins} minutes.`);
-					ctx.ui.notify(`SA${state.id} (${state.name}) timed out after ${mins}m`, "warning");
+					notifyCurrent(`SA${state.id} (${state.name}) timed out after ${mins}m`, "warning");
 					if (state.proc) {
 						killGracefully(state.proc, TIMEOUT_KILL_GRACE_MS).catch(() => {});
 					}
@@ -377,11 +407,17 @@ export default function (pi: ExtensionAPI) {
 					clearTimeout(state.watchdogTimer);
 					state.watchdogTimer = undefined;
 				}
+				// The child belongs to the replaced session. Finish timer cleanup,
+				// then stop before mutating its state or touching any session-bound UI.
+				if (spawnEpoch !== sessionEpoch) {
+					resolve();
+					return;
+				}
 				state.elapsed = Date.now() - startTime;
 				state.status = code === 0 ? "done" : "error";
 				state.proc = undefined;
 				updateHerdrPaneStatus(
-					ctx?.cwd ?? process.cwd(),
+					spawnCwd,
 					`sa-${state.id}`,
 					code === 0 ? "done" : "error",
 				);
@@ -418,7 +454,7 @@ export default function (pi: ExtensionAPI) {
 				// Archive the FULL transcript like team/chain/pipeline runs do,
 				// so long results survive the 8k follow-up message cap.
 				let fullOutputPath = "";
-				const saOutDir = path.join(ctx?.cwd ?? process.cwd(), ".pi", "agent-sessions");
+				const saOutDir = path.join(spawnCwd, ".pi", "agent-sessions");
 				try {
 					fullOutputPath = persistFullOutput(
 						saOutDir,
@@ -456,7 +492,7 @@ export default function (pi: ExtensionAPI) {
 
 				// Standby spawns (warmup) suppress notification and follow-up message
 				if (!state.standby) {
-					ctx.ui.notify(
+					notifyCurrent(
 						`SA${state.id} (${state.name}) ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 						state.status === "done" ? "success" : "error"
 					);
@@ -471,11 +507,13 @@ export default function (pi: ExtensionAPI) {
 						fullOutputPath,
 						maxResultChars: state.resultBudgetChars,
 					});
-					pi.sendMessage({
-						customType: "subagent-result",
-						content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
-						display: true,
-					}, { deliverAs: "followUp", triggerTurn: true });
+					try {
+						void pi.sendMessage({
+							customType: "subagent-result",
+							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
+							display: true,
+						}, { deliverAs: "followUp", triggerTurn: true }).catch(() => {});
+					} catch {}
 				} else {
 					// Warmup is exempt from the watchdog, but real SCOUT turns are not.
 					// Restore the role timeout before this persistent state is reused.
@@ -491,8 +529,9 @@ export default function (pi: ExtensionAPI) {
 				const retainScoutState = isPersistentScout && state.status === "done";
 				if (shouldScheduleWidgetRemoval(state, isPersistentScout)) {
 					setTimeout(() => {
+						if (spawnEpoch !== sessionEpoch) return;
 						if (agents.has(state.id) && state.status !== "running") {
-							ctx.ui.setWidget(`sub-${state.id}`, undefined);
+							clearWidgetCurrent(`sub-${state.id}`);
 							widgetBoxes.delete(state.id);
 							if (!retainScoutState) agents.delete(state.id);
 						}
@@ -519,7 +558,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (isToolkitCliAgent(state.name)) {
 				const extAgent = state.name;
-				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, ctx?.cwd ?? process.cwd())}\n\n---\n\n${prompt}` : prompt;
+				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
 				spawnToolkitWorker({
 					name: state.name,
 					tools,
@@ -528,10 +567,15 @@ export default function (pi: ExtensionAPI) {
 					task: extTask0,
 					sessionFile: state.sessionFile,
 					env: spawnEnv,
-					cwd: ctx?.cwd ?? process.cwd(),
-					onProcess: (proc: any) => { state.proc = proc; },
-					onStdoutLine: (line: string) => processLine(state, line),
+					cwd: spawnCwd,
+					onProcess: (proc: any) => {
+						if (spawnEpoch === sessionEpoch) state.proc = proc;
+					},
+					onStdoutLine: (line: string) => {
+						if (spawnEpoch === sessionEpoch) processLine(state, line);
+					},
 					onStderr: (chunk: string) => {
+						if (spawnEpoch !== sessionEpoch) return;
 						if (chunk.trim()) {
 							state.textChunks.push(chunk);
 							invalidateWidget(state.id);
@@ -540,7 +584,7 @@ export default function (pi: ExtensionAPI) {
 				}).then(({ exitCode, output }) => {
 					const parsed = parseToolkitResult(state.name, output);
 					finish(exitCode, parsed.text || undefined, parsed.usage);
-				});
+				}).catch(() => finish(1));
 				return;
 			}
 
@@ -555,12 +599,24 @@ export default function (pi: ExtensionAPI) {
 			// result text is read from pi's session JSONL. Standby (warmup)
 			// spawns stay headless — they are an invisible pre-optimization.
 			const runHerdrTransport = async (): Promise<boolean> => {
+				if (spawnEpoch !== sessionEpoch) {
+					finish(1);
+					return true;
+				}
 				if (state.standby) return false;
 				if (!(await herdrEnabledAsync())) return false;
+				if (spawnEpoch !== sessionEpoch) {
+					finish(1);
+					return true;
+				}
 				let tab: HerdrTabRef | null = null;
 				try {
-					const runCwd = ctx?.cwd ?? process.cwd();
+					const runCwd = spawnCwd;
 					const wsId = process.env.HERDR_WORKSPACE_ID || await ensureHerdrWorkspaceAsync("agent-pi", runCwd);
+					if (spawnEpoch !== sessionEpoch) {
+						finish(1);
+						return true;
+					}
 					if (!wsId) return false;
 
 					const launchId = `sa${state.id}`;
@@ -578,6 +634,12 @@ export default function (pi: ExtensionAPI) {
 					});
 
 					tab = await createHerdrTaskTabAsync(wsId, runCwd, `ap-${launchId}`);
+					if (spawnEpoch !== sessionEpoch) {
+						if (tab) await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						finish(1);
+						return true;
+					}
 					if (!tab) {
 						cleanupLaunchFiles(refs);
 						return false;
@@ -596,13 +658,28 @@ export default function (pi: ExtensionAPI) {
 					} as any;
 
 					const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+					if (spawnEpoch !== sessionEpoch) {
+						state.proc = undefined;
+						await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						finish(1);
+						return true;
+					}
 					if (!sent) {
 						state.proc = undefined;
 						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
 						return false;
 					}
-					if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled))) {
+					const launched = await waitForLaunchStart(refs.startedPath, 5_000, () => herdrCancelled);
+					if (spawnEpoch !== sessionEpoch) {
+						state.proc = undefined;
+						await closeHerdrTabAsync(tab);
+						cleanupLaunchFiles(refs);
+						finish(1);
+						return true;
+					}
+					if (!launched) {
 						state.proc = undefined;
 						await closeHerdrTabAsync(tab);
 						cleanupLaunchFiles(refs);
@@ -623,6 +700,10 @@ export default function (pi: ExtensionAPI) {
 
 					// Live dashboard: poll the session JSONL for latest text.
 					const liveTimer = setInterval(() => {
+						if (spawnEpoch !== sessionEpoch) {
+							clearInterval(liveTimer);
+							return;
+						}
 						if (herdrCancelled) return;
 						try {
 							const { text } = readLastAssistantText(state.sessionFile);
@@ -669,7 +750,7 @@ export default function (pi: ExtensionAPI) {
 				const proc = spawn("pi", argv, {
 					stdio: ["ignore", "pipe", "pipe"],
 					env: spawnEnv,
-					cwd: ctx?.cwd ?? process.cwd(),
+					cwd: spawnCwd,
 				});
 
 				state.proc = proc;
@@ -677,6 +758,7 @@ export default function (pi: ExtensionAPI) {
 
 				proc.stdout!.setEncoding("utf-8");
 				proc.stdout!.on("data", (chunk: string) => {
+					if (spawnEpoch !== sessionEpoch) return;
 					buffer += chunk;
 					const lines = buffer.split("\n");
 					buffer = lines.pop() || "";
@@ -685,6 +767,7 @@ export default function (pi: ExtensionAPI) {
 
 				proc.stderr!.setEncoding("utf-8");
 				proc.stderr!.on("data", (chunk: string) => {
+					if (spawnEpoch !== sessionEpoch) return;
 					if (chunk.trim()) {
 						state.textChunks.push(chunk);
 						invalidateWidget(state.id);
@@ -692,6 +775,10 @@ export default function (pi: ExtensionAPI) {
 				});
 
 				proc.on("close", (code) => {
+					if (spawnEpoch !== sessionEpoch) {
+						finish(code);
+						return;
+					}
 					if (buffer.trim()) processLine(state, buffer);
 					finish(code);
 				});
@@ -705,8 +792,12 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			runHerdrTransport().then((ok) => {
+				if (spawnEpoch !== sessionEpoch) {
+					finish(1);
+					return;
+				}
 				if (!ok) runHeadless();
-			});
+			}).catch(() => finish(1));
 		});
 	}
 
@@ -778,6 +869,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
+			const commandEpoch = sessionEpoch;
 			const requestedDefs = args.agents;
 			if (!requestedDefs || requestedDefs.length === 0) {
 				return { content: [{ type: "text", text: "Error: No agents specified." }] };
@@ -855,6 +947,9 @@ export default function (pi: ExtensionAPI) {
 					// Commander group creation failed — proceed without task IDs
 				}
 			}
+			if (commandEpoch !== sessionEpoch) {
+				return { content: [{ type: "text", text: "Session changed before the subagent batch could start." }] };
+			}
 
 			// Collect peer names for mailbox banter
 			const peerNames = states.map(s => `SA-${s.id}-${s.name}`);
@@ -923,6 +1018,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
+			const commandEpoch = sessionEpoch;
 			const state = agents.get(args.id);
 			if (!state) {
 				return { content: [{ type: "text", text: `Error: No SA${args.id} found.` }] };
@@ -931,7 +1027,10 @@ export default function (pi: ExtensionAPI) {
 			if (state.proc && state.status === "running") {
 				await killGracefully(state.proc);
 			}
-			ctx.ui.setWidget(`sub-${args.id}`, undefined);
+			if (commandEpoch !== sessionEpoch) {
+				return { content: [{ type: "text", text: `Session changed while removing SA${args.id}.` }] };
+			}
+			clearWidgetCurrent(`sub-${args.id}`);
 			widgetBoxes.delete(args.id);
 			clearScoutStatusIf(args.id);
 			agents.delete(args.id);
@@ -1108,6 +1207,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Remove a specific subagent widget: /subrm <number>",
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
+			const commandEpoch = sessionEpoch;
 
 			const num = parseInt(args?.trim() ?? "", 10);
 			if (isNaN(num)) {
@@ -1122,14 +1222,12 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Kill the process if still running
-			if (state.proc && state.status === "running") {
-				await killGracefully(state.proc);
-				ctx.ui.notify(`SA${num} killed and removed.`, "warning");
-			} else {
-				ctx.ui.notify(`SA${num} removed.`, "info");
-			}
+			const wasRunning = state.proc && state.status === "running";
+			if (wasRunning) await killGracefully(state.proc);
+			if (commandEpoch !== sessionEpoch) return;
+			notifyCurrent(`SA${num} ${wasRunning ? "killed and removed" : "removed"}.`, wasRunning ? "warning" : "info");
 
-			ctx.ui.setWidget(`sub-${num}`, undefined);
+			clearWidgetCurrent(`sub-${num}`);
 			widgetBoxes.delete(num);
 			clearScoutStatusIf(num);
 			agents.delete(num);
@@ -1142,6 +1240,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Clear all subagent widgets",
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
+			const commandEpoch = sessionEpoch;
 
 			let killed = 0;
 			const killPromises: Promise<void>[] = [];
@@ -1150,9 +1249,10 @@ export default function (pi: ExtensionAPI) {
 					killPromises.push(killGracefully(state.proc));
 					killed++;
 				}
-				ctx.ui.setWidget(`sub-${id}`, undefined);
+				clearWidgetCurrent(`sub-${id}`);
 			}
 			await Promise.all(killPromises);
+			if (commandEpoch !== sessionEpoch) return;
 
 			const total = agents.size;
 			(globalThis as any).__piScoutId = undefined;
@@ -1164,11 +1264,35 @@ export default function (pi: ExtensionAPI) {
 			const msg = total === 0
 				? "No subagents to clear."
 				: `Cleared ${total} subagent${total !== 1 ? "s" : ""}${killed > 0 ? ` (${killed} killed)` : ""}.`;
-			ctx.ui.notify(msg, total === 0 ? "info" : "success");
+			notifyCurrent(msg, total === 0 ? "info" : "success");
 		},
 	});
 
 	// ── Session lifecycle ─────────────────────────────────────────────────────
+
+	// Invalidate background callbacks before the runtime replaces this context.
+	// This handler also runs during extension reload, where the old closure can
+	// otherwise receive a late child-process event.
+	pi.on("session_shutdown", async (_event, ctx) => {
+		sessionEpoch++;
+		widgetCtx = undefined;
+		const killPromises: Promise<void>[] = [];
+		for (const [id, state] of Array.from(agents.entries())) {
+			if (state.watchdogTimer) {
+				clearTimeout(state.watchdogTimer);
+				state.watchdogTimer = undefined;
+			}
+			if (state.proc && state.status === "running") {
+				killPromises.push(killGracefully(state.proc));
+			}
+			try { ctx?.ui?.setWidget?.(`sub-${id}`, undefined); } catch {}
+		}
+		(globalThis as any).__piScoutId = undefined;
+		(globalThis as any).__piScoutStatus = undefined;
+		await Promise.all(killPromises);
+		agents.clear();
+		widgetBoxes.clear();
+	});
 
 	// ── Pre-spawn scout helper ────────────────────────────────────────────────
 
@@ -1220,11 +1344,15 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		sessionEpoch++;
+		const startEpoch = sessionEpoch;
+		widgetCtx = ctx;
+		const startCwd = contextCwd(ctx);
 		applyExtensionDefaults(import.meta.url, ctx);
 		const sessDir = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
 		cleanOldSessionFiles(sessDir, 7);
-		pruneRunArtifacts(path.join(ctx.cwd ?? process.cwd(), ".pi", "agent-sessions")); // 7-day retention
-		reconcileJournal(path.join(ctx.cwd ?? process.cwd(), ".pi", "agent-sessions"));
+		pruneRunArtifacts(path.join(startCwd, ".pi", "agent-sessions")); // 7-day retention
+		reconcileJournal(path.join(startCwd, ".pi", "agent-sessions"));
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
 			if (state.proc && state.status === "running") {
@@ -1233,10 +1361,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
 		await Promise.all(killPromises);
+		if (startEpoch !== sessionEpoch) return;
 		agents.clear();
 		widgetBoxes.clear();
 		nextId = 1;
-		widgetCtx = ctx;
 
 		// Clear stale scout state from previous session
 		(globalThis as any).__piScoutId = undefined;
@@ -1246,10 +1374,10 @@ export default function (pi: ExtensionAPI) {
 		// Models come from the JSON config; .md files provide tools + system prompts.
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 		const extProjectDir = path.resolve(extDir, "..");
-		modelsConfig = loadAgentModelsConfig(ctx.cwd || process.cwd(), extProjectDir);
-		const standardAgents = scanAgentDefs(ctx.cwd || process.cwd(), extProjectDir, modelsConfig);
-		const toolkitModelsConfig = loadToolkitModelsConfig(ctx.cwd || process.cwd(), extProjectDir);
-		const toolkitAgents = scanToolkitAgentDefs(ctx.cwd || process.cwd(), extProjectDir, toolkitModelsConfig);
+		modelsConfig = loadAgentModelsConfig(startCwd, extProjectDir);
+		const standardAgents = scanAgentDefs(startCwd, extProjectDir, modelsConfig);
+		const toolkitModelsConfig = loadToolkitModelsConfig(startCwd, extProjectDir);
+		const toolkitAgents = scanToolkitAgentDefs(startCwd, extProjectDir, toolkitModelsConfig);
 		knownAgents = new Map([...standardAgents, ...toolkitAgents]);
 
 		// Pre-spawn scout subagent so it's always ready for recon tasks
@@ -1277,6 +1405,10 @@ export default function (pi: ExtensionAPI) {
 	// ── /new resets — re-spawn scout for the new session ──────────────────────
 
 	pi.on("session_switch", async (_event, ctx) => {
+		// Bind the replacement context and invalidate old callbacks before awaits.
+		sessionEpoch++;
+		const switchEpoch = sessionEpoch;
+		widgetCtx = ctx;
 		// Kill running subagents and clear all widgets
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
@@ -1286,10 +1418,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
 		await Promise.all(killPromises);
+		if (switchEpoch !== sessionEpoch) return;
 		agents.clear();
 		widgetBoxes.clear();
 		nextId = 1;
-		widgetCtx = ctx;
 
 		// Clear stale scout state
 		(globalThis as any).__piScoutId = undefined;

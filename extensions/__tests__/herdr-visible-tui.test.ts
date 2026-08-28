@@ -200,5 +200,6 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 
 	it("uses the active Pi context directory for visible subagent work", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(src).toContain("const runCwd = ctx?.cwd ?? process.cwd();");
+		expect(src).toContain("const spawnCwd = contextCwd(ctx);");
+		expect(src).toContain("const runCwd = spawnCwd;");
 	});
