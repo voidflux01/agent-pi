@@ -53,6 +53,7 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).not.toContain('customType: "spec-changes-requested"');
 		expect(tool).toContain("Proceed with implementation.");
 		expect(tool).toContain("markSpecApproved()");
+		expect(tool).toContain("refresh the task list");
 		expect(tool).toContain('resetApprovalForMode("SPEC")');
 		expect(command).toContain('customType: "spec-approved"');
 		expect(command).toContain('deliverAs: "followUp"');

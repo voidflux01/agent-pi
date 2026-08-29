@@ -515,7 +515,7 @@ export default function (pi: ExtensionAPI) {
 					return {
 						content: [{
 							type: "text" as const,
-							text: `Spec approved! Proceed with implementation.${modifiedNote} Modified files have been saved.`,
+							text: `Spec approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${modifiedNote} Modified files have been saved.`,
 						}],
 						details: {
 							action: "approved" as const,
@@ -637,7 +637,7 @@ export default function (pi: ExtensionAPI) {
 					piRef.sendMessage(
 						{
 							customType: "spec-approved",
-							content: `Spec approved! Proceed with implementation.${result.modified ? " (spec was edited)" : ""}`,
+							content: `Spec approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${result.modified ? " (spec was edited)" : ""}`,
 							display: true,
 						},
 						{ deliverAs: "followUp" as any, triggerTurn: true },

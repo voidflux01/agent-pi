@@ -202,9 +202,13 @@ Existing Code to Leverage, Out of Scope
 - If user requests changes: review their inline comments and iterate on the spec
 
 ### Phase 5: Implement
-Once approved, proceed with implementation.
+Once approved, do not jump straight into implementation. First refresh the task list for the implementation phase:
+1. Use \`tasks add\` for each concrete implementation step derived from the approved spec (or use \`tasks new-list\` if the previous planning list should be replaced).
+2. Use \`tasks toggle\` to mark the first implementation task inprogress.
+3. Then implement the tasks and toggle each one to done.
+This task refresh is required even when the pre-approval planning tasks are already complete.
 write/edit/bash outside \`context-os/\` are blocked until show_spec is approved. Writing under \`context-os/\` is allowed before that.
-Optionally use /microtasks to break spec into executable tasks.
+Use /microtasks only when a larger spec needs further decomposition.
 
 ## Commander Integration (ALWAYS use when connected)
 - ALWAYS use commander_spec: create/shape/write operations for tracking
