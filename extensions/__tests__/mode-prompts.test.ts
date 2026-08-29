@@ -2,7 +2,16 @@
 // ABOUTME: Validates that prompts contain expected keywords for their workflows.
 
 import { describe, it, expect } from "vitest";
-import { PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
+
+describe("GRILL_ME_SECTION", () => {
+	it("uses each mode's fact-gathering boundary and plain text", () => {
+		expect(GRILL_ME_SECTION).toContain("current mode's existing fact-gathering and tool-boundary rules");
+		expect(GRILL_ME_SECTION).toContain("Phase 2's planning/questions.md");
+		expect(GRILL_ME_SECTION).not.toContain("Look up facts yourself");
+		expect(GRILL_ME_SECTION).not.toMatch(/[❓➡️🔥]/u);
+	});
+});
 
 describe("PLAN_PROMPT", () => {
 	it("is a non-empty string", () => {
@@ -28,6 +37,16 @@ describe("PLAN_PROMPT", () => {
 
 	it("contains '.context/todo.md'", () => {
 		expect(PLAN_PROMPT).toContain(".context/todo.md");
+	});
+
+	it("keeps the original scout-then-plan steps, with grill as enhancement only", () => {
+		expect(PLAN_PROMPT).toContain("Enhancement only");
+		expect(PLAN_PROMPT).toContain("do not skip, reorder, or replace this mode's workflow");
+		expect(PLAN_PROMPT).toContain("1. Spawn a scout");
+		expect(PLAN_PROMPT).toContain("Scout first");
+		expect(PLAN_PROMPT.indexOf("1. Spawn a scout")).toBeLessThan(PLAN_PROMPT.indexOf("2. Write"));
+		expect(PLAN_PROMPT.indexOf("Scout first")).toBeLessThan(PLAN_PROMPT.indexOf("## Grill-me"));
+		expect(PLAN_PROMPT).not.toContain("grill_record_turn");
 	});
 });
 
@@ -155,5 +174,15 @@ describe("SPEC_PROMPT", () => {
 
 	it("contains 'commander_mailbox'", () => {
 		expect(SPEC_PROMPT).toContain("commander_mailbox");
+	});
+
+	it("keeps Phase 2 questions.md, with grill as enhancement only", () => {
+		expect(SPEC_PROMPT).toContain("Enhancement only");
+		expect(SPEC_PROMPT).toContain("Generate 4-8 numbered clarifying questions");
+		expect(SPEC_PROMPT).toContain("Always include a visual assets request");
+		expect(SPEC_PROMPT).toContain("Always include a reusability check");
+		expect(SPEC_PROMPT).toContain("planning/questions.md");
+		expect(SPEC_PROMPT.indexOf("Phase 1: Initialize Spec")).toBeLessThan(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements"));
+		expect(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements")).toBeLessThan(SPEC_PROMPT.indexOf("## Grill-me"));
 	});
 });

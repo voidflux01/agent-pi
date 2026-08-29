@@ -6,24 +6,16 @@ import { fileURLToPath } from "node:url";
 
 const extDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-describe("grill tools bind the execute context", () => {
+describe("grill-me is a prompt, not extra tools", () => {
 	const src = readFileSync(join(extDir, "plan-viewer.ts"), "utf8");
 
-	it("does not read a missing ctx.cwd from grill handlers", () => {
-		expect(src).toContain("recordGrillTurn(ctx2.cwd");
-		expect(src).toContain("saveGrillResults(ctx2.cwd");
-		expect(src).toContain("armGrillSession(ctx2.cwd");
-		expect(src).not.toMatch(/recordGrillTurn\(ctx\.cwd/);
-		expect(src).not.toMatch(/saveGrillResults\(ctx\.cwd/);
-	});
-
-	it("does not auto-arm grill-me on show_plan", () => {
-		expect(src).toContain("params.grill === true");
-		expect(src).not.toContain("params.grill !== false");
-	});
-
-	it("does not tell the model to implement while grill is unfinished", () => {
-		expect(src).toContain("Do not implement yet.");
+	it("does not register grill tools or commands", () => {
+		expect(src).not.toContain("grill_record_turn");
+		expect(src).not.toContain("grill_save_results");
+		expect(src).not.toContain("armGrillSession");
+		expect(src).not.toContain("registerCommand(\"grill-me\"");
+		expect(src).not.toContain("GRILL_ME_START");
+		expect(src).not.toContain("params.grill");
 	});
 
 	it("treats questions Submit Answers as submitted even if the POST action is submitted", () => {

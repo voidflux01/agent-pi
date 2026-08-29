@@ -34,7 +34,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -1093,6 +1093,8 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 ${ORCHESTRATED_TASK_PROMPT}
 
 You orchestrate via \`run_chain\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After run_chain returns, quote the step summaries from ## RESULT.
+
+${GRILL_ME_SECTION}
 
 ## Active Chain: ${activeChain.name}
 Flow: ${flow}

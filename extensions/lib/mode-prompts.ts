@@ -14,6 +14,15 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 - Warm, professional, collaborative tone — no emojis anywhere`;
 }
 
+/** Light enhancement only. Does not replace scout, questions.md, pipeline phases, or dispatch. */
+export const GRILL_ME_SECTION = `## Grill-me
+Enhancement only — do not skip, reorder, or replace this mode's workflow.
+If the user's goal is unclear, use this only as a lightweight clarification step within the current workflow; do not start a separate interview. Before asking, follow the current mode's existing fact-gathering and tool-boundary rules. Never bypass those rules, task discipline, or the mode's required workflow. In SPEC, fold these questions into Phase 2's planning/questions.md. Skip if the goal is already clear.
+
+**Q1** - **<title>**: <body>
+
+**Recommended answer:** <recommended answer>`;
+
 /** Shared task contract appended to every orchestration-mode prompt. */
 export const ORCHESTRATED_TASK_PROMPT = `## Task discipline (required in this mode)
 Before any write, edit, or bash/execution tool:
@@ -55,6 +64,8 @@ Commander: offline. Do not call commander_* tools.`;
 - For multi-step work with clear scope and an approved direction, stay in NORMAL, create tasks, activate the current task, then work through the list.
 - Once a task list exists, keep one task inprogress before write, edit, or bash. PI_TASKS_STRICT=0 makes this advisory.
 
+${GRILL_ME_SECTION}
+
 ## Optional scout
 For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
 
@@ -85,6 +96,7 @@ export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work th
 You are already in PLAN. Do not treat the work as too small for a scout.
 Spawn one read-only scout before writing the plan unless you can already name the single file to change. If more than one source file is involved, or the paths and symbols are not already known, scout is required. Do not grep or read the tree yourself first and then skip the scout.
 A scout reports facts and file paths only. You synthesize the findings and write the plan.
+
 Spawn with:
 \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
 This call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. Do not scan those areas yourself while the scout runs. Scout reconnaissance is read-only and may run before the task list exists.
@@ -92,6 +104,8 @@ Narrow work: at most one scout. Never spawn four scouts by default.
 If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+${GRILL_ME_SECTION}
 
 ## Plan workflow
 1. Spawn a scout and wait for its RESULT unless you already know the single file to change.
@@ -168,6 +182,9 @@ Create a dated spec folder:
 Save the user's raw idea to planning/initialization.md
 
 ### Phase 2: Shape Requirements
+
+${GRILL_ME_SECTION}
+
 Write follow-up questions to planning/questions.md, then present with show_plan:
 - Generate 4-8 numbered clarifying questions with sensible defaults
 - Frame as "I'm assuming X, is that correct?"

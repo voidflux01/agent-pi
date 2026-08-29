@@ -60,6 +60,13 @@ describe("buildNormalPrompt", () => {
 		expect(result).toContain("Orchestration is opt-in");
 		expect(result).toContain("PI_TASKS_STRICT=0");
 	});
+
+	it("adds grill as enhancement without replacing direct work", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result).toContain("Enhancement only");
+		expect(result).toContain("do not skip, reorder, or replace this mode's workflow");
+		expect(result).not.toContain("grill_record_turn");
+	});
 });
 
 describe("buildCommanderSection — Commander-first enforcement", () => {

@@ -48,13 +48,16 @@ Completion lines (`composeAgentResult` header and the TUI
 `53s`, a minute or more is `1m 12s`. Negative input clamps to `0s`; hours
 are not a unit.
 
+### Grill-me is a light prompt enhancement
+
+A short numbered Q&A with a recommended answer, if the model would otherwise guess at the user's goal. Prompt-only. It does **not** replace or reorder scout, `questions.md`, pipeline phases, or dispatch. SPEC Phase 2 keeps the original 4–8 clarifying questions.
+
+`grill_record_turn`, `grill_save_results`, `/grill-me`, and `extensions/lib/grill-core.ts` are removed. `show_plan` does not arm or gate on interview state.
+
 ### Walk-through usage fixes
 
-- `grill_record_turn` / `grill_save_results` / `/grill-me` used a missing
-  `ctx` (the execute argument is `ctx2`) and threw `ctx is not defined`.
-- `show_plan` no longer auto-arms grill-me; pass `grill: true` to opt in.
-  When grill is armed and unfinished, the approval follow-up says not to
-  implement yet.
+- Grill interview tools used a missing `ctx` (the execute argument is `ctx2`)
+  and threw `ctx is not defined`. Those tools are no longer registered.
 - `set_mode` no longer aborts the current turn or injects
   `Continue the task in PLAN mode.` The next provider request in the same
   run gets the new mode system prompt. PLAN's scout rule is one line:

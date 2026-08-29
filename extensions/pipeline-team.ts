@@ -33,7 +33,7 @@ import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable, onCoordinationModeChange, setCoordinationMode } from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -1268,6 +1268,8 @@ You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents,
 - Read-only checks such as reading a file, checking status, or listing contents are allowed during analysis.
 - Any edit, bash command, phase advance, or agent dispatch requires an active task.
 - Trivial work should remain in NORMAL instead of activating a pipeline.
+
+${GRILL_ME_SECTION}
 
 ## Current Phase: ${phaseName}
 ${phase.def.description}
