@@ -37,7 +37,7 @@ function loadArt(): string {
 }
 
 export function showBanner(ctx: ExtensionContext) {
-	if (!ctx.hasUI) return;
+	if (!ctx.hasUI || process.env.PI_WORKER_QUIET === "1") return;
 
 	const art = loadArt();
 	const split = art.split("\n");

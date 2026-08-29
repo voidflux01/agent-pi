@@ -2,6 +2,7 @@
 // ABOUTME: Owns headless/herdr transport selection, process lifecycle, and launch markers.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { childEnvironment } from "./child-runtime.ts";
 import { authorizationMatchesActive, type DispatchAuthorization } from "./dispatch-gate.ts";
 import {
@@ -74,9 +75,17 @@ export interface DispatchRuntimeSpec {
 	spawnProcess?: typeof spawn;
 }
 
+export type DispatchFailure =
+	| "aborted"
+	| "timeout"
+	| "authentication"
+	| "process_error"
+	| "exit_code";
+
 export interface DispatchRuntimeResult {
 	exitCode: number;
 	stderr: string;
+	failure?: DispatchFailure;
 	/** Present when Herdr supplied the authoritative session text. */
 	outputText?: string;
 	transport: Exclude<DispatchTransport, "auto">;
@@ -92,6 +101,23 @@ function updateJournal(spec: DispatchRuntimeSpec, patch: Record<string, unknown>
 
 function isAborted(spec: DispatchRuntimeSpec): boolean {
 	try { return !!spec.isAborted?.(); } catch { return true; }
+}
+
+function classifyFailure(stderr: string, kind: "timeout" | "process_error" | "exit_code" | "aborted"): DispatchFailure {
+	if (kind === "aborted") return "aborted";
+	if (kind === "timeout") return "timeout";
+	if (/\b(401|403)\b|invalid[_ ]api[_ -]?key|authentication|unauthorized/i.test(stderr)) return "authentication";
+	return kind;
+}
+
+function classifyHerdrSession(sessionFile: string | undefined): DispatchFailure | undefined {
+	if (!sessionFile) return undefined;
+	try {
+		const content = readFileSync(sessionFile, "utf8");
+		if (/\b(401|403)\b|invalid[_ ]api[_ -]?key|authentication|unauthorized/i.test(content)) return "authentication";
+		if (/"stopReason":"error"|"errorMessage"/i.test(content)) return "process_error";
+	} catch {}
+	return undefined;
 }
 
 function processLike(child: ChildProcess): DispatchProcess {
@@ -138,7 +164,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			settled = true;
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
 			updateJournal(spec, { status: exitCode === 0 ? "done" : "error", exitCode });
-			resolve({ exitCode, stderr, transport: "headless" });
+			resolve({ exitCode, stderr, transport: "headless", ...(exitCode === 0 ? {} : { failure: classifyFailure(stderr, "exit_code") }) });
 		};
 		child.once("close", (code) => finish(code ?? 1));
 		child.once("error", (error) => {
@@ -152,7 +178,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 
 async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult | null> {
 	if (!spec.herdrDoneExtPath || !(await herdrEnabledAsync())) return null;
-	if (isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", transport: "herdr" };
+	if (isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 
 	let tab: HerdrTabRef | null = null;
 	let ownedByHerdr = false;
@@ -184,6 +210,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			env: {
 				...(spec.env || childEnvironment()),
 				HERDR_DONE_PATH: launchDonePath(spec.launchDir, spec.launchId),
+				PI_WORKER_QUIET: "1",
 			},
 		});
 		tab = await createHerdrTaskTabAsync(
@@ -197,11 +224,11 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		updateJournal(spec, { status: "running" });
 		const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
 		if (!sent) {
-			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", transport: "herdr" };
+			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 			return null;
 		}
 		if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => aborted || isAborted(spec)))) {
-			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", transport: "herdr" };
+			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 			return null;
 		}
 
@@ -230,16 +257,17 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		if (updateTimer) clearInterval(updateTimer);
 		if (aborted || isAborted(spec)) {
 			updateJournal(spec, { status: "error", exitCode: 130 });
-			return { exitCode: 130, stderr: "Dispatch aborted", transport: "herdr" };
+			return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 		}
 		if (exitCode === null) {
 			updateJournal(spec, { status: "error", exitCode: 1 });
-			return { exitCode: 1, stderr: "Timed out waiting for Herdr output", transport: "herdr" };
+			return { exitCode: 1, stderr: "Timed out waiting for Herdr output", failure: "timeout", transport: "herdr" };
 		}
 		const outputText = spec.sessionFile ? readLastAssistantText(spec.sessionFile).text : undefined;
-		terminalStatus = exitCode === 0 ? "done" : "error";
-		updateJournal(spec, { status: terminalStatus, exitCode });
-		return { exitCode, stderr: "", outputText, transport: "herdr" };
+		const failure = exitCode === 0 ? classifyHerdrSession(spec.sessionFile) : classifyFailure("", "exit_code");
+		terminalStatus = exitCode === 0 && !failure ? "done" : "error";
+		updateJournal(spec, { status: terminalStatus, exitCode, ...(failure ? { failure } : {}) });
+		return { exitCode, stderr: "", ...(failure ? { failure } : {}), outputText, transport: "herdr" };
 	} catch (error) {
 		if (updateTimer) clearInterval(updateTimer);
 		if (ownedByHerdr) {

@@ -551,7 +551,8 @@ export async function runToolkitDispatch(opts: {
 							...opts.env,
 							PI_SUBAGENT: "1",
 							HERDR_DONE_PATH: launchDonePath(opts.sessionDir, opts.runId),
-						},
+						PI_WORKER_QUIET: "1",
+					},
 					});
 					const tab = await createHerdrTaskTabAsync(wsId, opts.cwd, herdrLabel);
 					if (tab) {

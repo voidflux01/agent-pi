@@ -81,8 +81,8 @@ describe("visiblePiTuiArgs", () => {
 			expect(out).toContain(kept);
 		}
 		expect(out[out.length - 1]).toBe("Count the .ts files under extensions/");
-		// exactly the two dropped flags plus the appended -e pair
-		expect(out).toHaveLength(saArgv.length - 3 + 2);
+		// dropped headless flags plus the appended -e pair and offline worker mode
+		expect(out).toHaveLength(saArgv.length - 3 + 2 + 1);
 	});
 
 	it("preserves option/value pairs in their original order", () => {
@@ -303,6 +303,15 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 			const src = readFileSync(join(__dirname, "..", rel), "utf8");
 			expect(src).not.toContain('"--thinking", "off"');
 		}
+	});
+
+	it("marks Herdr workers as quiet without muting the parent", () => {
+		for (const rel of ["lib/dispatch-runtime.ts", "lib/toolkit-cli.ts"]) {
+			const src = readFileSync(join(__dirname, "..", rel), "utf8");
+			expect(src).toContain('PI_WORKER_QUIET: "1"');
+		}
+		const banner = readFileSync(join(__dirname, "..", "agent-banner.ts"), "utf8");
+		expect(banner).toContain('process.env.PI_WORKER_QUIET === "1"');
 	});
 
 	it("builds the Herdr command from the full argv without doubling the binary", () => {

@@ -759,6 +759,15 @@ export function visiblePiTuiArgs(args: string[], herdrDoneExtPath: string): stri
 	}
 	if (!strippedAnything) return stripped;
 
+	// Worker panes should not spend their first screen on network update checks.
+	// Keep this scoped to headless-to-visible dispatches; a normal interactive
+	// Pi session keeps its usual online behavior.
+	if (!stripped.includes("--offline")) {
+		// The final positional token is the initial task for Pi. Keep it last.
+		const hasPositionalTask = stripped.length > 0 && !stripped[stripped.length - 1].startsWith("-");
+		stripped.splice(hasPositionalTask ? stripped.length - 1 : stripped.length, 0, "--offline");
+	}
+
 	let insertAt = 0;
 	for (let i = 0; i < stripped.length - 1; i++) {
 		if (stripped[i] === "-e" || stripped[i] === "--extension") insertAt = i + 2;

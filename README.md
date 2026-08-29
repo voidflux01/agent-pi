@@ -224,6 +224,12 @@ A lightweight, zero-dependency text manipulation app bundled in `tex/`. Open it 
 
 ## Configuration
 
+### Model persistence
+
+Model changes are session-scoped by default. Use `/model-save` after selecting a model to make the current provider/model the default for future Pi sessions. This explicit step prevents temporary Herdr worker fallbacks from changing the global default.
+
+Pi startup is configured with `quietStartup` and `collapseChangelog` so worker panes show task output instead of startup inventory and update noise. Errors, tool calls, and final results remain visible.
+
 ### Model routing (`models.json`)
 
 Agent-to-model assignments are resolved from the first matching file, in this order:
