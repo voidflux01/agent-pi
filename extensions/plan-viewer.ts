@@ -18,6 +18,7 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+// Approval is bound to the reviewed snapshot (markPlanApproved() remains the unbound API).
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -379,7 +380,8 @@ export default function (pi: ExtensionAPI) {
 
 			// ── Plan mode result ─────────────────────────────────────
 			if (result.action === "approved") {
-				markPlanApproved();
+				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
+				markPlanApproved(filePath);
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
@@ -486,7 +488,8 @@ export default function (pi: ExtensionAPI) {
 			const result = await runViewer(ctx, markdown, filePath, displayTitle, "plan");
 
 			if (result.action === "approved") {
-				markPlanApproved();
+				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
+				markPlanApproved(filePath);
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",

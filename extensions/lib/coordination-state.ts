@@ -25,6 +25,10 @@ export interface CoordinationState {
 	planApproved: boolean;
 	/** SPEC implementation unlocked after show_spec approval. */
 	specApproved: boolean;
+	/** The exact planning artifact snapshot approved by the user. */
+	planApprovalBinding?: { filePath: string; fileFingerprint: string; contentFingerprint: string };
+	/** The exact spec-folder snapshot approved by the user. */
+	specApprovalBinding?: { folderPath: string; fileFingerprint: string; contentFingerprint: string };
 }
 
 interface CoordinationGlobal {
@@ -41,6 +45,8 @@ function createState(): CoordinationState {
 		activePipeline: null,
 		planApproved: false,
 		specApproved: false,
+		planApprovalBinding: undefined,
+		specApprovalBinding: undefined,
 	};
 }
 
@@ -49,6 +55,9 @@ export function coordinationState(): CoordinationState {
 	const state = globalState.__piCoordinationState;
 	if (typeof state.planApproved !== "boolean") state.planApproved = false;
 	if (typeof state.specApproved !== "boolean") state.specApproved = false;
+	// Bindings were added after the boolean flags; keep old sessions readable.
+	if (state.planApprovalBinding && typeof state.planApprovalBinding !== "object") state.planApprovalBinding = undefined;
+	if (state.specApprovalBinding && typeof state.specApprovalBinding !== "object") state.specApprovalBinding = undefined;
 	return state;
 }
 

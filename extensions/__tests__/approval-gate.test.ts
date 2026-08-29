@@ -1,6 +1,9 @@
 // ABOUTME: Tests for the PLAN/SPEC implementation gate.
 
 import { describe, it, expect, beforeEach } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	approvalStateForMode,
 	decideApprovalGate,
@@ -191,5 +194,29 @@ describe("approval session flags", () => {
 		resetApprovals();
 		expect(coordinationState().planApproved).toBe(false);
 		expect(coordinationState().specApproved).toBe(false);
+	});
+});
+
+
+describe("approval bindings", () => {
+	beforeEach(() => resetApprovals());
+
+	it("invalidates PLAN approval when the approved file changes", () => {
+		const root = mkdtempSync(join(tmpdir(), "approval-plan-"));
+		const file = join(root, "todo.md");
+		writeFileSync(file, "original");
+		markPlanApproved(file);
+		expect(approvalStateForMode("PLAN")).toBe(true);
+		writeFileSync(file, "changed");
+		expect(approvalStateForMode("PLAN")).toBe(false);
+	});
+
+	it("invalidates SPEC approval when a file is added or changed", () => {
+		const root = mkdtempSync(join(tmpdir(), "approval-spec-"));
+		writeFileSync(join(root, "spec.md"), "spec");
+		markSpecApproved(root);
+		expect(approvalStateForMode("SPEC")).toBe(true);
+		writeFileSync(join(root, "requirements.md"), "new requirement");
+		expect(approvalStateForMode("SPEC")).toBe(false);
 	});
 });

@@ -18,6 +18,7 @@ import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+// Approval is bound to the reviewed snapshot (markSpecApproved() remains the unbound API).
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -507,7 +508,8 @@ export default function (pi: ExtensionAPI) {
 
 				// Handle approved
 				if (result.action === "approved") {
-					markSpecApproved();
+					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
+					markSpecApproved(folderPath);
 					const modifiedNote = result.modified
 						? " (spec was edited by user — use the updated version)"
 						: "";
@@ -633,7 +635,8 @@ export default function (pi: ExtensionAPI) {
 				const result = await runSpecViewer(ctx, resolved, displayTitle);
 
 				if (result.action === "approved") {
-					markSpecApproved();
+					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
+					markSpecApproved(folderPath);
 					piRef.sendMessage(
 						{
 							customType: "spec-approved",

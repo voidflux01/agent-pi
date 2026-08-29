@@ -1,7 +1,9 @@
 // ABOUTME: PLAN/SPEC implementation gate. Planning files may be written before
 // ABOUTME: approval; write/edit/bash outside those trees wait on the viewer.
 
-import { resolve } from "node:path";
+import { resolve, relative, sep } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { coordinationState } from "./coordination-state.ts";
 import { isWithinDirectory } from "./path-safety.ts";
 import { isScoutRecon, READ_ONLY_BYPASS_TOOLS, TASK_EXECUTION_TOOLS } from "./task-gate.ts";
@@ -24,37 +26,78 @@ export const IMPLEMENTATION_TOOLS = [
 	"subagent_create_batch",
 ] as const;
 
+export function fingerprintContent(content: string): string {
+	return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/** Fingerprint a file's path and bytes. Missing files have a stable sentinel. */
+export function fingerprintFile(filePath: string): { fileFingerprint: string; contentFingerprint: string } {
+	const absolute = resolve(filePath);
+	try {
+		const content = readFileSync(absolute);
+		return { contentFingerprint: fingerprintContent(content.toString("utf8")), fileFingerprint: fingerprintContent(`${absolute}\0${content.toString("base64")}`) };
+	} catch {
+		return { contentFingerprint: fingerprintContent("<missing>"), fileFingerprint: fingerprintContent(`${absolute}\0<missing>`) };
+	}
+}
+
+/** Fingerprint all files in a spec folder, including relative names and contents. */
+export function fingerprintDirectory(folderPath: string): { fileFingerprint: string; contentFingerprint: string } {
+	const root = resolve(folderPath);
+	const entries: Array<[string, string]> = [];
+	const walk = (dir: string) => {
+		let names: string[]; try { names = readdirSync(dir); } catch { return; }
+		for (const name of names.sort()) {
+			const path = resolve(dir, name); let st; try { st = statSync(path); } catch { continue; }
+			if (st.isDirectory()) walk(path);
+			else if (st.isFile()) { try { entries.push([relative(root, path).split(sep).join("/"), readFileSync(path).toString("base64")]); } catch {} }
+		}
+	};
+	walk(root);
+	const serialized = JSON.stringify(entries);
+	return { contentFingerprint: fingerprintContent(serialized), fileFingerprint: fingerprintContent(`${root}\0${serialized}`) };
+}
+
 export function resetApprovals(): void {
 	const state = coordinationState();
 	state.planApproved = false;
 	state.specApproved = false;
+	state.planApprovalBinding = undefined;
+	state.specApprovalBinding = undefined;
 }
 
 /** Clear the gate when entering PLAN or SPEC so a prior cycle cannot leak. */
 export function resetApprovalForMode(mode: string): void {
-	if (mode === "PLAN") coordinationState().planApproved = false;
-	if (mode === "SPEC") coordinationState().specApproved = false;
+	if (mode === "PLAN") { coordinationState().planApproved = false; coordinationState().planApprovalBinding = undefined; }
+	if (mode === "SPEC") { coordinationState().specApproved = false; coordinationState().specApprovalBinding = undefined; }
 }
 
-export function markPlanApproved(): void {
-	coordinationState().planApproved = true;
+export function markPlanApproved(filePath?: string): void {
+	const state = coordinationState(); state.planApproved = true;
+	state.planApprovalBinding = filePath ? { filePath: resolve(filePath), ...fingerprintFile(filePath) } : undefined;
 }
 
-export function markSpecApproved(): void {
-	coordinationState().specApproved = true;
+export function markSpecApproved(folderPath?: string): void {
+	const state = coordinationState(); state.specApproved = true;
+	state.specApprovalBinding = folderPath ? { folderPath: resolve(folderPath), ...fingerprintDirectory(folderPath) } : undefined;
 }
 
-export function isPlanApproved(): boolean {
-	return coordinationState().planApproved;
-}
+export function isPlanApproved(): boolean { return approvalStateForMode("PLAN"); }
+export function isSpecApproved(): boolean { return approvalStateForMode("SPEC"); }
 
-export function isSpecApproved(): boolean {
-	return coordinationState().specApproved;
+function bindingStillMatches(mode: "PLAN" | "SPEC"): boolean {
+	const state = coordinationState();
+	if (mode === "PLAN") {
+		const b = state.planApprovalBinding; if (!b) return state.planApproved;
+		const now = fingerprintFile(b.filePath); return now.fileFingerprint === b.fileFingerprint && now.contentFingerprint === b.contentFingerprint;
+	}
+	const b = state.specApprovalBinding; if (!b) return state.specApproved;
+	const now = fingerprintDirectory(b.folderPath); return now.fileFingerprint === b.fileFingerprint && now.contentFingerprint === b.contentFingerprint;
 }
 
 export function approvalStateForMode(mode: string | undefined): boolean {
-	if (mode === "PLAN") return coordinationState().planApproved;
-	if (mode === "SPEC") return coordinationState().specApproved;
+	if (mode === "PLAN") return coordinationState().planApproved && bindingStillMatches("PLAN");
+	if (mode === "SPEC") return coordinationState().specApproved && bindingStillMatches("SPEC");
 	return true;
 }
 
