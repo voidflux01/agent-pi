@@ -50,13 +50,15 @@ async function main() {
 		send("send-keys", paneId, "enter");
 		for (let i = 0; i < 15; i++) {
 			await sleep(4000);
-			if (readPane().includes("Extensions")) break;
+			const bootText = readPane();
+			if (bootText.includes("Extensions") || bootText.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(bootText)) break;
 			if (i === 7) {
 				send("send-text", paneId, "pi");
 				send("send-keys", paneId, "enter");
 			}
 		}
-		if (!readPane().includes("Extensions")) throw new Error("pi did not boot in tab");
+		const bootText = readPane();
+		if (!(bootText.includes("Extensions") || bootText.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(bootText))) throw new Error("pi did not boot in tab");
 
 		// 3) deliberately contract-breaking run
 		send("send-text", paneId, 'Use the subagent_create tool to make a breaker agent. Task: run `echo gate-test` then reply with exactly one line "done it". Never write ## RESULT or ## END.');
