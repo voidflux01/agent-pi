@@ -387,7 +387,7 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{
 						type: "text" as const,
-						text: `Plan approved! Proceed with implementation.${modifiedNote}\n\nThe updated plan has been saved to ${file_path}.`,
+						text: `Plan approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${modifiedNote}\n\nThe updated plan has been saved to ${file_path}.`,
 					}],
 					details: {
 						action: "approved" as const,
@@ -490,7 +490,7 @@ export default function (pi: ExtensionAPI) {
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",
-						content: `Plan approved! Proceed with implementation.${result.modified ? " (plan was edited)" : ""}`,
+						content: `Plan approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${result.modified ? " (plan was edited)" : ""}`,
 						display: true,
 					},
 					{ deliverAs: "followUp" as any, triggerTurn: true },

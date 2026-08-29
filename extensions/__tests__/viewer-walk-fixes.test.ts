@@ -38,6 +38,7 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).not.toContain('customType: "plan-approved"');
 		expect(tool).not.toContain('customType: "plan-viewer-answers"');
 		expect(tool).toContain("Proceed with implementation.");
+		expect(tool).toContain("refresh the task list");
 		expect(tool).toContain("The updated plan has been saved to");
 		expect(tool).toContain("markPlanApproved()");
 		expect(tool).toContain('if (purpose === "plan") resetApprovalForMode("PLAN")');

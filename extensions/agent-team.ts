@@ -283,11 +283,9 @@ export default function (pi: ExtensionAPI) {
 
 		// Create session storage dir
 		sessionDir = join(cwd, ".pi", "agent-sessions");
-		if (!existsSync(sessionDir)) {
-			mkdirSync(sessionDir, { recursive: true });
+		if (!existsSync(sessionDir)) mkdirSync(sessionDir, { recursive: true });
 		pruneRunArtifacts(sessionDir); // 7-day rolling retention (archives + journal)
 		reconcileJournal(sessionDir); // close rows orphaned by a crashed parent
-		}
 
 		// Load standard + toolkit model config, then scan agent .md files
 		const modelsConfig = loadAgentModelsConfig(cwd, extProjectDir);
@@ -329,6 +327,12 @@ export default function (pi: ExtensionAPI) {
 		const members = teams[teamName] || [];
 		const defsByName = new Map(allAgentDefs.map(d => [d.name.toLowerCase(), d]));
 
+		removeAllAgentWidgets(widgetCtx);
+		for (const state of agentStates.values()) {
+			if (state.status === "running" && state.proc) {
+				try { state.proc.kill("SIGTERM"); } catch {}
+			}
+		}
 		agentStates.clear();
 		selectedAgentIndex = -1; // Reset selection when team changes
 		for (const member of members) {
@@ -867,6 +871,7 @@ export default function (pi: ExtensionAPI) {
 					sessionDir,
 					runId: journalId,
 					paneTitle,
+					isCancelled: () => runEpoch !== sessionEpoch,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf += chunk; },
@@ -1507,6 +1512,12 @@ ${agentCatalog}${commanderSection}`,
 			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
 			if (!widgetCtx) return;
 			if (mode !== "TEAM") {
+				sessionEpoch++;
+				for (const state of agentStates.values()) {
+					if (state.status === "running" && state.proc) {
+						try { state.proc.kill("SIGTERM"); } catch {}
+					}
+				}
 				removeAllAgentWidgets(widgetCtx);
 			}
 		});

@@ -106,8 +106,9 @@ ${GRILL_ME_SECTION}
 1. Scout if you cannot name the files to change; otherwise inspect read-only yourself.
 2. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
-4. After approval, implement phase by phase and update the plan.
-5. For three or more phases, present a completion report with show_report.
+4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
+5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
+6. For three or more phases, present a completion report with show_report.
 
 ## Plan format
 \`\`\`markdown

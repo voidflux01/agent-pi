@@ -515,8 +515,9 @@ export default function (pi: ExtensionAPI) {
 
 					// Cancel any previously synced tasks before resetting
 					if (syncState.mappings.length > 0) {
+						const mappingsToCancel = [...syncState.mappings];
 						syncToCommander("cancel-old-list", async (client) => {
-							for (const m of syncState.mappings) {
+							for (const m of mappingsToCancel) {
 								await client.callTool("commander_task", { operation: "update", task_id: m.commanderId, status: "cancelled" });
 							}
 						});
@@ -777,8 +778,9 @@ export default function (pi: ExtensionAPI) {
 
 					// Sync: cancel Commander task (skip if external sync owns it)
 					if (!isExternalSyncActive()) {
+						const removedCommanderId = lookupMapping(syncState, removed.id);
 						syncToCommander("task-remove", async (client) => {
-							const cid = lookupMapping(syncState, removed.id);
+							const cid = removedCommanderId;
 							if (cid === undefined) return;
 							await client.callTool("commander_task", {
 								operation: "update",
@@ -819,6 +821,14 @@ export default function (pi: ExtensionAPI) {
 					}
 					const oldText = toUpdate.text;
 					toUpdate.text = params.text;
+					if (!isExternalSyncActive()) {
+						const commanderId = lookupMapping(syncState, toUpdate.id);
+						if (commanderId !== undefined) {
+							syncToCommander("task-update", async (client) => {
+								await client.callTool("commander_task", { operation: "update", task_id: commanderId, description: toUpdate.text });
+							});
+						}
+					}
 					const result = {
 						content: [{ type: "text" as const, text: `Updated #${toUpdate.id}: "${oldText}" → "${toUpdate.text}"` }],
 						details: makeDetails("update"),
@@ -846,8 +856,9 @@ export default function (pi: ExtensionAPI) {
 
 					// Sync: cancel all mapped Commander tasks (skip if external sync owns it)
 					if (!isExternalSyncActive() && syncState.mappings.length > 0) {
+						const mappingsToCancel = [...syncState.mappings];
 						syncToCommander("cancel-all", async (client) => {
-							for (const m of syncState.mappings) {
+							for (const m of mappingsToCancel) {
 								await client.callTool("commander_task", {
 									operation: "update",
 									task_id: m.commanderId,

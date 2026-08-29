@@ -69,7 +69,7 @@ interface AgentState {
 	proc?: any;  // ChildProcess ref for escape-cancel
 }
 
-type PhaseStatus = "pending" | "active" | "done" | "error";
+type PhaseStatus = "pending" | "active" | "done" | "error" | "skipped";
 
 interface PhaseState {
 	def: PhaseDef;
@@ -77,6 +77,7 @@ interface PhaseState {
 	summary: string;
 	agents: AgentState[];
 	dispatchCount: number;
+	lastDispatchSuccess: boolean;
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -251,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 			summary: "",
 			agents: [],
 			dispatchCount: 0,
+			lastDispatchSuccess: false,
 		}));
 
 		if (phaseStates.length > 0) {
@@ -771,10 +773,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const current = phaseStates[currentPhaseIndex];
-			if (phaseRequiresAgentDispatch(current.def) && (current.dispatchCount || 0) === 0) {
+			if (phaseRequiresAgentDispatch(current.def) && ((current.dispatchCount || 0) === 0 || !current.lastDispatchSuccess)) {
 				const hint = current.def.agents[0]?.role || "the configured agent";
 				return {
-					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call dispatch_agents first (e.g. ${hint}), wait for ## RESULT, then advance_phase with that summary. Do not skip this phase's agents.` }],
+					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call dispatch_agents successfully (e.g. ${hint}), resolve all agent errors, wait for ## RESULT, then advance_phase with that summary.` }],
 					details: { error: true, phase: current.def.name },
 				};
 			}
@@ -793,10 +795,18 @@ export default function (pi: ExtensionAPI) {
 			let nextIndex = currentPhaseIndex + 1;
 			if (skip_to) {
 				const target = phaseStates.findIndex(p => p.def.name.toLowerCase() === skip_to.toLowerCase());
-				if (target > currentPhaseIndex) nextIndex = target;
+				if (target > currentPhaseIndex) {
+				for (let i = currentPhaseIndex + 1; i < target; i++) {
+					phaseStates[i].status = "skipped" as PhaseStatus;
+					phaseStates[i].summary = `Skipped to ${skip_to}`;
+				}
+				nextIndex = target;
+			}
 			}
 
 			if (nextIndex >= phaseStates.length) {
+				activeConfig = null;
+				updateWidget();
 				return {
 					content: [{ type: "text", text: "Pipeline complete! All phases finished." }],
 					details: { phase: "complete", summary },
@@ -837,7 +847,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				role: Type.String({ description: "Agent role name (e.g. 'scout', 'builder', 'reviewer')" }),
-				task: Type.String({ description: "Task description for this agent" }),
+				task: Type.Optional(Type.String({ description: "Task description; defaults to the configured phase task_template" })),
 			}), { description: "Array of agents to dispatch" }),
 		}),
 
@@ -848,6 +858,9 @@ export default function (pi: ExtensionAPI) {
 			if (!phase) {
 				return { content: [{ type: "text", text: "No active phase." }], details: {} };
 			}
+			if (phase.def.name.toLowerCase() === "review" && reviewLoopCount >= activeConfig.review_max_loops) {
+				return { content: [{ type: "text", text: `Review loop limit reached (${activeConfig.review_max_loops}). Advance the pipeline or revise the configuration.` }], details: { error: true, phase: phase.def.name, reviewLoop: reviewLoopCount } };
+			}
 
 			if (onUpdate) {
 				onUpdate({
@@ -857,13 +870,14 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Resolve template variables in task strings
-			const resolved = agents.map(a => ({
+			const requested = agents.length > 0 ? agents : phase.def.agents.map(a => ({ role: a.role, task: a.task_template }));
+			const resolved = requested.map(a => ({
 				role: a.role,
-				task: resolveTemplate(a.task, {
+				task: resolveTemplate(a.task || "", {
 					task: taskSummary,
 					context: accContext,
 					plan: planOutput,
-					input: "",
+					input: "$INPUT",
 					review: reviewOutput,
 				}),
 			}));
@@ -900,6 +914,7 @@ export default function (pi: ExtensionAPI) {
 				: mergedOutput;
 
 			const status = result.success ? "done" : "error";
+			phaseState.lastDispatchSuccess = result.success;
 			const blockedNotice = result.blockedReason ? `\n\n${result.blockedReason}` : "";
 
 			return {
