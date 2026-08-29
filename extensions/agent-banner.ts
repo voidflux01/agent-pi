@@ -17,8 +17,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
-const DEFAULT_ART = `        ⚔  ═══  F I G H T I N G  ═══  ⚔
-             ──  STAND • STRIKE • PREVAIL  ──`;
+const DEFAULT_ART = `⚔  ╔════════════════════════════════════════╗  ⚔
+⚔  ║            F I G H T I N G             ║  ⚔
+⚔  ║      STAND  •  STRIKE  •  PREVAIL      ║  ⚔
+⚔  ╚════════════════════════════════════════╝  ⚔`;
 
 function loadArt(): string {
 	const path = join(homedir(), "Desktop", "agent.txt");
