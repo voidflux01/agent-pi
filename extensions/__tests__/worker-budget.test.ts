@@ -1,16 +1,12 @@
-// ABOUTME: Tests for per-role thinking, timeout, and tool-call policy.
+// ABOUTME: Tests for per-role thinking and tool-call policy.
 import { describe, expect, it } from "vitest";
 import {
 	IMPLEMENTATION_WORKER_MAX_TOOLS,
-	IMPLEMENTATION_WORKER_TIMEOUT_MS,
-	DEFAULT_WORKER_TIMEOUT_MS,
-	TOOLKIT_WORKER_TIMEOUT_MS,
 	applyWorkerLaunchPolicy,
 	isExecutionWorker,
 	isImplementationWorker,
 	workerHitToolCap,
 	workerThinkingLevel,
-	workerTimeoutMs,
 } from "../lib/worker-budget.ts";
 
 describe("worker budget", () => {
@@ -41,13 +37,6 @@ describe("worker budget", () => {
 		expect(workerHitToolCap("planner", 500)).toBe(false);
 	});
 
-	it("uses a short clock for low-thinking roles and longer for review/toolkit", () => {
-		expect(workerTimeoutMs("builder")).toBe(IMPLEMENTATION_WORKER_TIMEOUT_MS);
-		expect(workerTimeoutMs("scout")).toBe(IMPLEMENTATION_WORKER_TIMEOUT_MS);
-		expect(workerTimeoutMs("planner")).toBe(DEFAULT_WORKER_TIMEOUT_MS);
-		expect(workerTimeoutMs("codex-agent")).toBe(TOOLKIT_WORKER_TIMEOUT_MS);
-	});
-
 	it("pins thinking on pi argv without duplicating the flag", () => {
 		const first = applyWorkerLaunchPolicy(["pi", "--mode", "json", "task"], "builder");
 		expect(first.command.slice(0, 4)).toEqual(["pi", "--thinking", "low", "--mode"]);
@@ -57,6 +46,5 @@ describe("worker budget", () => {
 		expect(planner.command.slice(0, 4)).toEqual(["pi", "--thinking", "high", "--mode"]);
 		const toolkit = applyWorkerLaunchPolicy(["pi", "--mode", "json", "task"], "omp-agent");
 		expect(toolkit.command).toEqual(["pi", "--mode", "json", "task"]);
-		expect(toolkit.timeoutMs).toBe(TOOLKIT_WORKER_TIMEOUT_MS);
 	});
 });

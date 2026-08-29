@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
+import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -586,7 +587,7 @@ export async function runToolkitDispatch(opts: {
 							await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 							const rc = await pollDoneFileAsync(
 								refs.donePath,
-								10 * 60 * 1000,
+								DEFAULT_POLL_TIMEOUT_MS,
 								() => herdrCancelled || cancelled(),
 							);
 							let rawOut = "";

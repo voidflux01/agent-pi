@@ -91,7 +91,8 @@ export interface DispatchRuntimeResult {
 	transport: Exclude<DispatchTransport, "auto">;
 }
 
-const DEFAULT_POLL_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
+/** Default worker wait. Pass pollTimeoutMs: 0 to disable. */
+export const DEFAULT_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_HERDR_POLL_INTERVAL_MS = 3_000;
 
 function updateJournal(spec: DispatchRuntimeSpec, patch: Record<string, unknown>): void {
@@ -159,7 +160,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			spec.onStderr?.(chunk);
 		});
 		let settled = false;
-		const timeoutMs = spec.pollTimeoutMs;
+		const timeoutMs = spec.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
 		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
 			settled = true;

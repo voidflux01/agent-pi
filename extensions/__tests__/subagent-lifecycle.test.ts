@@ -42,12 +42,14 @@ describe("stale session lifecycle protection", () => {
 });
 
 describe("timeout resolution", () => {
-	it("uses a five-minute default for SCOUT", () => {
-		expect(resolveTimeout("SCOUT")).toBe(5 * 60 * 1000);
+	it("does not apply a role default", () => {
+		expect(resolveTimeout("SCOUT")).toBe(0);
+		expect(resolveTimeout("BUILDER")).toBe(0);
 	});
 
-	it("honors an explicit zero timeout", () => {
+	it("honors an explicit timeout and explicit zero", () => {
 		expect(resolveTimeout("SCOUT", 0)).toBe(0);
+		expect(resolveTimeout("BUILDER", 30_000)).toBe(30_000);
 	});
 });
 

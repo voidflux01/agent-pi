@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, DEFAULT_POLL_TIMEOUT_MS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 
 function fakeChild() {
@@ -32,6 +32,10 @@ function runExplicit<T>(origin: "agent-team", operation: () => T): T {
 }
 
 describe("shared dispatch runtime", () => {
+	it("defaults the worker wait to two hours", () => {
+		expect(DEFAULT_POLL_TIMEOUT_MS).toBe(2 * 60 * 60 * 1000);
+	});
+
 	it("runs a fake child and closes its journal row", async () => {
 		const child = fakeChild();
 		const dir = mkdtempSync(join(tmpdir(), "dispatch-runtime-"));

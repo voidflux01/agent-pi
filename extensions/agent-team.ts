@@ -900,7 +900,6 @@ export default function (pi: ExtensionAPI) {
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
-				pollTimeoutMs: launch.timeoutMs,
 				cwd: runCwd,
 				env: spawnEnv,
 				launchDir: sessionDir,

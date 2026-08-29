@@ -453,7 +453,6 @@ export default function (pi: ExtensionAPI) {
 			const runtimePromise = runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
-				pollTimeoutMs: launch.timeoutMs,
 				cwd: ctx.cwd,
 				env: childEnvironment({
 					PI_SUBAGENT: "1",

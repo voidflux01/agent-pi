@@ -90,23 +90,13 @@ function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 	});
 }
 
-/** Default timeout per agent role (ms). Prevents zombie subagents. */
-const ROLE_TIMEOUT_MS: Record<string, number> = {
-	SCOUT:    5 * 60 * 1000,    // 5 minutes
-	BUILDER:  30 * 60 * 1000,   // 30 minutes
-	REVIEWER: 15 * 60 * 1000,   // 15 minutes
-	TESTER:   20 * 60 * 1000,   // 20 minutes
-	PLANNER:  15 * 60 * 1000,   // 15 minutes
-};
-const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
-
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const TIMEOUT_KILL_GRACE_MS = 30_000;
 
-/** Resolve the timeout for a subagent based on role name or explicit override. */
-export function resolveTimeout(name: string, explicitTimeout?: number): number {
+/** Optional explicit timeout only. 0 / omitted means no watchdog kill. */
+export function resolveTimeout(_name: string, explicitTimeout?: number): number {
 	if (explicitTimeout !== undefined && explicitTimeout >= 0) return explicitTimeout;
-	return ROLE_TIMEOUT_MS[name.toUpperCase()] || DEFAULT_TIMEOUT_MS;
+	return 0;
 }
 
 /** Toolkit harnesses keep lowercase names so herdr labels match `omp-agent`. */
@@ -582,7 +572,6 @@ export default function (pi: ExtensionAPI) {
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
-				pollTimeoutMs: launch.timeoutMs,
 				cwd: spawnCwd,
 				env: spawnEnv,
 				launchDir: path.dirname(state.sessionFile),
@@ -635,7 +624,7 @@ export default function (pi: ExtensionAPI) {
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
 			commanderTaskId: Type.Optional(Type.Number({ description: "Pre-assigned Commander task ID (avoids race conditions)" })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
-			timeout: Type.Optional(Type.Number({ description: "Max runtime in milliseconds. Defaults by role: scout=5min, builder=30min, reviewer=15min, default=20min. Set 0 to disable." })),
+			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit or 0 to run until the agent finishes." })),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
@@ -692,7 +681,7 @@ export default function (pi: ExtensionAPI) {
 			}), { description: "Array of agent definitions to spawn" }),
 			groupName: Type.Optional(Type.String({ description: "Commander task group name (used when Commander is available)" })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
-			timeout: Type.Optional(Type.Number({ description: "Max runtime in ms for all agents in this batch. Defaults by role." })),
+			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit or 0 to run until each agent finishes." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {

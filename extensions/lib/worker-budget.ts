@@ -1,11 +1,8 @@
-// ABOUTME: Per-role thinking, wall-clock, and tool-call policy for spawned workers.
+// ABOUTME: Per-role thinking and tool-call policy for spawned workers.
 
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
 
 export const IMPLEMENTATION_WORKER_MAX_TOOLS = 48;
-export const IMPLEMENTATION_WORKER_TIMEOUT_MS = 4 * 60 * 1000;
-export const DEFAULT_WORKER_TIMEOUT_MS = 8 * 60 * 1000;
-export const TOOLKIT_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
 export const IMPLEMENTATION_WORKER_THINKING = "low";
 
 export type WorkerThinking = "low" | "medium" | "high";
@@ -68,11 +65,6 @@ export function workerThinkingLevel(name: string): WorkerThinking | undefined {
 	return "medium";
 }
 
-export function workerTimeoutMs(name: string): number {
-	if (isToolkitWorker(name)) return TOOLKIT_WORKER_TIMEOUT_MS;
-	return workerThinkingLevel(name) === "low" ? IMPLEMENTATION_WORKER_TIMEOUT_MS : DEFAULT_WORKER_TIMEOUT_MS;
-}
-
 export function implementationWorkerPrompt(): string {
 	return `\n\n## Stop condition
 Once the requested files exist and verification has run (tests pass, or there are no tests), emit ## RESULT immediately.
@@ -85,13 +77,12 @@ export function workerHitToolCap(name: string, toolCount: number): boolean {
 	return isExecutionWorker(name) && toolCount >= IMPLEMENTATION_WORKER_MAX_TOOLS;
 }
 
-/** Insert --thinking when this role has a pinned level, and return its wall-clock cap. */
-export function applyWorkerLaunchPolicy(command: string[], agentName: string): { command: string[]; timeoutMs: number } {
-	const timeoutMs = workerTimeoutMs(agentName);
+/** Insert --thinking when this role has a pinned level. No wall-clock kill. */
+export function applyWorkerLaunchPolicy(command: string[], agentName: string): { command: string[] } {
 	const thinking = workerThinkingLevel(agentName);
-	if (!thinking || command.includes("--thinking")) return { command, timeoutMs };
+	if (!thinking || command.includes("--thinking")) return { command };
 	const out = [...command];
 	const start = out[0] === "pi" || /(?:^|\/)pi$/.test(out[0] || "") ? 1 : 0;
 	out.splice(start, 0, "--thinking", thinking);
-	return { command: out, timeoutMs };
+	return { command: out };
 }

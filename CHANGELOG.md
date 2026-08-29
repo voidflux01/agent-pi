@@ -16,9 +16,12 @@ All notable changes to agent-pi will be documented in this file.
   to done; the list is still shown.
 - Spawned workers pin `--thinking` per role (builder/paladin/herald/tester/scout
   family: low; documenter and pi-pi experts: medium; planner/reviewer/warden/
-  knight/red-team: high). Toolkit CLIs are not pinned. Low roles get a 4-minute
-  wall clock, review roles 8 minutes, toolkit 10 minutes. Execution workers
-  also keep a 48 tool-call backstop.
+  knight/red-team: high). Toolkit CLIs are not pinned. No wall-clock kill —
+  a worker that is still making progress is not SIGTERM'd mid-task.
+  Execution workers keep a 48 tool-call backstop. Dispatch wait defaults to
+  2 hours (pass pollTimeoutMs: 0 to disable). `subagent_create` no longer
+  kills by role (scout 5m / builder 30m); timeout is only if the caller
+  sets it.
 - Herdr worker labels no longer double the role (`pipeline-planner-0-1-…`).
 - Task header shows `done` and `active` counts.
 
