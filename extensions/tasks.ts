@@ -601,7 +601,22 @@ export default function (pi: ExtensionAPI) {
 									const queuedIds = pendingGroupTaskIds.splice(0);
 									syncTasksAddedAfterGroupCreation(queuedIds, generation);
 								} else {
+									// Keep locally-created tasks recoverable when the first group request
+									// fails. Rebuild the group from every currently unmapped task.
 									syncState = { ...syncState, groupCreationInFlight: false };
+									const retryTasks = tasks.filter(t => lookupMapping(syncState, t.id) === undefined);
+									pendingGroupTaskIds = [];
+									if (retryTasks.length > 0 && generation === syncGeneration) {
+										syncState = markGroupCreationInFlight(syncState);
+										const retryIds = retryTasks.map(t => t.id);
+										const retryPayload = buildGroupCreatePayload(listTitle || "Tasks", listDescription || listTitle || "Tasks", retryTasks.map(t => t.text), process.cwd());
+										syncToCommander("group-create-retry", async (retryClient) => {
+											const retryRes = await retryClient.callTool("commander_task", retryPayload);
+											const retryParsed = parseGroupCreateResult(retryRes);
+											if (!retryParsed) throw new Error("Commander group retry returned no tasks");
+											syncState = applyGroupCreateResult(syncState, retryIds, retryParsed);
+										});
+									}
 								}
 								try { refreshUI(ctx); } catch {}
 							});
