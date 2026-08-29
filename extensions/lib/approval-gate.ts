@@ -2,7 +2,7 @@
 // ABOUTME: approval; write/edit/bash outside those trees wait on the viewer.
 
 import { resolve, relative, sep } from "node:path";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { coordinationState } from "./coordination-state.ts";
 import { isWithinDirectory } from "./path-safety.ts";
@@ -153,7 +153,11 @@ export function decideApprovalGate(input: {
 	args?: unknown;
 	cwd?: string;
 }): { block: boolean; reason?: string } {
-	const { mode, approved, toolName, args, cwd } = input;
+	const { mode, toolName, args, cwd } = input;
+	let approved = input.approved;
+	// Never trust a stale caller-supplied boolean once an approval is bound.
+	if (mode === "PLAN" && coordinationState().planApprovalBinding) approved = approved && bindingStillMatches("PLAN");
+	if (mode === "SPEC" && coordinationState().specApprovalBinding) approved = approved && bindingStillMatches("SPEC");
 	if (!isApprovalGatedMode(mode) || approved) return { block: false };
 	if (toolName === "call_tool") {
 		const nested = nestedCallTool(args);
