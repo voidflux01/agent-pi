@@ -53,6 +53,20 @@ export function taskRequiredForMode(mode: string | undefined): boolean {
 	return (TASK_REQUIRED_MODES as readonly string[]).includes(mode ?? "");
 }
 
+/** Start a follow-up turn for leftover tasks. TEAM/CHAIN/PIPELINE coordinators
+ *  often stop with the last task still inprogress; forcing a new turn aborts
+ *  the session. Display the list, but do not triggerTurn in that case. */
+export function taskValidationTriggerTurn(
+	mode: string | undefined,
+	incomplete: ReadonlyArray<{ status: string }>,
+): boolean {
+	if (mode !== "TEAM" && mode !== "CHAIN" && mode !== "PIPELINE") return true;
+	const hasIdle = incomplete.some((t) => t.status === "idle");
+	const hasInprogress = incomplete.some((t) => t.status === "inprogress");
+	if (hasInprogress && !hasIdle) return false;
+	return true;
+}
+
 /** Strict lifecycle checks for existing NORMAL task lists. Opt out with PI_TASKS_STRICT=0. */
 export function taskGateStrict(): boolean {
 	return process.env.PI_TASKS_STRICT !== "0";

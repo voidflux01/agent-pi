@@ -40,6 +40,7 @@ import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResu
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -345,6 +346,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (!isToolkitCliAgent(state.name)) {
 			promptParts.push(buildAgentResultContractPrompt());
+			if (isExecutionWorker(state.name)) promptParts.push(implementationWorkerPrompt());
 		}
 		const systemPromptArgs = ["--append-system-prompt", promptParts.join("\n\n")];
 
@@ -576,9 +578,11 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// widget keeps watchdog, epoch, Commander, and follow-up policies local.
+			const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
-				command: ["pi", ...argv],
+				command: launch.command,
+				pollTimeoutMs: launch.timeoutMs,
 				cwd: spawnCwd,
 				env: spawnEnv,
 				launchDir: path.dirname(state.sessionFile),

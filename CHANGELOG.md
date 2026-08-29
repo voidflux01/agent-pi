@@ -11,13 +11,14 @@ All notable changes to agent-pi will be documented in this file.
 - `/mode PIPELINE` activates the `plan-build` pipeline when none is selected.
 - `/chain <name>`, `/pipeline <name>`, and `/agents-team <name>` take a name.
 - PLAN/SPEC allow read-only bash (`date`, `wc`, `pwd`, `uname`) before approval.
-- TEAM/CHAIN/PIPELINE auto-close a leftover inprogress task on `agent_end`
-  so task-validation cannot abort the session back to the shell.
-- Builder workers inherit `thinking: high` and then keep polishing after
-  tests pass. Implementation workers now launch with `--thinking low`, a
-  4-minute wall clock (8 minutes for other roles), and a 48 tool-call
-  backstop. Headless dispatch honors that timeout; a Herdr timeout now
-  also closes the child pane.
+- TEAM/CHAIN/PIPELINE leftover inprogress tasks no longer force a follow-up
+  turn (that aborted the session back to the shell). Status is not forged
+  to done; the list is still shown.
+- Spawned workers pin `--thinking` per role (builder/paladin/herald/tester/scout
+  family: low; documenter and pi-pi experts: medium; planner/reviewer/warden/
+  knight/red-team: high). Toolkit CLIs are not pinned. Low roles get a 4-minute
+  wall clock, review roles 8 minutes, toolkit 10 minutes. Execution workers
+  also keep a 48 tool-call backstop.
 - Herdr worker labels no longer double the role (`pipeline-planner-0-1-…`).
 - Task header shows `done` and `active` counts.
 

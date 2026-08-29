@@ -47,7 +47,7 @@ import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModel
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
-import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isImplementationWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
@@ -372,7 +372,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isImplementationWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 

@@ -47,7 +47,7 @@ import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig 
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
-import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isImplementationWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -421,7 +421,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isImplementationWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 

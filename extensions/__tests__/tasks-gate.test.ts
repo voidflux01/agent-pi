@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode } from "../lib/task-gate.ts";
+import { isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -218,5 +218,20 @@ describe("mode-aware task discipline", () => {
 	it("keeps task tracking optional in NORMAL", () => {
 		expect(taskRequiredForMode("NORMAL")).toBe(false);
 		expect(taskRequiredForMode(undefined)).toBe(false);
+	});
+});
+
+describe("taskValidationTriggerTurn", () => {
+	it("does not start a new turn when TEAM/CHAIN/PIPELINE stop on the last inprogress task", () => {
+		const leftover = [{ status: "inprogress" }];
+		expect(taskValidationTriggerTurn("TEAM", leftover)).toBe(false);
+		expect(taskValidationTriggerTurn("CHAIN", leftover)).toBe(false);
+		expect(taskValidationTriggerTurn("PIPELINE", leftover)).toBe(false);
+	});
+
+	it("still starts a turn when idle work remains or the mode is PLAN", () => {
+		expect(taskValidationTriggerTurn("TEAM", [{ status: "inprogress" }, { status: "idle" }])).toBe(true);
+		expect(taskValidationTriggerTurn("PLAN", [{ status: "inprogress" }])).toBe(true);
+		expect(taskValidationTriggerTurn("NORMAL", [{ status: "inprogress" }])).toBe(true);
 	});
 });

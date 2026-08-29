@@ -586,7 +586,7 @@ export async function runToolkitDispatch(opts: {
 							await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 							const rc = await pollDoneFileAsync(
 								refs.donePath,
-								7 * 24 * 3600 * 1000,
+								10 * 60 * 1000,
 								() => herdrCancelled || cancelled(),
 							);
 							let rawOut = "";
