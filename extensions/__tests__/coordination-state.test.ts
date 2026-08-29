@@ -29,6 +29,8 @@ function resetState(): void {
 	setCoordinationMode("NORMAL");
 	setActiveChain(null);
 	setActivePipeline(null);
+	coordinationState().planApproved = false;
+	coordinationState().specApproved = false;
 	drainCommanderReadyCallbacks();
 }
 

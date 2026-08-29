@@ -11,6 +11,7 @@ import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from 
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { rewritePayloadSystemPrompt } from "./lib/rewrite-system-prompt.ts";
 import { coordinationState, setCoordinationMode, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
+import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 
@@ -22,6 +23,7 @@ let midRunSystemPrompt: string | null = null;
 export default function (pi: ExtensionAPI) {
 	// The extension owns the session mode; initialize the shared bus once per registration.
 	midRunSystemPrompt = null;
+	resetApprovals();
 	setCoordinationMode("NORMAL");
 	installPinnedToolSurface(pi);
 
@@ -85,7 +87,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function setMode(mode: Mode, ctx: ExtensionContext) {
+		const previous = coordinationState().mode;
 		setCoordinationMode(mode, ctx);
+		if (previous !== mode) resetApprovalForMode(mode);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};
@@ -169,7 +173,7 @@ export default function (pi: ExtensionAPI) {
 			if (changed) {
 				midRunSystemPrompt = systemPromptForMode(upper as Mode) ?? null;
 				if (upper === "PLAN") {
-					msg += " Scout first unless you already know the single file to change, then write .context/todo.md and call show_plan. Do not implement before approval.";
+					msg += " Scout if you cannot name the files to change, then write .context/todo.md and call show_plan. Implementation is blocked until the plan is approved.";
 				}
 				if (ctx.hasUI) {
 					try { ctx.ui.notify(`Switched to ${upper}.`, "info"); } catch {}
@@ -202,6 +206,18 @@ export default function (pi: ExtensionAPI) {
 
 	// ── System prompt injection per mode ─────────
 
+	pi.on("tool_call", async (event, ctx) => {
+		if (process.env.PI_SUBAGENT === "1") return { block: false };
+		const mode = coordinationState().mode;
+		return decideApprovalGate({
+			mode,
+			approved: approvalStateForMode(mode),
+			toolName: event.toolName,
+			args: event.arguments || event.params || event.input,
+			cwd: ctx?.cwd,
+		});
+	});
+
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		midRunSystemPrompt = null;
 		const systemPrompt = systemPromptForMode(coordinationState().mode);
@@ -219,6 +235,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		applyExtensionDefaults(import.meta.url, ctx);
 		midRunSystemPrompt = null;
+		resetApprovals();
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};

@@ -65,6 +65,8 @@ describe("buildNormalPrompt", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
 		expect(result).toContain("Enhancement only");
 		expect(result).toContain("do not skip, reorder, or replace this mode's workflow");
+		expect(result).toContain("ask_user");
+		expect(result).toContain("Do not call set_mode just to ask");
 		expect(result).not.toContain("grill_record_turn");
 	});
 });

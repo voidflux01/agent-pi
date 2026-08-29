@@ -17,11 +17,7 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 /** Light enhancement only. Does not replace scout, questions.md, pipeline phases, or dispatch. */
 export const GRILL_ME_SECTION = `## Grill-me
 Enhancement only — do not skip, reorder, or replace this mode's workflow.
-If the user's goal is unclear, use this only as a lightweight clarification step within the current workflow; do not start a separate interview. Before asking, follow the current mode's existing fact-gathering and tool-boundary rules. Never bypass those rules, task discipline, or the mode's required workflow. In SPEC, fold these questions into Phase 2's planning/questions.md. Skip if the goal is already clear.
-
-**Q1** - **<title>**: <body>
-
-**Recommended answer:** <recommended answer>`;
+If a new user-facing behavior has an unstated format, destination, or audience, clarify once before guessing. Use ask_user, with your recommended option first. Do not call set_mode just to ask. In SPEC, fold these into Phase 2's planning/questions.md instead of a separate interview. Skip if those choices are already stated.`;
 
 /** Shared task contract appended to every orchestration-mode prompt. */
 export const ORCHESTRATED_TASK_PROMPT = `## Task discipline (required in this mode)
@@ -92,9 +88,8 @@ ${commanderSection}`;
 /** Plan-first workflow: analyze → plan → approve → implement. */
 export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work that benefits from review before implementation.
 
-## Scout first
-You are already in PLAN. Do not treat the work as too small for a scout.
-Spawn one read-only scout before writing the plan unless you can already name the single file to change. If more than one source file is involved, or the paths and symbols are not already known, scout is required. Do not grep or read the tree yourself first and then skip the scout.
+## Scout
+Spawn one read-only scout before writing the plan when you cannot already name the files and symbols to change. If the tree is small and the paths are already known, read them yourself. Do not spawn a scout just because PLAN is active.
 A scout reports facts and file paths only. You synthesize the findings and write the plan.
 
 Spawn with:
@@ -108,7 +103,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${GRILL_ME_SECTION}
 
 ## Plan workflow
-1. Spawn a scout and wait for its RESULT unless you already know the single file to change.
+1. Scout if you cannot name the files to change; otherwise inspect read-only yourself.
 2. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
 4. After approval, implement phase by phase and update the plan.
@@ -148,7 +143,7 @@ ${GRILL_ME_SECTION}
 ## Rules
 - Keep the plan specific to the user's request. Do not invent ceremony.
 - Prefer existing components and patterns.
-- Never start implementation before approval in PLAN mode.
+- Never start implementation before approval in PLAN mode. write/edit/bash outside \`.context/\` are blocked until show_plan is approved. Writing \`.context/todo.md\` is allowed before that.
 - Do not spawn extra scouts once the needed context is sufficient. Each spawned scout still runs to RESULT.
 - Keep RESULT contracts machine-checkable and concise.
 
@@ -208,6 +203,7 @@ Existing Code to Leverage, Out of Scope
 
 ### Phase 5: Implement
 Once approved, proceed with implementation.
+write/edit/bash outside \`context-os/\` are blocked until show_spec is approved. Writing under \`context-os/\` is allowed before that.
 Optionally use /microtasks to break spec into executable tasks.
 
 ## Commander Integration (ALWAYS use when connected)

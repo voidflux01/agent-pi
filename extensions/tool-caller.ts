@@ -7,6 +7,8 @@ import { Text } from "@mariozechner/pi-tui";
 import { getToolRegistry } from "./tool-registry.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { loadPolicy, scanCommand, scanFilePath, formatThreatsForBlock } from "./lib/security-engine.ts";
+import { approvalStateForMode, decideApprovalGate } from "./lib/approval-gate.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
 
@@ -34,6 +36,19 @@ export function nestedSecurityBlock(toolName: string, args: Record<string, unkno
 			: [];
 	const blocking = threats.filter((threat) => threat.severity === "block");
 	return blocking.length > 0 ? formatThreatsForBlock(blocking, policy.settings.verbose_blocks) : null;
+}
+
+/** call_tool does not re-enter tool_call; apply the PLAN/SPEC gate to the nested tool. */
+export function nestedApprovalBlock(toolName: string, args: Record<string, unknown>, cwd: string): string | null {
+	const mode = coordinationState().mode;
+	const decision = decideApprovalGate({
+		mode,
+		approved: approvalStateForMode(mode),
+		toolName,
+		args,
+		cwd,
+	});
+	return decision.block ? (decision.reason ?? "blocked") : null;
 }
 
 // ── Extension ──────────────────────────────────────────────────────────
@@ -80,11 +95,19 @@ export default function (pi: ExtensionAPI) {
 
 			// Meta-tool execution does not re-enter Pi's tool_call hook. Re-run the
 			// security policy for nested shell and file operations before invoking it.
-			const nestedBlock = nestedSecurityBlock(tool_name, toolArgs, ctx?.cwd || process.cwd());
+			const cwd = ctx?.cwd || process.cwd();
+			const nestedBlock = nestedSecurityBlock(tool_name, toolArgs, cwd);
 			if (nestedBlock) {
 				return {
 					content: [{ type: "text" as const, text: `Blocked by security policy: ${nestedBlock}` }],
 					details: { tool_name, error: "security_blocked", reason },
+				};
+			}
+			const approvalBlock = nestedApprovalBlock(tool_name, toolArgs, cwd);
+			if (approvalBlock) {
+				return {
+					content: [{ type: "text" as const, text: `Blocked by approval gate: ${approvalBlock}` }],
+					details: { tool_name, error: "approval_blocked", reason },
 				};
 			}
 

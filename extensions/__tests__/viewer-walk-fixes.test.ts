@@ -39,8 +39,12 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).not.toContain('customType: "plan-viewer-answers"');
 		expect(tool).toContain("Proceed with implementation.");
 		expect(tool).toContain("The updated plan has been saved to");
+		expect(tool).toContain("markPlanApproved()");
+		expect(tool).toContain('if (purpose === "plan") resetApprovalForMode("PLAN")');
 		expect(command).toContain('customType: "plan-approved"');
 		expect(command).toContain('deliverAs: "followUp"');
+		expect(command).toContain("markPlanApproved()");
+		expect(command).toContain('resetApprovalForMode("PLAN")');
 	});
 
 	it("show_spec returns the approval in the tool result, not a follow-up", () => {
@@ -48,7 +52,11 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).not.toContain('customType: "spec-approved"');
 		expect(tool).not.toContain('customType: "spec-changes-requested"');
 		expect(tool).toContain("Proceed with implementation.");
+		expect(tool).toContain("markSpecApproved()");
+		expect(tool).toContain('resetApprovalForMode("SPEC")');
 		expect(command).toContain('customType: "spec-approved"');
 		expect(command).toContain('deliverAs: "followUp"');
+		expect(command).toContain("markSpecApproved()");
+		expect(command).toContain('resetApprovalForMode("SPEC")');
 	});
 });

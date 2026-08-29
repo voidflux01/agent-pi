@@ -50,9 +50,17 @@ are not a unit.
 
 ### Grill-me is a light prompt enhancement
 
-A short numbered Q&A with a recommended answer, if the model would otherwise guess at the user's goal. Prompt-only. It does **not** replace or reorder scout, `questions.md`, pipeline phases, or dispatch. SPEC Phase 2 keeps the original 4–8 clarifying questions.
+If a new user-facing behavior has an unstated format, destination, or audience, clarify once with `ask_user` (recommended option first). Prompt-only. It does **not** replace or reorder scout, `questions.md`, pipeline phases, or dispatch. SPEC Phase 2 keeps the original 4–8 clarifying questions. Do not `set_mode` just to ask.
 
 `grill_record_turn`, `grill_save_results`, `/grill-me`, and `extensions/lib/grill-core.ts` are removed. `show_plan` does not arm or gate on interview state.
+
+### PLAN/SPEC implementation gate
+
+In PLAN, `write`/`edit`/`bash` outside `.context/` are blocked until `show_plan` is approved. In SPEC, the same tools outside `context-os/` are blocked until `show_spec` is approved. Read-only tools, `tasks`, `ask_user`, scout, and the viewers themselves may proceed. Entering PLAN or SPEC clears a prior cycle's approval. Approval flags live on the shared coordination bus (`globalThis`) so `show_plan` in plan-viewer and the `tool_call` gate in mode-cycler see the same unlock. Module-local booleans stayed false after a real approve click.
+
+`call_tool` is judged as its nested target (and `call_tool` execute re-runs the same check, because it does not re-enter `tool_call`). Planning paths resolve against `ctx.cwd` and must be descendants of the project `.context/` or `context-os/` root — `src/.context/…` and `../.context/…` do not count. Opening a plan or spec viewer starts a new review cycle and re-locks; decline / changes-requested leave it locked. Questions-mode `show_plan` does not clear PLAN approval.
+
+PLAN scouts only when the files to change are not already known. A small tree with known paths may be read directly.
 
 ### Walk-through usage fixes
 

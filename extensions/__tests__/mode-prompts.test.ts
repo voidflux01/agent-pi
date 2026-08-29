@@ -5,8 +5,10 @@ import { describe, it, expect } from "vitest";
 import { GRILL_ME_SECTION, PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
 
 describe("GRILL_ME_SECTION", () => {
-	it("uses each mode's fact-gathering boundary and plain text", () => {
-		expect(GRILL_ME_SECTION).toContain("current mode's existing fact-gathering and tool-boundary rules");
+	it("uses ask_user once, not a separate interview", () => {
+		expect(GRILL_ME_SECTION).toContain("ask_user");
+		expect(GRILL_ME_SECTION).toContain("recommended option first");
+		expect(GRILL_ME_SECTION).toContain("Do not call set_mode just to ask");
 		expect(GRILL_ME_SECTION).toContain("Phase 2's planning/questions.md");
 		expect(GRILL_ME_SECTION).not.toContain("Look up facts yourself");
 		expect(GRILL_ME_SECTION).not.toMatch(/[❓➡️🔥]/u);
@@ -39,13 +41,13 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain(".context/todo.md");
 	});
 
-	it("keeps the original scout-then-plan steps, with grill as enhancement only", () => {
+	it("keeps scout-then-plan steps, with grill as enhancement only", () => {
 		expect(PLAN_PROMPT).toContain("Enhancement only");
 		expect(PLAN_PROMPT).toContain("do not skip, reorder, or replace this mode's workflow");
-		expect(PLAN_PROMPT).toContain("1. Spawn a scout");
-		expect(PLAN_PROMPT).toContain("Scout first");
-		expect(PLAN_PROMPT.indexOf("1. Spawn a scout")).toBeLessThan(PLAN_PROMPT.indexOf("2. Write"));
-		expect(PLAN_PROMPT.indexOf("Scout first")).toBeLessThan(PLAN_PROMPT.indexOf("## Grill-me"));
+		expect(PLAN_PROMPT).toContain("1. Scout if you cannot name the files to change");
+		expect(PLAN_PROMPT).toContain("blocked until show_plan is approved");
+		expect(PLAN_PROMPT.indexOf("1. Scout if you cannot name the files to change")).toBeLessThan(PLAN_PROMPT.indexOf("2. Write"));
+		expect(PLAN_PROMPT.indexOf("## Scout")).toBeLessThan(PLAN_PROMPT.indexOf("## Grill-me"));
 		expect(PLAN_PROMPT).not.toContain("grill_record_turn");
 	});
 });
@@ -76,11 +78,11 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).not.toContain("dispatch_agent");
 	});
 
-	it("requires a scout unless the single file is already known", () => {
-		expect(PLAN_PROMPT).toContain("Scout first");
-		expect(PLAN_PROMPT).toContain("scout is required");
-		expect(PLAN_PROMPT).toContain("Do not grep or read the tree yourself first");
+	it("scouts only when the files to change are not already known", () => {
+		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
+		expect(PLAN_PROMPT).toContain("If the tree is small and the paths are already known, read them yourself");
 		expect(PLAN_PROMPT).toContain("may run before the task list exists");
+		expect(PLAN_PROMPT).not.toContain("scout is required");
 	});
 
 	it("does not tell PLAN to skip scouts the way NORMAL does", () => {
@@ -184,5 +186,6 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("planning/questions.md");
 		expect(SPEC_PROMPT.indexOf("Phase 1: Initialize Spec")).toBeLessThan(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements"));
 		expect(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements")).toBeLessThan(SPEC_PROMPT.indexOf("## Grill-me"));
+		expect(SPEC_PROMPT).toContain("blocked until show_spec is approved");
 	});
 });

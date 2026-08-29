@@ -17,6 +17,7 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
+import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -501,10 +502,12 @@ export default function (pi: ExtensionAPI) {
 			const displayTitle = titleParam || basename(folderPath);
 
 			try {
+				resetApprovalForMode("SPEC");
 				const result = await runSpecViewer(ctx, folderPath, displayTitle);
 
 				// Handle approved
 				if (result.action === "approved") {
+					markSpecApproved();
 					const modifiedNote = result.modified
 						? " (spec was edited by user — use the updated version)"
 						: "";
@@ -626,9 +629,11 @@ export default function (pi: ExtensionAPI) {
 			const displayTitle = basename(resolved);
 
 			try {
+				resetApprovalForMode("SPEC");
 				const result = await runSpecViewer(ctx, resolved, displayTitle);
 
 				if (result.action === "approved") {
+					markSpecApproved();
 					piRef.sendMessage(
 						{
 							customType: "spec-approved",

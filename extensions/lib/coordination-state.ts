@@ -21,6 +21,10 @@ export interface CoordinationState {
 	commander: CommanderCoordinationState;
 	activeChain: string | null;
 	activePipeline: string | null;
+	/** PLAN implementation unlocked after show_plan approval. */
+	planApproved: boolean;
+	/** SPEC implementation unlocked after show_spec approval. */
+	specApproved: boolean;
 }
 
 interface CoordinationGlobal {
@@ -35,12 +39,17 @@ function createState(): CoordinationState {
 		commander: { state: "pending", onReady: [] },
 		activeChain: null,
 		activePipeline: null,
+		planApproved: false,
+		specApproved: false,
 	};
 }
 
 export function coordinationState(): CoordinationState {
 	if (!globalState.__piCoordinationState) globalState.__piCoordinationState = createState();
-	return globalState.__piCoordinationState;
+	const state = globalState.__piCoordinationState;
+	if (typeof state.planApproved !== "boolean") state.planApproved = false;
+	if (typeof state.specApproved !== "boolean") state.specApproved = false;
+	return state;
 }
 
 /** Live TUI ctx from `/mode` / set_mode so widgets hide on the visible UI. */

@@ -137,10 +137,10 @@ describe("timeout render warnings", () => {
 });
 
 describe("PLAN prompt complexity guidance", () => {
-	it("requires a scout in PLAN unless the single file is already known", async () => {
+	it("does not force a scout in PLAN when paths are already known", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("Scout first");
-		expect(PLAN_PROMPT).toContain("scout is required");
+		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
+		expect(PLAN_PROMPT).not.toContain("scout is required");
 		expect(PLAN_PROMPT).not.toContain("do not spawn scouts");
 	});
 

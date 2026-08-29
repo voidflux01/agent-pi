@@ -17,6 +17,7 @@ import { createPlanStandaloneExport, saveStandaloneExport } from "./lib/viewer-s
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
+import { markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -339,6 +340,9 @@ export default function (pi: ExtensionAPI) {
 
 			const displayTitle = title || basename(file_path, ".md");
 
+			// A new plan review cycle re-locks implementation until this viewer is approved.
+			if (purpose === "plan") resetApprovalForMode("PLAN");
+
 			// Open viewer and wait for result
 			const result = await runViewer(ctx, markdown, file_path, displayTitle, purpose, signal);
 
@@ -375,6 +379,7 @@ export default function (pi: ExtensionAPI) {
 
 			// ── Plan mode result ─────────────────────────────────────
 			if (result.action === "approved") {
+				markPlanApproved();
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
@@ -477,9 +482,11 @@ export default function (pi: ExtensionAPI) {
 
 			const displayTitle = basename(filePath, ".md");
 
+			resetApprovalForMode("PLAN");
 			const result = await runViewer(ctx, markdown, filePath, displayTitle, "plan");
 
 			if (result.action === "approved") {
+				markPlanApproved();
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",
