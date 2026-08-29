@@ -53,5 +53,6 @@ describe("herdrWorkerLabel", () => {
 	it("joins role and id", () => {
 		expect(herdrWorkerLabel("SCOUT", "sa1")).toBe("SCOUT-sa1");
 		expect(herdrWorkerLabel(" builder ", "tm-1")).toBe("builder-tm-1");
+		expect(herdrWorkerLabel("planner", "pipeline-planner-0-1-mteeuoc4")).toBe("pipeline-planner-0-1-mteeuoc4");
 	});
 });

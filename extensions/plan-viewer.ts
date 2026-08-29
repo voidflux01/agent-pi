@@ -381,7 +381,7 @@ export default function (pi: ExtensionAPI) {
 			// ── Plan mode result ─────────────────────────────────────
 			if (result.action === "approved") {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
-				markPlanApproved(filePath);
+				markPlanApproved(filePath, result.markdown?.trim() ? result.markdown : undefined);
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
@@ -489,7 +489,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (result.action === "approved") {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
-				markPlanApproved(filePath);
+				markPlanApproved(filePath, result.markdown?.trim() ? result.markdown : undefined);
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",

@@ -72,9 +72,21 @@ export function resetApprovalForMode(mode: string): void {
 	if (mode === "SPEC") { coordinationState().specApproved = false; coordinationState().specApprovalBinding = undefined; }
 }
 
-export function markPlanApproved(filePath?: string): void {
-	const state = coordinationState(); state.planApproved = true;
-	state.planApprovalBinding = filePath ? { filePath: resolve(filePath), ...fingerprintFile(filePath) } : undefined;
+export function markPlanApproved(filePath?: string, content?: string): void {
+	const state = coordinationState();
+	state.planApproved = true;
+	if (!filePath) {
+		state.planApprovalBinding = undefined;
+		return;
+	}
+	const absolute = resolve(filePath);
+	state.planApprovalBinding = content != null
+		? {
+			filePath: absolute,
+			contentFingerprint: fingerprintContent(content),
+			fileFingerprint: fingerprintContent(`${absolute}\0${Buffer.from(content, "utf8").toString("base64")}`),
+		}
+		: { filePath: absolute, ...fingerprintFile(filePath) };
 }
 
 export function markSpecApproved(folderPath?: string): void {
@@ -137,6 +149,29 @@ function nestedCallTool(args: unknown): { toolName: string; args: unknown } | un
 	return { toolName: toolName.trim(), args: params.arguments ?? params.args ?? params.input ?? {} };
 }
 
+const READ_ONLY_BASH_BINS = new Set([
+	"date", "uname", "pwd", "whoami", "hostname", "wc", "echo", "printf",
+	"true", "false", "basename", "dirname", "nproc", "arch", "id", "printenv",
+]);
+
+function bashCommand(args: unknown): string {
+	if (!args || typeof args !== "object") return "";
+	const params = args as Record<string, unknown>;
+	for (const key of ["command", "cmd", "script"]) {
+		if (typeof params[key] === "string") return params[key].trim();
+	}
+	return "";
+}
+
+/** True for inspection-only bash (date, wc, pwd, …) with no shell operators. */
+export function isReadOnlyBash(args: unknown): boolean {
+	const command = bashCommand(args);
+	if (!command) return false;
+	if (/[;&|`$<>(){}!\n]/.test(command)) return false;
+	const bin = command.split(/\s+/)[0]?.replace(/^\/(?:usr\/)?bin\//, "") ?? "";
+	return READ_ONLY_BASH_BINS.has(bin);
+}
+
 export function toolPath(args: unknown): string | undefined {
 	if (!args || typeof args !== "object") return undefined;
 	const params = args as Record<string, unknown>;
@@ -172,6 +207,7 @@ export function decideApprovalGate(input: {
 	if (isScoutRecon(toolName, args)) return { block: false };
 	if ((APPROVAL_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 	if ((READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
+	if (toolName === "bash" && isReadOnlyBash(args)) return { block: false };
 	if (toolName.startsWith("commander_")) return { block: false };
 
 	if ((FILE_MUTATION_TOOLS as readonly string[]).includes(toolName)) {

@@ -144,7 +144,9 @@ ${GRILL_ME_SECTION}
 ## Rules
 - Keep the plan specific to the user's request. Do not invent ceremony.
 - Prefer existing components and patterns.
-- Never start implementation before approval in PLAN mode. write/edit/bash outside \`.context/\` are blocked until show_plan is approved. Writing \`.context/todo.md\` is allowed before that.
+- Never start implementation before approval in PLAN mode. write/edit/mutating bash outside \`.context/\` are blocked until show_plan is approved. Writing \`.context/todo.md\` is allowed before that. Read-only bash (\`date\`, \`wc\`, \`pwd\`, \`uname\`) may run.
+- User chat is not approval. Only show_plan returning approved unlocks implementation.
+- If the plan has three or more \`## Phase\` headings, call show_report before declaring the work done.
 - Do not spawn extra scouts once the needed context is sufficient. Each spawned scout still runs to RESULT.
 - Keep RESULT contracts machine-checkable and concise.
 
@@ -199,8 +201,9 @@ Existing Code to Leverage, Out of Scope
 - Use \`show_spec { folder_path: "context-os/specs/YYYY-MM-DD-feature-name/" }\` to open the
   multi-page spec viewer in the browser — it auto-discovers spec.md, requirements, tasks, and visuals
 - The viewer supports inline comments, markdown editing, and approve/request-changes flow
-- If user approves: proceed to Phase 5
+- If user approves via the viewer: proceed to Phase 5
 - If user requests changes: review their inline comments and iterate on the spec
+- User steering, chat, and repeated messages are not approval. Implementation stays blocked until show_spec returns approved.
 
 ### Phase 5: Implement
 Once approved, do not jump straight into implementation. First refresh the task list for the implementation phase:
@@ -208,7 +211,7 @@ Once approved, do not jump straight into implementation. First refresh the task 
 2. Use \`tasks toggle\` to mark the first implementation task inprogress.
 3. Then implement the tasks and toggle each one to done.
 This task refresh is required even when the pre-approval planning tasks are already complete.
-write/edit/bash outside \`context-os/\` are blocked until show_spec is approved. Writing under \`context-os/\` is allowed before that.
+write/edit/mutating bash outside \`context-os/\` are blocked until show_spec is approved. Writing under \`context-os/\` is allowed before that. Read-only bash (\`date +%F\`, \`wc\`, \`pwd\`) may run so you can name the dated spec folder.
 Use /microtasks only when a larger spec needs further decomposition.
 
 ## Commander Integration (ALWAYS use when connected)

@@ -46,6 +46,8 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
+import { matchNamedOption } from "./lib/named-pick.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isImplementationWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
@@ -64,6 +66,7 @@ interface StepState {
 	status: "pending" | "running" | "done" | "error";
 	elapsed: number;
 	lastWork: string;
+	toolCount?: number;
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -369,7 +372,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt(),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isImplementationWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 
@@ -446,9 +449,11 @@ export default function (pi: ExtensionAPI) {
 
 			// Transport mechanics live in one runtime. This caller keeps only
 			// chain-specific parsing and widget state.
+			const launch = applyWorkerLaunchPolicy(["pi", ...args], agentDef.name);
 			const runtimePromise = runDispatch({
 				authorization: currentDispatchAuthorization(),
-				command: ["pi", ...args],
+				command: launch.command,
+				pollTimeoutMs: launch.timeoutMs,
 				cwd: ctx.cwd,
 				env: childEnvironment({
 					PI_SUBAGENT: "1",
@@ -476,6 +481,12 @@ export default function (pi: ExtensionAPI) {
 								const last = liveText.split("\n").filter((l: string) => l.trim()).pop() || "";
 								state.lastWork = last;
 								updateWidget();
+							}
+						} else if (event.type === "tool_execution_start") {
+							state.toolCount = (state.toolCount || 0) + 1;
+							if (workerHitToolCap(agentDef.name, state.toolCount) && currentChainProc) {
+								try { currentChainProc.kill("SIGTERM"); } catch {}
+								state.lastWork = "stopped: tool-call cap";
 							}
 						}
 					} catch {}
@@ -597,11 +608,23 @@ export default function (pi: ExtensionAPI) {
 		description: "Execute the active agent chain pipeline. Each step runs sequentially — output from one step feeds into the next. Agents maintain session context across runs.",
 		parameters: Type.Object({
 			task: Type.String({ description: "The task/prompt for the chain to process" }),
+			chain: Type.Optional(Type.String({ description: "Chain name to activate first, e.g. plan-build" })),
 		}),
 
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
 			widgetCtx = ctx;
-			const { task } = params as { task: string };
+			const { task, chain: chainName } = params as { task: string; chain?: string };
+			if (chainName) {
+				const named = matchNamedOption(chains.map((c) => c.name), chainName);
+				const found = named ? chains.find((c) => c.name === named) : undefined;
+				if (!found) {
+					return {
+						content: [{ type: "text", text: `Unknown chain: ${chainName}. Available: ${chains.map((c) => c.name).join(", ")}` }],
+						details: { error: true },
+					};
+				}
+				activateChain(found);
+			}
 
 			if (onUpdate) {
 				onUpdate({
@@ -679,29 +702,34 @@ export default function (pi: ExtensionAPI) {
 	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("chain", {
-		description: "Switch active chain",
-		handler: async (_args, ctx) => {
+		description: "Switch active chain: /chain or /chain <name>",
+		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			if (chains.length === 0) {
 				ctx.ui.notify("No chains defined in .pi/agents/agent-chain.yaml", "warning");
 				return;
 			}
 
-			const options = chains.map(c => {
-				const steps = c.steps.map(s => displayName(s.agent)).join(" → ");
-				const desc = c.description ? ` — ${c.description}` : "";
-				return `${c.name}${desc} (${steps})`;
-			});
+			const named = matchNamedOption(chains.map((c) => c.name), args || "");
+			let chain = named ? chains.find((c) => c.name === named) : undefined;
+			if (!chain) {
+				const options = chains.map(c => {
+					const steps = c.steps.map(s => displayName(s.agent)).join(" → ");
+					const desc = c.description ? ` — ${c.description}` : "";
+					return `${c.name}${desc} (${steps})`;
+				});
 
-			const choice = await ctx.ui.select("Select Chain", options);
-			if (choice === undefined) return;
+				const choice = await ctx.ui.select("Select Chain", options);
+				if (choice === undefined) return;
+				chain = chains[options.indexOf(choice)];
+			}
+			if (!chain) return;
 
-			const idx = options.indexOf(choice);
-			activateChain(chains[idx]);
-			const flow = chains[idx].steps.map(s => displayName(s.agent)).join(" → ");
-			ctx.ui.setStatus("agent-chain", `Chain: ${chains[idx].name} (${chains[idx].steps.length} steps)`);
+			activateChain(chain);
+			const flow = chain.steps.map(s => displayName(s.agent)).join(" → ");
+			ctx.ui.setStatus("agent-chain", `Chain: ${chain.name} (${chain.steps.length} steps)`);
 			ctx.ui.notify(
-				`Chain: ${chains[idx].name}\n${chains[idx].description}\n${flow}`,
+				`Chain: ${chain.name}\n${chain.description}\n${flow}`,
 				"info",
 			);
 		},

@@ -2,7 +2,8 @@
 // ABOUTME: pipeline advance gates, default team, and select labels.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resultOneLiner } from "../lib/agent-result-contract.ts";
 import { phaseRequiresAgentDispatch, pipelineSelectLabel, type PipelineConfig } from "../lib/parse-pipeline-yaml.ts";
 import { defaultTeamName } from "../agent-team.ts";
@@ -20,6 +21,14 @@ describe("resultOneLiner", () => {
 		].join("\n");
 		expect(resultOneLiner(full, "")).toBe("created /tmp/wf-walk/hello.py and verified stdout 84");
 		expect(resultOneLiner(full, "")).not.toContain("## END");
+	});
+});
+
+describe("pipeline dispatch_agents records success on the phase", () => {
+	it("assigns lastDispatchSuccess on phase, not an undefined phaseState", () => {
+		const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "pipeline-team.ts"), "utf8");
+		expect(src).toContain("phase.lastDispatchSuccess = result.success");
+		expect(src).not.toContain("phaseState.lastDispatchSuccess = result.success");
 	});
 });
 

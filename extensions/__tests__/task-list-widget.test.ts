@@ -274,6 +274,12 @@ describe("renderTaskList", () => {
 		expect(result[0]).not.toContain("\u2500");
 	});
 
+	it("shows done count and active count in the header", () => {
+		const result = renderTaskList(makeTasks(3), { selectedIndex: -1, scrollOffset: 0 }, 80, 20, mockDeps);
+		expect(result[0]).toContain("1/3 done");
+		expect(result[0]).toContain("1 active");
+	});
+
 	it("shows task ids and text in the output", () => {
 		const result = renderTaskList(makeTasks(3), { selectedIndex: -1, scrollOffset: 0 }, 80, 20, mockDeps);
 		const joined = result.join("\n");

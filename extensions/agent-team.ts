@@ -47,6 +47,8 @@ import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock,
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { matchNamedOption } from "./lib/named-pick.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isImplementationWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -633,6 +635,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (!isToolkitCliAgent(canonicalName)) {
 			systemPrompt += buildAgentResultContractPrompt();
+			if (isImplementationWorker(canonicalName)) systemPrompt += implementationWorkerPrompt();
 		}
 
 		// Durable journal record — survives parent restarts (see /agents-status).
@@ -832,6 +835,10 @@ export default function (pi: ExtensionAPI) {
 						}
 					} else if (event.type === "tool_execution_start") {
 						state.toolCount++;
+						if (workerHitToolCap(canonicalName, state.toolCount) && state.proc) {
+							try { state.proc.kill("SIGTERM"); } catch {}
+							state.lastWork = "stopped: tool-call cap";
+						}
 						invalidateAgentWidget(state);
 					} else if (event.type === "message_end") {
 						const msg = event.message;
@@ -889,9 +896,11 @@ export default function (pi: ExtensionAPI) {
 
 			// Standard Pi transport is centralized. Team-specific state, context
 			// warnings, Commander reconciliation, and result composition stay here.
+			const launch = applyWorkerLaunchPolicy(["pi", ...args], canonicalName);
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
-				command: ["pi", ...args],
+				command: launch.command,
+				pollTimeoutMs: launch.timeoutMs,
 				cwd: runCwd,
 				env: spawnEnv,
 				launchDir: sessionDir,
@@ -1034,8 +1043,8 @@ export default function (pi: ExtensionAPI) {
 	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("agents-team", {
-		description: "Select a team to work with",
-		handler: async (_args, ctx) => {
+		description: "Select a team: /agents-team or /agents-team <name>",
+		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
 			if (teamNames.length === 0) {
@@ -1043,16 +1052,18 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			const options = teamNames.map(name => {
-				const members = teams[name].map(m => displayName(m));
-				return `${name} — ${members.join(", ")}`;
-			});
-
-			const choice = await ctx.ui.select("Select Team", options);
-			if (choice === undefined) return;
-
-			const idx = options.indexOf(choice);
-			const name = teamNames[idx];
+			const named = matchNamedOption(teamNames, args || "");
+			let name = named;
+			if (!name) {
+				const options = teamNames.map(n => {
+					const members = teams[n].map(m => displayName(m));
+					return `${n} — ${members.join(", ")}`;
+				});
+				const choice = await ctx.ui.select("Select Team", options);
+				if (choice === undefined) return;
+				name = teamNames[options.indexOf(choice)];
+			}
+			if (!name) return;
 			activateTeam(name);
 			updateWidget();
 			safeSetStatus(ctx, "agent-team", `Team: ${name} (${agentStates.size})`);
@@ -1428,6 +1439,7 @@ ${scoutSection}
 - Keep each dispatch focused on one outcome.
 - Use builder agents for changes and tester agents for verification.
 - Do not dispatch merely to add ceremony.
+- After a specialist returns ## RESULT, toggle that task to done before stopping.
 - Report the result and next decision to the user.
 
 ## Agents

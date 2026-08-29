@@ -392,7 +392,14 @@ export function ensureHerdrWorkspace(label: string, cwd: string): string | null 
 export function herdrWorkerLabel(role: string, id: string): string {
 	const r = String(role || "agent").trim().replace(/\s+/g, "-").slice(0, 24) || "agent";
 	const i = String(id || "").trim().replace(/\s+/g, "-").slice(0, 40);
-	return i ? `${r}-${i}` : r;
+	if (!i) return r;
+	const rl = r.toLowerCase();
+	const il = i.toLowerCase();
+	// Journal ids already embed the role (`pipeline-planner-0-1-…`); don't prefix again.
+	if (il === rl || il.startsWith(`${rl}-`) || il.includes(`-${rl}-`) || il.includes(`-${rl}`)) {
+		return i;
+	}
+	return `${r}-${i}`.slice(0, 40);
 }
 
 export type HerdrAgentState = "idle" | "working" | "blocked" | "unknown";

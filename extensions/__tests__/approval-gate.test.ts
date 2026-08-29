@@ -79,6 +79,26 @@ describe("decideApprovalGate", () => {
 		}).block).toBe(true);
 	});
 
+	it("allows read-only bash before PLAN/SPEC approval", () => {
+		for (const command of ["date +%F", "wc -l todo.mjs", "pwd", "uname -s"]) {
+			expect(decideApprovalGate({
+				mode: "PLAN", approved: false, toolName: "bash", args: { command },
+			}).block).toBe(false);
+			expect(decideApprovalGate({
+				mode: "SPEC", approved: false, toolName: "bash", args: { command },
+			}).block).toBe(false);
+		}
+	});
+
+	it("still blocks mutating bash before approval", () => {
+		expect(decideApprovalGate({
+			mode: "SPEC", approved: false, toolName: "bash", args: { command: "date +%F && rm todos.json" },
+		}).block).toBe(true);
+		expect(decideApprovalGate({
+			mode: "PLAN", approved: false, toolName: "bash", args: { command: "echo hi > src/a.ts" },
+		}).block).toBe(true);
+	});
+
 	it("allows read, tasks, ask_user, show_plan, and scout before approval", () => {
 		for (const toolName of ["read", "ls", "grep", "tasks", "ask_user", "show_plan", "set_mode"]) {
 			expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName }).block).toBe(false);
@@ -208,6 +228,16 @@ describe("approval bindings", () => {
 		markPlanApproved(file);
 		expect(approvalStateForMode("PLAN")).toBe(true);
 		writeFileSync(file, "changed");
+		expect(approvalStateForMode("PLAN")).toBe(false);
+	});
+
+	it("binds PLAN approval to reviewed markdown, not a later disk rewrite", () => {
+		const root = mkdtempSync(join(tmpdir(), "approval-plan-md-"));
+		const file = join(root, "todo.md");
+		writeFileSync(file, "reviewed");
+		markPlanApproved(file, "reviewed");
+		expect(approvalStateForMode("PLAN")).toBe(true);
+		writeFileSync(file, "sneak");
 		expect(approvalStateForMode("PLAN")).toBe(false);
 	});
 

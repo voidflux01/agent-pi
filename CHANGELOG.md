@@ -4,6 +4,23 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Walk-through fixes (PIPELINE / TEAM / PLAN / SPEC)
+
+- `dispatch_agents` now records `phase.lastDispatchSuccess` (the previous
+  `phaseState` identifier threw and deadlocked `advance_phase`).
+- `/mode PIPELINE` activates the `plan-build` pipeline when none is selected.
+- `/chain <name>`, `/pipeline <name>`, and `/agents-team <name>` take a name.
+- PLAN/SPEC allow read-only bash (`date`, `wc`, `pwd`, `uname`) before approval.
+- TEAM/CHAIN/PIPELINE auto-close a leftover inprogress task on `agent_end`
+  so task-validation cannot abort the session back to the shell.
+- Builder workers inherit `thinking: high` and then keep polishing after
+  tests pass. Implementation workers now launch with `--thinking low`, a
+  4-minute wall clock (8 minutes for other roles), and a 48 tool-call
+  backstop. Headless dispatch honors that timeout; a Herdr timeout now
+  also closes the child pane.
+- Herdr worker labels no longer double the role (`pipeline-planner-0-1-…`).
+- Task header shows `done` and `active` counts.
+
 ### Herdr sibling splits for sub-agents
 
 When the parent is already inside Herdr, `subagent_create` / team / chain /

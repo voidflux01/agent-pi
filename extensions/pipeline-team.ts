@@ -46,6 +46,8 @@ import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { matchNamedOption } from "./lib/named-pick.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isImplementationWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -65,6 +67,7 @@ interface AgentState {
 	elapsed: number;
 	lastWork: string;
 	output: string;
+	toolCount?: number;
 	timer?: ReturnType<typeof setInterval>;
 	proc?: any;  // ChildProcess ref for escape-cancel
 }
@@ -283,7 +286,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const phase = phaseStates[currentPhaseIndex];
 		if (phase) {
-			widgetCtx.ui.setStatus("pipeline-team", phase.def.name.toUpperCase());
+			widgetCtx.ui.setStatus("pipeline-team", `PIPELINE:${phase.def.name.toUpperCase()}`);
 		}
 	}
 
@@ -418,7 +421,7 @@ export default function (pi: ExtensionAPI) {
 			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt(),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isImplementationWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 
@@ -493,9 +496,11 @@ export default function (pi: ExtensionAPI) {
 
 			// Transport mechanics are shared; the pipeline owns phase scheduling
 			// and only consumes text/status callbacks for its widget.
+			const launch = applyWorkerLaunchPolicy(["pi", ...args], agentDef.name);
 			const runtimePromise = runDispatch({
 				authorization: currentDispatchAuthorization(),
-				command: ["pi", ...args],
+				command: launch.command,
+				pollTimeoutMs: launch.timeoutMs,
 				cwd: ctx.cwd,
 				env: childEnvironment({
 					PI_SUBAGENT: "1",
@@ -523,6 +528,12 @@ export default function (pi: ExtensionAPI) {
 								const last = liveText.split("\n").filter((l: string) => l.trim()).pop() || "";
 								agentState.lastWork = last;
 								updateWidget();
+							}
+						} else if (event.type === "tool_execution_start") {
+							agentState.toolCount = (agentState.toolCount || 0) + 1;
+							if (workerHitToolCap(agentDef.name, agentState.toolCount) && agentState.proc) {
+								try { agentState.proc.kill("SIGTERM"); } catch {}
+								agentState.lastWork = "stopped: tool-call cap";
 							}
 						}
 					} catch {}
@@ -914,7 +925,7 @@ export default function (pi: ExtensionAPI) {
 				: mergedOutput;
 
 			const status = result.success ? "done" : "error";
-			phaseState.lastDispatchSuccess = result.success;
+			phase.lastDispatchSuccess = result.success;
 			const blockedNotice = result.blockedReason ? `\n\n${result.blockedReason}` : "";
 
 			return {
@@ -1027,21 +1038,24 @@ export default function (pi: ExtensionAPI) {
 	registerTaskStatusCommand(pi, () => sessionDir);
 
 	pi.registerCommand("pipeline", {
-		description: "Select a pipeline configuration",
-		handler: async (_args, ctx) => {
+		description: "Select a pipeline: /pipeline or /pipeline <name>",
+		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			if (pipelineConfigs.length === 0) {
 				ctx.ui.notify("No pipelines in .pi/agents/pipeline-team.yaml", "warning");
 				return;
 			}
 
-			const options = pipelineConfigs.map(c => pipelineSelectLabel(c));
-
-			const choice = await ctx.ui.select("Select Pipeline", options);
-			if (choice === undefined) return;
-
-			const idx = options.indexOf(choice);
-			activatePipeline(pipelineConfigs[idx]);
+			const named = matchNamedOption(pipelineConfigs.map((c) => c.name), args || "");
+			let picked = named ? pipelineConfigs.find((c) => c.name === named) : undefined;
+			if (!picked) {
+				const options = pipelineConfigs.map(c => pipelineSelectLabel(c));
+				const choice = await ctx.ui.select("Select Pipeline", options);
+				if (choice === undefined) return;
+				picked = pipelineConfigs[options.indexOf(choice)];
+			}
+			if (!picked) return;
+			activatePipeline(picked);
 			const applyMode = (globalThis as any).__piSetMode as undefined | ((mode: string, nextCtx?: typeof ctx) => void);
 			if (typeof applyMode === "function") applyMode("PIPELINE", ctx);
 			else setCoordinationMode("PIPELINE");
@@ -1320,8 +1334,15 @@ ${contextSummary}${planSection}${reviewSection}
 		unwatchMode?.();
 		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
 			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
-			if (mode !== "PIPELINE") clearPipelineUI();
-			else updateWidget();
+			if (mode !== "PIPELINE") {
+				clearPipelineUI();
+				return;
+			}
+			if (!activeConfig && pipelineConfigs.length > 0) {
+				const preferred = pipelineConfigs.find((c) => c.name === "plan-build") || pipelineConfigs[0];
+				activatePipeline(preferred);
+			}
+			updateWidget();
 		});
 		contextWindow = _ctx.model?.contextWindow || 0;
 
@@ -1345,8 +1366,7 @@ ${contextSummary}${planSection}${reviewSection}
 			return;
 		}
 
-		// Opt-in: do NOT auto-activate. User must run /pipeline to start.
-		// Ensure no pipeline UI is shown until user explicitly activates one.
+		// Do not auto-activate on boot. /mode PIPELINE or /pipeline <name> activates.
 		activeConfig = null;
 		setActivePipeline(null);
 		phaseStates = [];

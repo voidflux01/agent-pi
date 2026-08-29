@@ -427,19 +427,44 @@ export default function (pi: ExtensionAPI) {
 		if (process.env.PI_SUBAGENT === "1") return;
 		if (!Array.isArray(tasks)) return;
 
-		const incomplete = tasks.filter((t) => t.status !== "done");
-		if (incomplete.length === 0 || nudgedThisCycle) return;
+		const gThis = globalThis as any;
+		const childrenRunning = Boolean(
+			gThis.__piHasRunningTeam?.() || gThis.__piHasRunningChain?.() || gThis.__piHasRunningPipeline?.(),
+		);
+		if (childrenRunning) return;
 
+		const incomplete = tasks.filter((t) => t.status !== "done");
+		if (incomplete.length === 0) return;
+
+		const mode = coordinationState().mode;
+		const inprogress = incomplete.filter((t) => t.status === "inprogress");
+		const idle = incomplete.filter((t) => t.status === "idle");
+		// TEAM/CHAIN/PIPELINE coordinators often stop after the last specialist
+		// RESULT without toggling the last inprogress task. Auto-close those so
+		// task-validation cannot abort the session back to the shell.
+		if (
+			(mode === "TEAM" || mode === "CHAIN" || mode === "PIPELINE")
+			&& inprogress.length > 0
+			&& idle.length === 0
+		) {
+			for (const t of inprogress) t.status = "done";
+			publishCurrentTask(tasks, syncState);
+			if (_ctx?.hasUI) refreshUI(_ctx);
+			return;
+		}
+
+		if (nudgedThisCycle) return;
 		nudgedThisCycle = true;
 
-		const taskList = incomplete
+		const leftover = tasks.filter((t) => t.status !== "done");
+		const taskList = leftover
 			.map((t) => `  ${STATUS_ICON[t.status]} #${t.id} [${STATUS_LABEL[t.status]}]: ${t.text}`)
 			.join("\n");
 
 		pi.sendMessage(
 			{
 				customType: "task-validation",
-				content: `You still have ${incomplete.length} incomplete task(s):\n\n${taskList}\n\nEither continue working on them or mark them done with \`tasks toggle\`. Don't stop until it's done!`,
+				content: `You still have ${leftover.length} incomplete task(s):\n\n${taskList}\n\nEither continue working on them or mark them done with \`tasks toggle\`. Don't stop until it's done!`,
 				display: true,
 			},
 			{ triggerTurn: true },

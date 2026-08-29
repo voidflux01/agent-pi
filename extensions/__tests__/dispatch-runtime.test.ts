@@ -15,10 +15,15 @@ function fakeChild() {
 		stdout: PassThrough;
 		stderr: PassThrough;
 		pid: number;
+		kill: (signal?: NodeJS.Signals | number) => boolean;
 	};
 	child.stdout = new PassThrough();
 	child.stderr = new PassThrough();
 	child.pid = 4242;
+	child.kill = () => {
+		child.emit("close", 1);
+		return true;
+	};
 	return child;
 }
 
@@ -64,6 +69,36 @@ describe("shared dispatch runtime", () => {
 		const journal = readFileSync(join(dir, "task-journal.jsonl"), "utf8");
 		expect(journal).toContain('"status":"done"');
 		expect(journal).toContain('"pid":4242');
+	});
+
+	it("kills a headless worker that exceeds pollTimeoutMs", async () => {
+		const child = fakeChild();
+		let killed = false;
+		child.kill = () => {
+			killed = true;
+			child.emit("close", 1);
+			return true;
+		};
+		const dir = mkdtempSync(join(tmpdir(), "dispatch-timeout-"));
+		journalAppend(dir, {
+			version: 1, id: "timeout-1", kind: "team", agent: "builder", task: "task",
+			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
+		});
+		const result = await runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "--mode", "json", "task"],
+			cwd: dir,
+			launchDir: dir,
+			launchId: "timeout-1",
+			transport: "headless",
+			pollTimeoutMs: 20,
+			journal: { dir, id: "timeout-1" },
+			spawnProcess: (() => child) as any,
+		}));
+		expect(killed).toBe(true);
+		expect(result.exitCode).toBe(1);
+		expect(result.failure).toBe("timeout");
+		expect(result.stderr).toContain("Timed out after 20ms");
 	});
 
 	it("refuses a dispatch without explicit authorization before spawning anything", async () => {

@@ -159,13 +159,29 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			spec.onStderr?.(chunk);
 		});
 		let settled = false;
-		const finish = (exitCode: number) => {
+		const timeoutMs = spec.pollTimeoutMs;
+		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
 			settled = true;
+			if (timer) clearTimeout(timer);
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
-			updateJournal(spec, { status: exitCode === 0 ? "done" : "error", exitCode });
-			resolve({ exitCode, stderr, transport: "headless", ...(exitCode === 0 ? {} : { failure: classifyFailure(stderr, "exit_code") }) });
+			updateJournal(spec, { status: exitCode === 0 ? "done" : "error", exitCode, ...(failure ? { note: failure } : {}) });
+			resolve({
+				exitCode,
+				stderr,
+				transport: "headless",
+				...(exitCode === 0 ? {} : { failure: failure || classifyFailure(stderr, "exit_code") }),
+			});
 		};
+		const timer = typeof timeoutMs === "number" && timeoutMs > 0
+			? setTimeout(() => {
+				const message = `Timed out after ${timeoutMs}ms`;
+				stderr = stderr ? `${stderr}\n${message}` : message;
+				spec.onStderr?.(message);
+				finish(1, "timeout");
+				try { child.kill("SIGTERM"); } catch {}
+			}, timeoutMs)
+			: undefined;
 		child.once("close", (code) => finish(code ?? 1));
 		child.once("error", (error) => {
 			const message = error instanceof Error ? error.message : String(error);
@@ -260,7 +276,8 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 		}
 		if (exitCode === null) {
-			updateJournal(spec, { status: "error", exitCode: 1 });
+			abort();
+			updateJournal(spec, { status: "error", exitCode: 1, note: "timeout" });
 			return { exitCode: 1, stderr: "Timed out waiting for Herdr output", failure: "timeout", transport: "herdr" };
 		}
 		const outputText = spec.sessionFile ? readLastAssistantText(spec.sessionFile).text : undefined;

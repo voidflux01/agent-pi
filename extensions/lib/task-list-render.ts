@@ -140,7 +140,10 @@ export function renderTaskList(
 
 	// ── Header ────────────────────────────────────────────────────
 	const doneCount = taskList.total - taskList.remaining;
-	const headerLabel = `  Tasks ${doneCount}/${taskList.total}`;
+	const activeCount = taskList.tasks.filter((t) => t.status === "inprogress").length;
+	const headerLabel = activeCount > 0
+		? `  Tasks ${doneCount}/${taskList.total} done · ${activeCount} active`
+		: `  Tasks ${doneCount}/${taskList.total} done`;
 	const scrollRight = [above, below].filter(Boolean).join(" ");
 	const headerLine = fg("text", headerLabel)
 		+ (scrollRight ? " ".repeat(Math.max(1, width - headerLabel.length - scrollRight.length - 2)) + fg("muted", scrollRight) + "  " : "");

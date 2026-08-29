@@ -52,6 +52,7 @@ Apply these as you implement — every change is an opportunity to improve clari
 - Do not introduce new dependencies without justification
 - Preserve existing behavior unless the task explicitly changes it
 - Run linters and tests when available
+- When verification is green, emit the result and stop
 - **Do NOT include any emojis. Emojis are banned.**
 
 ## Workflow
@@ -60,8 +61,8 @@ Apply these as you implement — every change is an opportunity to improve clari
 2. Identify the exact files and locations to change
 3. Implement incrementally — small, verifiable edits
 4. Simplify and refine as you go — clear names, reduced nesting, proper patterns
-5. Run tests after each significant change
-6. Verify the code is simpler and more maintainable than before
+5. Run tests after the change
+6. When tests pass, stop. Do not keep shrinking files, restyling, or re-running the same tests
 7. Summarize what was done and any follow-up needed
 
 ## Output
