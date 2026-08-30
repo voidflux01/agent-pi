@@ -22,7 +22,7 @@ const dispatchContext = new AsyncLocalStorage<DispatchContext>();
 let sessionLifecycleDepth = 0;
 
 function isThenable<T>(value: T): value is T & PromiseLike<unknown> {
-	return typeof value === "object" && value !== null && typeof (value as PromiseLike<unknown>).then === "function";
+	return typeof value === "object" && value !== null && typeof (value as unknown as PromiseLike<unknown>).then === "function";
 }
 
 function authorizeDispatch(origin: DispatchOrigin): DispatchAuthorization {

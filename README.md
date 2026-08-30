@@ -66,6 +66,10 @@ Pi discovers all extensions, themes, and skills automatically.
 └── tex/                 Text Tools — standalone text manipulation app
 ```
 
+## Optional developer tools
+
+Set `PI_OPTIONAL_ADAPTERS=1` to enable the bundled LSP client and MCP adapter. They are loaded lazily and failure-safe; the core extension suite remains usable when either dependency or its server is unavailable. `fff_find` and `fff_grep` use the native FFF engine when available and fall back to the platform search tools.
+
 ## Extensions
 
 ### Core UI

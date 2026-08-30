@@ -2,12 +2,13 @@
   "name": "agent-pi",
   "private": true,
   "version": "2.2.0",
-  "description": "Multi-agent orchestration suite for Pi — 6 modes, 48 extensions, 11 themes",
+  "description": "Multi-agent orchestration suite for Pi \u2014 6 modes, 48 extensions, 11 themes",
   "keywords": [
     "pi-package"
   ],
   "scripts": {
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "check": "npm test && npm audit --omit=dev --audit-level=high"
   },
   "devDependencies": {
     "vitest": "^4.1.11"
@@ -30,12 +31,15 @@
     "@sinclair/typebox": "*"
   },
   "dependencies": {
+    "@ff-labs/fff-node": "^0.6.4",
     "@mariozechner/pi-agent-core": "npm:@earendil-works/pi-agent-core@^0.84.3",
     "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@^0.84.3",
     "@mariozechner/pi-coding-agent": "npm:@earendil-works/pi-coding-agent@^0.84.3",
     "@mariozechner/pi-tui": "npm:@earendil-works/pi-tui@^0.84.3",
+    "pi-lsp-client": "github:code-yeongyu/pi-lsp-client",
+    "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter",
     "qrcode-terminal": "^0.12.0",
-    "ws": "^8.18.0",
+    "ws": "^8.21.3",
     "yaml": "^2.8.2"
   }
 }

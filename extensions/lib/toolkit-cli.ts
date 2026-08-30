@@ -222,8 +222,8 @@ export function getToolkitTuiArgv(
 function newestJsonl(root: string): string | undefined {
 	let best: { path: string; mtime: number } | undefined;
 	const walk = (dir: string) => {
-		let ents: ReturnType<typeof readdirSync>;
-		try { ents = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+		let ents: Array<{ name: string; isDirectory(): boolean }>;
+		try { ents = readdirSync(dir, { withFileTypes: true, encoding: "utf8" }); } catch { return; }
 		for (const ent of ents) {
 			const p = join(dir, ent.name);
 			if (ent.isDirectory()) walk(p);

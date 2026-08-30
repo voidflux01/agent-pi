@@ -17,6 +17,10 @@ import { createCompletionReportStandaloneExport, saveStandaloneExport } from "./
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
+import { completionDecision } from "./lib/execution-gate.ts";
+import { workspaceHash } from "./lib/verifier-runtime.ts";
+import { latestVerifierReceipt } from "./lib/execution-run.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -501,6 +505,15 @@ export default function (pi: ExtensionAPI) {
 
 			const cwd = ctx.cwd || process.cwd();
 
+			// In write-capable orchestration modes, a completion report is the
+			// final completion surface and must have a current verifier receipt.
+			const mode = coordinationState().mode;
+			const pendingReceipt = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
+			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
+			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
+			const gate = completionDecision({ mode, hasWrites: true, goal: pendingReceipt?.goal, receipt: pendingReceipt?.receipt, workspaceHash: workspaceHash(currentDiff, currentFiles) });
+			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason}` }], details: { error: true, reason: gate.reason } };
+
 			// Check if we're in a git repo
 			if (!isGitRepo(cwd)) {
 				return {
@@ -632,6 +645,13 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const cwd = ctx.cwd || process.cwd();
+
+			const mode = coordinationState().mode;
+			const pendingReceipt = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
+			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
+			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
+			const gate = completionDecision({ mode, hasWrites: true, goal: pendingReceipt?.goal, receipt: pendingReceipt?.receipt, workspaceHash: workspaceHash(currentDiff, currentFiles) });
+			if (!gate.allowed) { ctx.ui.notify(`Report blocked: ${gate.reason}`, "warning"); return; }
 
 			if (!isGitRepo(cwd)) {
 				ctx.ui.notify("Not a git repository", "error");

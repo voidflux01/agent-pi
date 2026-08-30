@@ -6,7 +6,7 @@ import { visibleWidth } from "@mariozechner/pi-tui";
 // ── Types ────────────────────────────────────────
 
 export type AgentStatus = "idle" | "running" | "done" | "error";
-export type PhaseStatus = "pending" | "active" | "done" | "error";
+export type PhaseStatus = "pending" | "active" | "done" | "error" | "skipped";
 
 export interface AgentRenderState {
 	role: string;
@@ -43,6 +43,7 @@ const STATUS_ICONS: Record<AgentStatus | PhaseStatus, string> = {
 	active: "●",
 	done: "✓",
 	error: "✗",
+	skipped: "→",
 };
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

@@ -68,11 +68,10 @@ describe("defaultTeamName", () => {
 });
 
 describe("orchestrator RESULT trust", () => {
-	it("tells the parent not to re-run child verification", () => {
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("treat its ## RESULT as the report");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("Do not re-run its verification");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("no bash, python");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("do not claim you re-verified");
+	it("treats child output as untrusted and requires independent verification", () => {
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted report");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("verify_execution");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("returns PASS");
 	});
 });
 

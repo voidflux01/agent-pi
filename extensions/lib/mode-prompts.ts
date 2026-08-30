@@ -27,7 +27,7 @@ Before any write, edit, or bash/execution tool:
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
-After a dispatched child (chain, team, pipeline, or scout) returns, treat its ## RESULT as the report. Do not re-run its verification (no bash, python, tests, or extra file reads to confirm what RESULT already stated). Do not read the archived transcript unless RESULT is missing a path or quote you need. Quote the summary; do not claim you re-verified it yourself.`;
+After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. Before declaring a write-capable PLAN, SPEC, TEAM, CHAIN, or PIPELINE task complete, run the independent \`verify_execution\` tool with the real diff, runtime evidence, and success criteria. Do not claim verification until that tool returns PASS.`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
@@ -108,7 +108,8 @@ ${GRILL_ME_SECTION}
 3. Present it with show_plan and wait for approval.
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
 5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
-6. For three or more phases, present a completion report with show_report.
+6. Before declaring a write-capable plan complete, run \`verify_execution\` and require PASS.
+7. For three or more phases, present a completion report with show_report.
 
 ## Plan format
 \`\`\`markdown
