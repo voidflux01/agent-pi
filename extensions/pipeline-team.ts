@@ -57,7 +57,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
-import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, dispatchAuthorizationForTurn, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { resolveAcceptanceContract, retainBoundChecklist } from "./lib/execution-contract.ts";
@@ -400,14 +400,8 @@ export default function (pi: ExtensionAPI) {
 
 		const agentKey = `pipeline-${agentDef.name.toLowerCase().replace(/\s+/g, "-")}-${agentState.index}`;
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
-		const workerCwd = ctx.cwd;
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
-		const securityGuardExtPath = join(extDir, "security-guard.ts");
-		const tasksExtPath = join(extDir, "tasks.ts");
-		const askParentExtPath = join(extDir, "ask-parent.ts");
-		const footerExtPath = join(extDir, "footer.ts");
-		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
 		// Loaded only by the visible herdr transport: writes the pane's done
 		// marker on the child's first agent_end (an interactive worker stays alive).
 		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
@@ -422,7 +416,7 @@ export default function (pi: ExtensionAPI) {
 			agent: agentDef.name,
 			task,
 			model,
-			cwd: workerCwd,
+			cwd: ctx.cwd,
 			sessionFile: hasSession ? agentSessionFile : undefined,
 			resumed: !!hasSession,
 			status: "dispatched",
@@ -433,12 +427,6 @@ export default function (pi: ExtensionAPI) {
 		const args = [
 			"--mode", "json",
 			"-p",
-			"--no-extensions",
-			"-e", securityGuardExtPath,
-			"-e", tasksExtPath,
-			"-e", footerExtPath,
-			"-e", memoryCycleExtPath,
-			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
@@ -861,7 +849,7 @@ export default function (pi: ExtensionAPI) {
 				let receipt = getVerifierReceipt();
 				let gate = pipelineCompleteDecision(planOutput, receipt, hash, getExecutionContract());
 				if (!gate.allowed && gate.contract && gate.reason !== undefined && !gate.reason.startsWith("合同不全")) {
-					const auth = currentDispatchAuthorization();
+					const auth = currentDispatchAuthorization() ?? dispatchAuthorizationForTurn();
 					if (!auth) {
 						phaseStates[currentPhaseIndex].status = "active";
 						return { content: [{ type: "text", text: "Verifier requires an explicit pipeline dispatch authorization." }], details: { error: true, phase: "verification" } };

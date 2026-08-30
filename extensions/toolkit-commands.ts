@@ -227,7 +227,6 @@ export default function (pi: ExtensionAPI) {
 						const tools = mapTools(cmd.allowedTools).join(",");
 						const model = TOOLKIT_WORKER_MODEL || DEFAULT_SUBAGENT_MODEL;
 
-						const tasksExtPath = join(dirname(fileURLToPath(import.meta.url)), "tasks.ts");
 						const cwd = ctx?.cwd ?? process.cwd();
 						const launchDir = join(cwd, ".pi", "agent-sessions");
 						try { mkdirSync(launchDir, { recursive: true }); } catch {}
@@ -241,8 +240,6 @@ export default function (pi: ExtensionAPI) {
 								command: ["pi",
 									"--mode", "json",
 									"-p",
-									"--no-extensions",
-									"-e", tasksExtPath,
 									"--model", model,
 									"--tools", tools,
 									"--append-system-prompt", body,

@@ -105,6 +105,18 @@ export function currentDispatchAuthorization(): DispatchAuthorization | undefine
 	return isExplicitDispatchActive() ? dispatchContext.getStore()?.authorization : undefined;
 }
 
+/**
+ * Fallback authorization for verifier child-spawns invoked from interactive tool
+ * handlers. Identical blocking rules to explicitDispatchHandler: timers and
+ * lifecycle boundaries stay blocked; a genuine agent turn may spawn the verifier.
+ */
+export function dispatchAuthorizationForTurn(): DispatchAuthorization | undefined {
+	if (sessionLifecycleDepth > 0) return undefined;
+	const store = dispatchContext.getStore();
+	if (store?.blocked) return undefined;
+	return authorizeDispatch("subagent-tool");
+}
+
 export function isExplicitDispatchActive(): boolean {
 	if (sessionLifecycleDepth > 0) return false;
 	const store = dispatchContext.getStore();

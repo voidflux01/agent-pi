@@ -65,6 +65,7 @@ describe("toolkit worker args", () => {
 		expect(args).toContain("--tools");
 		expect(args).toContain("bash,read");
 		expect(args).toContain("Analyze this project");
+		expect(args).not.toContain("--no-extensions");
 	});
 });
 

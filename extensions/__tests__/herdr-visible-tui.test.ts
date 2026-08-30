@@ -13,9 +13,6 @@ const saArgv = [
 	"--mode", "json",
 	"-p",
 	"--session", "/tmp/sa1.json",
-	"--no-extensions",
-	"-e", "/ext/tasks.ts",
-	"-e", "/ext/footer.ts",
 	"--model", "dashscope/qwen3.8-flash",
 	"--tools", "read,grep,find,ls",
 	"--append-system-prompt", "You are a scout agent.",
@@ -26,9 +23,6 @@ const saArgv = [
 const teamArgv = [
 	"--mode", "json",
 	"-p",
-	"--no-extensions",
-	"-e", "/ext/tasks.ts",
-	"-e", "/ext/ask-parent.ts",
 	"--model", "dashscope/qwen3.8-flash",
 	"--tools", "read,bash",
 	"--append-system-prompt", "SP",
@@ -74,8 +68,7 @@ describe("visiblePiTuiArgs", () => {
 
 	it("keeps every non-headless token, including the task text last", () => {
 		const out = visiblePiTuiArgs(saArgv, DONE);
-		for (const kept of ["--session", "/tmp/sa1.json", "--no-extensions", "-e", "/ext/tasks.ts",
-			"/ext/footer.ts", "--model", "dashscope/qwen3.8-flash", "--tools", "read,grep,find,ls",
+		for (const kept of ["--session", "/tmp/sa1.json", "--model", "dashscope/qwen3.8-flash", "--tools", "read,grep,find,ls",
 			"--append-system-prompt", "You are a scout agent.",
 			"Count the .ts files under extensions/"]) {
 			expect(out).toContain(kept);

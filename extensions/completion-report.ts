@@ -19,14 +19,13 @@ import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import {
 	bumpVerifierAttempt,
-	coordinationState,
 	getExecutionContract,
 	getVerifierReceipt,
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
 import { completionDecision } from "./lib/execution-gate.ts";
 import { workspaceHash } from "./lib/verifier-runtime.ts";
-import { currentDispatchAuthorization, explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, dispatchAuthorizationForTurn, explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -512,21 +511,20 @@ export default function (pi: ExtensionAPI) {
 
 			const cwd = ctx.cwd || process.cwd();
 
-			const mode = coordinationState().mode;
 			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
 			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
 			const currentHash = workspaceHash(currentDiff, currentFiles);
 			let contract = getExecutionContract();
 			let receipt = getVerifierReceipt();
+			const surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report";
 			let gate = completionDecision({
-				surface: "plan-show-report",
-				mode,
+				surface,
 				contract,
 				receipt,
 				workspaceHash: currentHash,
 			});
-			if (!gate.allowed && mode === "PLAN" && contract && !String(gate.reason || "").startsWith("合同不全")) {
-				const auth = currentDispatchAuthorization();
+			if (!gate.allowed && contract && !String(gate.reason || "").startsWith("合同不全")) {
+				const auth = currentDispatchAuthorization() ?? dispatchAuthorizationForTurn();
 				if (!auth) {
 					return { content: [{ type: "text" as const, text: "Completion report blocked: verifier requires dispatch authorization." }], details: { error: true } };
 				}
@@ -541,8 +539,7 @@ export default function (pi: ExtensionAPI) {
 					setVerifierReceipt(verification.receipt);
 					receipt = verification.receipt;
 					gate = completionDecision({
-						surface: "plan-show-report",
-						mode,
+						surface,
 						contract,
 						receipt,
 						workspaceHash: currentHash,

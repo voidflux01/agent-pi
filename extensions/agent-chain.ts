@@ -336,11 +336,6 @@ export default function (pi: ExtensionAPI) {
 		const hasSession = agentSessions.get(agentKey);
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
-		const securityGuardExtPath = join(extDir, "security-guard.ts");
-		const tasksExtPath = join(extDir, "tasks.ts");
-		const askParentExtPath = join(extDir, "ask-parent.ts");
-		const footerExtPath = join(extDir, "footer.ts");
-		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
 		// Loaded only by the visible herdr transport: writes the pane's done
 		// marker on the child's first agent_end (an interactive worker stays alive).
 		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
@@ -364,12 +359,6 @@ export default function (pi: ExtensionAPI) {
 		const args = [
 			"--mode", "json",
 			"-p",
-			"--no-extensions",
-			"-e", securityGuardExtPath,
-			"-e", tasksExtPath,
-			"-e", footerExtPath,
-			"-e", memoryCycleExtPath,
-			"-e", askParentExtPath,
 			"--model", model,
 			"--tools", agentDef.tools,
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),

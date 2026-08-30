@@ -573,19 +573,11 @@ export default function (pi: ExtensionAPI) {
 		// Session file for this agent
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
-		const workerCwd = runCwd;
 
 
 		// Build args — first run creates session, subsequent runs resume
 		const extDir = dirname(fileURLToPath(import.meta.url));
-		const securityGuardExtPath = join(extDir, "security-guard.ts");
-		const tasksExtPath = join(extDir, "tasks.ts");
-		const askParentExtPath = join(extDir, "ask-parent.ts");
-		const nudgeListenerExtPath = join(extDir, "nudge-listener.ts");
 		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
-		const commanderExtPath = join(extDir, "commander-mcp.ts");
-		const footerExtPath = join(extDir, "footer.ts");
-		const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
 
 		// Resolve tools — append commander tools when Commander is available
 		const g = globalThis as any;
@@ -614,8 +606,7 @@ export default function (pi: ExtensionAPI) {
 		let tools = state.def.tools;
 		// Commander tools are extension-registered (not built-in), so they must NOT
 		// go in --tools (which only accepts built-in names and warns on unknowns).
-		// Loading the commander-mcp extension via -e is sufficient — pi auto-activates
-		// all extension tools via includeAllExtensionTools.
+		// Package discovery loads commander-mcp; pi auto-activates extension tools.
 
 		// Build system prompt — append Commander discipline when available
 		let systemPrompt = state.def.systemPrompt;
@@ -650,7 +641,7 @@ export default function (pi: ExtensionAPI) {
 			runtime: isToolkitCliAgent(canonicalName) ? toolkitRuntimeName(canonicalName) : undefined,
 			task,
 			model: isToolkitCliAgent(canonicalName) ? undefined : model,
-			cwd: workerCwd,
+			cwd: runCwd,
 			sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
 			resumed: !!state.sessionFile,
 			status: "dispatched",
@@ -659,14 +650,6 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const baseArgs = [
-			"--no-extensions",
-			"-e", securityGuardExtPath,
-			"-e", tasksExtPath,
-			"-e", footerExtPath,
-			"-e", memoryCycleExtPath,
-			"-e", askParentExtPath,
-			"-e", nudgeListenerExtPath,
-			...(commanderAvailable ? ["-e", commanderExtPath] : []),
 			"--model", model,
 			"--tools", tools,
 			"--append-system-prompt", systemPrompt,
@@ -1442,6 +1425,10 @@ ${scoutSection}
 - Do not dispatch merely to add ceremony.
 - After a specialist returns ## RESULT, toggle that task to done before stopping.
 - Report the result and next decision to the user.
+
+## Completion
+- Worker ## RESULT verification lines are untrusted claims.
+- When team work is complete, present the outcome with show_report. If an acceptance checklist is bound (approved plan/spec), completion is blocked until an isolated verifier PASSes it.
 
 ## Agents
 ${agentCatalog}${commanderSection}`,

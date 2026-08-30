@@ -4,7 +4,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { join } from "node:path";
-import { explicitDispatchHandler, currentDispatchAuthorization } from "./lib/dispatch-runtime.ts";
+import { explicitDispatchHandler, currentDispatchAuthorization, dispatchAuthorizationForTurn } from "./lib/dispatch-runtime.ts";
 import {
 	bumpVerifierAttempt,
 	getExecutionContract,
@@ -47,7 +47,7 @@ export default function (pi: ExtensionAPI) {
 			if (attempt > DEFAULT_VERIFIER_ATTEMPTS) {
 				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached.` }], details: { status: "BLOCKED", attempt } };
 			}
-			const auth = currentDispatchAuthorization();
+			const auth = currentDispatchAuthorization() ?? dispatchAuthorizationForTurn();
 			if (!auth) {
 				return { content: [{ type: "text", text: "Verification refused: explicit dispatch authorization is required." }], details: { status: "BLOCKED" } };
 			}

@@ -3,8 +3,7 @@
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import type { DispatchAuthorization } from "./dispatch-gate.ts";
 import { run as runDispatch } from "./dispatch-runtime.ts";
@@ -49,12 +48,11 @@ function porcelain(cwd: string): string {
 	} catch { return ""; }
 }
 
-/** Isolated verifier runs without host extensions; only the security guard is loaded. */
+/** Isolated verifier loads host extensions; write/dispatch tools stay off the whitelist. */
 export const VERIFIER_TOOLS = "read,grep,find,ls,bash,run_tests";
 
 export function verifierDispatchCommand(prompt: string): string[] {
-	const guard = join(dirname(fileURLToPath(import.meta.url)), "..", "security-guard.ts");
-	return ["pi", "--mode", "json", "-p", "--no-extensions", "-e", guard, "--tools", VERIFIER_TOOLS, prompt];
+	return ["pi", "--mode", "json", "-p", "--tools", VERIFIER_TOOLS, prompt];
 }
 
 export async function defaultVerifierExecute(input: {

@@ -295,11 +295,6 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
-		const securityGuardExtPath = path.join(extDir, "security-guard.ts");
-		const tasksExtPath = path.join(extDir, "tasks.ts");
-		const commanderExtPath = path.join(extDir, "commander-mcp.ts");
-		const footerExtPath = path.join(extDir, "footer.ts");
-		const memoryCycleExtPath = path.join(extDir, "memory-cycle.ts");
 
 		// Commander integration
 		const commanderAvail = isCommanderAvailable();
@@ -307,18 +302,10 @@ export default function (pi: ExtensionAPI) {
 
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
-		const askParentExtPath = path.join(extDir, "ask-parent.ts");
 		// Loaded only by the visible herdr transport: writes the pane's done marker
 		// on the child's first agent_end, since an interactive worker stays alive
 		// after finishing its task.
 		const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
-		const extensions = ["-e", securityGuardExtPath, "-e", tasksExtPath, "-e", footerExtPath, "-e", memoryCycleExtPath, "-e", askParentExtPath];
-		if (commanderAvail) {
-			// Commander tools are extension-registered (not built-in), so they must NOT
-			// go in --tools (which only accepts built-in names and warns on unknowns).
-			// Loading the extension is sufficient — pi auto-activates all extension tools.
-			extensions.push("-e", commanderExtPath);
-		}
 
 		// Build system prompt: agent definition prompt + Commander discipline
 		// Build one stable prompt block instead of several append flags. This keeps
@@ -526,8 +513,6 @@ export default function (pi: ExtensionAPI) {
 				"--mode", "json",
 				"-p",
 				"--session", state.sessionFile,
-				"--no-extensions",
-				...extensions,
 				"--model", model,
 				"--tools", tools,
 				...systemPromptArgs,

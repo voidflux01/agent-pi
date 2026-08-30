@@ -80,23 +80,9 @@ export function resolveToolkitWorkerModel(agentName: string, fallbackModel: stri
 }
 
 export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: ToolkitWorkerSpawnOptions): string[] {
-	const extDir = dirname(fileURLToPath(import.meta.url));
-	const extensionsDir = join(extDir, "..");
-	const tasksExtPath = join(extensionsDir, "tasks.ts");
-	const footerExtPath = join(extensionsDir, "footer.ts");
-	const memoryCycleExtPath = join(extensionsDir, "memory-cycle.ts");
-	const nudgeListenerExtPath = join(extensionsDir, "nudge-listener.ts");
-	const securityGuardExtPath = join(extensionsDir, "security-guard.ts");
-
 	const args = [
 		"--mode", "json",
 		"-p",
-		"--no-extensions",
-		"-e", securityGuardExtPath,
-		"-e", tasksExtPath,
-		"-e", footerExtPath,
-		"-e", memoryCycleExtPath,
-		"-e", nudgeListenerExtPath,
 		"--model", TOOLKIT_WORKER_MODEL,
 		"--tools", agentDef.tools,
 		"--append-system-prompt", agentDef.systemPrompt,

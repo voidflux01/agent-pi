@@ -7,7 +7,7 @@ export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
 
 export interface AcceptanceContract {
 	version: 1;
-	source: "plan" | "pipeline";
+	source: "plan" | "pipeline" | "spec";
 	objective: string;
 	criteria: string[];
 	fingerprint: string;
@@ -63,6 +63,30 @@ export function bindAcceptanceContract(
 	return {
 		version: 1,
 		source,
+		objective,
+		criteria,
+		fingerprint: planFingerprint(markdown),
+		requiresTests: criteriaRequireTests(criteria),
+	};
+}
+
+/** SPEC spec.md acceptance list: ## Requirements, falling back to ## Acceptance Criteria. */
+export function extractSpecCriteria(markdown: string): string[] {
+	const requirements = parseListItems(extractSection(markdown, "Requirements") || "");
+	if (requirements.length > 0) return requirements;
+	return parseListItems(extractSection(markdown, "Acceptance Criteria") || "");
+}
+
+/** Build a contract from an approved spec.md snapshot. */
+export function bindSpecContract(markdown: string): AcceptanceContract | { error: "incomplete" } {
+	const criteria = extractSpecCriteria(markdown);
+	if (criteria.length === 0) return { error: "incomplete" };
+	const objective = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim()
+		|| markdown.split("\n").find(line => line.trim())?.trim()
+		|| "untitled";
+	return {
+		version: 1,
+		source: "spec",
 		objective,
 		criteria,
 		fingerprint: planFingerprint(markdown),

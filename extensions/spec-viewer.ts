@@ -18,6 +18,8 @@ import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+import { bindSpecContract } from "./lib/execution-contract.ts";
+import { setExecutionContract } from "./lib/coordination-state.ts";
 // Approval is bound to the reviewed snapshot (markSpecApproved() remains the unbound API).
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -354,6 +356,30 @@ export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
 	let activeSession: { kind: "spec"; title: string; url: string; server: Server; onClose: () => void } | null = null;
 
+	function discoverSpecMarkdown(folderPath: string): string | undefined {
+		for (const ent of readdirSync(folderPath, { withFileTypes: true })) {
+			if (!ent.isFile() || !ent.name.endsWith(".md")) continue;
+			const text = readFileSync(join(folderPath, ent.name), "utf8");
+			if (/^##\s+(Requirements|Acceptance Criteria)\s*$/im.test(text)) return text;
+		}
+		return undefined;
+	}
+
+	/** Bind the approved spec.md snapshot as the acceptance contract for verification. */
+	function bindApprovedSpecContract(folderPath: string): void {
+		try {
+			const specPath = join(folderPath, "spec.md");
+			const markdown = existsSync(specPath)
+				? readFileSync(specPath, "utf8")
+				: discoverSpecMarkdown(folderPath);
+			if (!markdown) { setExecutionContract(undefined); return; }
+			const bound = bindSpecContract(markdown);
+			setExecutionContract("error" in bound ? undefined : bound);
+		} catch {
+			setExecutionContract(undefined);
+		}
+	}
+
 	function cleanupServer() {
 		const server = activeServer;
 		activeServer = null;
@@ -510,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 				if (result.action === "approved") {
 					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
 					markSpecApproved(folderPath);
+					bindApprovedSpecContract(folderPath);
 					const modifiedNote = result.modified
 						? " (spec was edited by user — use the updated version)"
 						: "";
@@ -637,6 +664,7 @@ export default function (pi: ExtensionAPI) {
 				if (result.action === "approved") {
 					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
 					markSpecApproved(folderPath);
+					bindApprovedSpecContract(resolved);
 					piRef.sendMessage(
 						{
 							customType: "spec-approved",

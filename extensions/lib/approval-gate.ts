@@ -74,7 +74,11 @@ export function resetApprovalForMode(mode: string): void {
 		coordinationState().planApprovalBinding = undefined;
 		resetExecutionVerification();
 	}
-	if (mode === "SPEC") { coordinationState().specApproved = false; coordinationState().specApprovalBinding = undefined; }
+	if (mode === "SPEC") {
+		coordinationState().specApproved = false;
+		coordinationState().specApprovalBinding = undefined;
+		resetExecutionVerification();
+	}
 }
 
 export function markPlanApproved(filePath?: string, content?: string): void {
