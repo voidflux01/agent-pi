@@ -777,6 +777,9 @@ export default function (pi: ExtensionAPI) {
 						maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
 						skipContract: isToolkitCliAgent(canonicalName),
 					}).content;
+					if (code === 0 && isExecutionWorker(canonicalName) && !isToolkitCliAgent(canonicalName)) {
+						composed += "\n\nVerification required: run verify_execution against the real workspace before claiming completion.";
+					}
 				} catch (err: any) {
 					composed = full; // persistence failure must never lose the result itself
 					fullOutputPath = "";
