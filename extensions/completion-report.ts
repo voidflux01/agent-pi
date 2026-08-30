@@ -17,10 +17,17 @@ import { createCompletionReportStandaloneExport, saveStandaloneExport } from "./
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
-import { coordinationState } from "./lib/coordination-state.ts";
+import {
+	bumpVerifierAttempt,
+	coordinationState,
+	getExecutionContract,
+	getVerifierReceipt,
+	setVerifierReceipt,
+} from "./lib/coordination-state.ts";
 import { completionDecision } from "./lib/execution-gate.ts";
 import { workspaceHash } from "./lib/verifier-runtime.ts";
-import { latestVerifierReceipt } from "./lib/execution-run.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
+import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -496,7 +503,7 @@ export default function (pi: ExtensionAPI) {
 			"copy the report, or save it to the desktop.",
 		parameters: ShowReportParams,
 
-		execute: (async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+		execute: explicitDispatchHandler("subagent-tool", async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const {
 				title = "Completion Report",
 				summary = "",
@@ -505,13 +512,45 @@ export default function (pi: ExtensionAPI) {
 
 			const cwd = ctx.cwd || process.cwd();
 
-			// In write-capable orchestration modes, a completion report is the
-			// final completion surface and must have a current verifier receipt.
 			const mode = coordinationState().mode;
-			const pendingReceipt = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
 			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
 			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
-			const gate = completionDecision({ mode, hasWrites: true, goal: pendingReceipt?.goal, receipt: pendingReceipt?.receipt, workspaceHash: workspaceHash(currentDiff, currentFiles) });
+			const currentHash = workspaceHash(currentDiff, currentFiles);
+			let contract = getExecutionContract();
+			let receipt = getVerifierReceipt();
+			let gate = completionDecision({
+				surface: "plan-show-report",
+				mode,
+				contract,
+				receipt,
+				workspaceHash: currentHash,
+			});
+			if (!gate.allowed && mode === "PLAN" && contract && !String(gate.reason || "").startsWith("合同不全")) {
+				const auth = currentDispatchAuthorization();
+				if (!auth) {
+					return { content: [{ type: "text" as const, text: "Completion report blocked: verifier requires dispatch authorization." }], details: { error: true } };
+				}
+				const verification = await runIsolatedVerifier({
+					cwd,
+					contract,
+					authorization: auth,
+					attempt: bumpVerifierAttempt(),
+					launchDir: join(cwd, ".pi", "agent-sessions"),
+				});
+				if (verification.receipt) {
+					setVerifierReceipt(verification.receipt);
+					receipt = verification.receipt;
+					gate = completionDecision({
+						surface: "plan-show-report",
+						mode,
+						contract,
+						receipt,
+						workspaceHash: currentHash,
+					});
+				} else {
+					return { content: [{ type: "text" as const, text: `Completion report blocked: ${verification.error || gate.reason}` }], details: { error: true } };
+				}
+			}
 			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason}` }], details: { error: true, reason: gate.reason } };
 
 			// Check if we're in a git repo
@@ -598,6 +637,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}) as any,
 
+
 		renderCall(args, theme) {
 			const titleArg = (args as any).title || "Completion Report";
 			const text =
@@ -645,13 +685,6 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const cwd = ctx.cwd || process.cwd();
-
-			const mode = coordinationState().mode;
-			const pendingReceipt = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
-			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
-			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
-			const gate = completionDecision({ mode, hasWrites: true, goal: pendingReceipt?.goal, receipt: pendingReceipt?.receipt, workspaceHash: workspaceHash(currentDiff, currentFiles) });
-			if (!gate.allowed) { ctx.ui.notify(`Report blocked: ${gate.reason}`, "warning"); return; }
 
 			if (!isGitRepo(cwd)) {
 				ctx.ui.notify("Not a git repository", "error");

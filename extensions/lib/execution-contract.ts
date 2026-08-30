@@ -1,61 +1,95 @@
-// ABOUTME: Shared execution contract types and canonical goal hashing.
-// ABOUTME: Keeps approval and verification state separate from human-facing task Markdown.
+// ABOUTME: Acceptance checklist extracted from approved plan markdown or pipeline $PLAN.
+// ABOUTME: Identity is a SHA-256 of the full source text, matching planApprovalBinding fingerprints.
 
 import { createHash } from "node:crypto";
 
-export type GoalStatus = "draft" | "approved" | "running" | "verifying" | "completed" | "failed" | "blocked";
 export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
 
-export interface EvidenceRequirement {
-	id: string;
-	description: string;
-	type?: "command" | "test" | "diff" | "file" | "review";
-}
-
-export interface Subgoal {
-	id: string;
-	description: string;
-	status: "pending" | "running" | "completed" | "failed" | "blocked";
-}
-
-export interface GoalContract {
+export interface AcceptanceContract {
 	version: 1;
-	id: string;
+	source: "plan" | "pipeline";
 	objective: string;
-	scope: string[];
-	constraints: string[];
-	successCriteria: string[];
-	evidenceRequired: EvidenceRequirement[];
-	risks: string[];
-	subgoals: Subgoal[];
-	status: GoalStatus;
-	approvedHash?: string;
-	approvedAt?: string;
+	criteria: string[];
+	fingerprint: string;
+	requiresTests: boolean;
 }
 
-/** Only acceptance-relevant fields participate in approval invalidation. */
-export function approvalMaterial(goal: Pick<GoalContract, "objective" | "scope" | "constraints" | "successCriteria" | "evidenceRequired">): unknown {
+/** Same algorithm as approval-gate fingerprintContent — full text, not a second hash of fields. */
+export function planFingerprint(markdown: string): string {
+	return createHash("sha256").update(markdown, "utf8").digest("hex");
+}
+
+function extractSection(markdown: string, heading: string): string | undefined {
+	const re = new RegExp(`^##\\s+${heading}\\s*$`, "im");
+	const match = re.exec(markdown);
+	if (!match) return undefined;
+	const start = match.index + match[0].length;
+	const rest = markdown.slice(start);
+	const next = rest.search(/^##\s+/m);
+	return (next === -1 ? rest : rest.slice(0, next)).trim();
+}
+
+function parseListItems(body: string): string[] {
+	const items: string[] = [];
+	for (const line of body.split("\n")) {
+		const trimmed = line.trim();
+		const match = trimmed.match(/^(?:[-*]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+)(.+)$/);
+		if (match?.[1]) items.push(match[1].trim());
+	}
+	return items.filter(item => item.length > 0);
+}
+
+export function extractAcceptanceCriteria(markdown: string): { criteria: string[]; section: "Contract" | "Verification" | null } {
+	const contractItems = parseListItems(extractSection(markdown, "Contract") || "");
+	if (contractItems.length > 0) return { criteria: contractItems, section: "Contract" };
+	const verificationItems = parseListItems(extractSection(markdown, "Verification") || "");
+	if (verificationItems.length > 0) return { criteria: verificationItems, section: "Verification" };
+	return { criteria: [], section: null };
+}
+
+export function criteriaRequireTests(criteria: string[]): boolean {
+	return criteria.some(item => /\btests?\b/i.test(item));
+}
+
+export function bindAcceptanceContract(
+	markdown: string,
+	source: "plan" | "pipeline",
+): AcceptanceContract | { error: "incomplete" } {
+	const { criteria } = extractAcceptanceCriteria(markdown);
+	if (criteria.length === 0) return { error: "incomplete" };
+	const objective = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim()
+		|| markdown.split("\n").find(line => line.trim())?.trim()
+		|| "untitled";
 	return {
-		objective: goal.objective.trim(),
-		scope: [...goal.scope].map(v => v.trim()).sort(),
-		constraints: [...goal.constraints].map(v => v.trim()).sort(),
-		successCriteria: [...goal.successCriteria].map(v => v.trim()).sort(),
-		evidenceRequired: [...goal.evidenceRequired]
-			.map(v => ({ id: v.id.trim(), description: v.description.trim(), ...(v.type ? { type: v.type } : {}) }))
-			.sort((a, b) => a.id.localeCompare(b.id)),
+		version: 1,
+		source,
+		objective,
+		criteria,
+		fingerprint: planFingerprint(markdown),
+		requiresTests: criteriaRequireTests(criteria),
 	};
 }
 
-function canonical(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-	return `{${Object.keys(value as Record<string, unknown>).sort().map(k => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(",")}}`;
+/** Keep a previously bound planner checklist when the new text has no Contract/Verification items. */
+export function retainBoundChecklist(previousText: string, candidate: string): string {
+	const next = bindAcceptanceContract(candidate, "pipeline");
+	if (!("error" in next)) return candidate;
+	if (previousText && !("error" in bindAcceptanceContract(previousText, "pipeline"))) return previousText;
+	return candidate || previousText;
 }
 
-export function objectiveHash(goal: Pick<GoalContract, "objective" | "scope" | "constraints" | "successCriteria" | "evidenceRequired">): string {
-	return createHash("sha256").update(canonical(approvalMaterial(goal))).digest("hex");
+export function resolveAcceptanceContract(
+	candidate: string,
+	source: "plan" | "pipeline",
+	previous?: AcceptanceContract,
+): AcceptanceContract | { error: "incomplete" } {
+	const next = bindAcceptanceContract(candidate, source);
+	if (!("error" in next)) return next;
+	if (previous && previous.criteria.length > 0) return previous;
+	return { error: "incomplete" };
 }
 
-export function isApprovalCurrent(goal: GoalContract): boolean {
-	return goal.status !== "draft" && !!goal.approvedHash && goal.approvedHash === objectiveHash(goal);
+/** @deprecated Prefer planFingerprint of the approved source text. Kept for hash helpers in tests. */
+export function objectiveHash(material: { objective: string; successCriteria: string[] }): string {
+	return planFingerprint(`${material.objective.trim()}\n${[...material.successCriteria].map(v => v.trim()).sort().join("\n")}`);
 }

@@ -32,12 +32,12 @@ done: true|false
 summary: <3-6 lines covering ALL of the fields below>
 - files: <every file you created or modified, one path per line>
 - key errors: <exact error messages you hit, quoted verbatim, and how each was resolved>
-- verification: <exact commands/tests you ran and their exact outcome>
+- verification: <exact commands/tests you ran and their exact outcome — a claim, not proof of completion>
 - remaining: <what is still open or uncertain, or "none">
 ## END
 \`\`\`
 
-The ## RESULT block is what the coordinator acts on. Put every path, finding, and exact error they need in this block so they do not have to read your transcript. The full transcript is archived only as a fallback. If the task FAILED, set done: false and put the exact error under "key errors". End the block with a line containing exactly: ## END`;
+The ## RESULT block is what the coordinator acts on. Put every path, finding, and exact error they need in this block so they do not have to read your transcript. The \`verification:\` line is an untrusted worker claim; an isolated verifier must re-run checks before completion. The full transcript is archived only as a fallback. If the task FAILED, set done: false and put the exact error under "key errors". End the block with a line containing exactly: ## END`;
 }
 
 export interface ExtractedResult {

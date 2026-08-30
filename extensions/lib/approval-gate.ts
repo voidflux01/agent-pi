@@ -4,7 +4,7 @@
 import { resolve, relative, sep } from "node:path";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { coordinationState } from "./coordination-state.ts";
+import { coordinationState, resetExecutionVerification } from "./coordination-state.ts";
 import { isWithinDirectory } from "./path-safety.ts";
 import { isScoutRecon, READ_ONLY_BYPASS_TOOLS, TASK_EXECUTION_TOOLS } from "./task-gate.ts";
 
@@ -12,7 +12,7 @@ export const APPROVAL_REQUIRED_MODES = ["PLAN", "SPEC"] as const;
 
 /** Tools that may run in PLAN/SPEC before the viewer is approved. */
 export const APPROVAL_BYPASS_TOOLS = [
-	"tasks", "set_mode", "ask_user", "show_plan", "show_spec", "show_file", "show_report", "verify_execution",
+	"tasks", "set_mode", "ask_user", "show_plan", "show_spec", "show_file", "show_report",
 	"pipeline_status",
 ] as const;
 
@@ -64,11 +64,16 @@ export function resetApprovals(): void {
 	state.specApproved = false;
 	state.planApprovalBinding = undefined;
 	state.specApprovalBinding = undefined;
+	resetExecutionVerification();
 }
 
 /** Clear the gate when entering PLAN or SPEC so a prior cycle cannot leak. */
 export function resetApprovalForMode(mode: string): void {
-	if (mode === "PLAN") { coordinationState().planApproved = false; coordinationState().planApprovalBinding = undefined; }
+	if (mode === "PLAN") {
+		coordinationState().planApproved = false;
+		coordinationState().planApprovalBinding = undefined;
+		resetExecutionVerification();
+	}
 	if (mode === "SPEC") { coordinationState().specApproved = false; coordinationState().specApprovalBinding = undefined; }
 }
 

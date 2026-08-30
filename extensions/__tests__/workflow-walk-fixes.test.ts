@@ -8,6 +8,7 @@ import { resultOneLiner } from "../lib/agent-result-contract.ts";
 import { phaseRequiresAgentDispatch, pipelineSelectLabel, type PipelineConfig } from "../lib/parse-pipeline-yaml.ts";
 import { defaultTeamName } from "../agent-team.ts";
 import { ORCHESTRATED_TASK_PROMPT } from "../lib/mode-prompts.ts";
+import { buildAgentResultContractPrompt } from "../lib/agent-result-contract.ts";
 
 describe("resultOneLiner", () => {
 	it("uses summary from ## RESULT instead of the ## END line", () => {
@@ -70,8 +71,9 @@ describe("defaultTeamName", () => {
 describe("orchestrator RESULT trust", () => {
 	it("treats child output as untrusted and requires independent verification", () => {
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted report");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("verify_execution");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("returns PASS");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("isolated verifier");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("PASS");
+		expect(buildAgentResultContractPrompt()).toContain("untrusted worker claim");
 	});
 });
 

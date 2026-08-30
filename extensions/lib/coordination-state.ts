@@ -4,6 +4,8 @@
 import type { Mode } from "./mode-cycler-logic.ts";
 import { resetGate, resolveGate } from "./commander-ready.ts";
 import type { GateState, QueuedOp, ReadyGate } from "./commander-ready.ts";
+import type { AcceptanceContract } from "./execution-contract.ts";
+import type { VerifierReceipt } from "./verifier-runtime.ts";
 
 export interface CommanderClient {
 	callTool(name: string, args: Record<string, unknown>, timeoutMs?: number): Promise<any>;
@@ -29,6 +31,11 @@ export interface CoordinationState {
 	planApprovalBinding?: { filePath: string; fileFingerprint: string; contentFingerprint: string };
 	/** The exact spec-folder snapshot approved by the user. */
 	specApprovalBinding?: { folderPath: string; fileFingerprint: string; contentFingerprint: string };
+	/** Current acceptance checklist bound to an approved plan or pipeline $PLAN. */
+	executionContract?: AcceptanceContract;
+	/** Isolated verifier receipt for the current contract fingerprint. */
+	verifierReceipt?: VerifierReceipt;
+	verifierAttempt?: number;
 }
 
 interface CoordinationGlobal {
@@ -47,6 +54,9 @@ function createState(): CoordinationState {
 		specApproved: false,
 		planApprovalBinding: undefined,
 		specApprovalBinding: undefined,
+		executionContract: undefined,
+		verifierReceipt: undefined,
+		verifierAttempt: 0,
 	};
 }
 
@@ -58,7 +68,45 @@ export function coordinationState(): CoordinationState {
 	// Bindings were added after the boolean flags; keep old sessions readable.
 	if (state.planApprovalBinding && typeof state.planApprovalBinding !== "object") state.planApprovalBinding = undefined;
 	if (state.specApprovalBinding && typeof state.specApprovalBinding !== "object") state.specApprovalBinding = undefined;
+	if (state.executionContract && typeof state.executionContract !== "object") state.executionContract = undefined;
+	if (state.verifierReceipt && typeof state.verifierReceipt !== "object") state.verifierReceipt = undefined;
+	if (typeof state.verifierAttempt !== "number") state.verifierAttempt = 0;
 	return state;
+}
+
+export function setExecutionContract(contract: AcceptanceContract | undefined): void {
+	const state = coordinationState();
+	const previousFingerprint = state.executionContract?.fingerprint;
+	state.executionContract = contract;
+	if (contract?.fingerprint !== previousFingerprint) {
+		state.verifierReceipt = undefined;
+		state.verifierAttempt = 0;
+	}
+}
+
+export function getExecutionContract(): AcceptanceContract | undefined {
+	return coordinationState().executionContract;
+}
+
+export function setVerifierReceipt(receipt: VerifierReceipt | undefined): void {
+	coordinationState().verifierReceipt = receipt;
+}
+
+export function getVerifierReceipt(): VerifierReceipt | undefined {
+	return coordinationState().verifierReceipt;
+}
+
+export function bumpVerifierAttempt(): number {
+	const state = coordinationState();
+	state.verifierAttempt = (state.verifierAttempt || 0) + 1;
+	return state.verifierAttempt;
+}
+
+export function resetExecutionVerification(): void {
+	const state = coordinationState();
+	state.executionContract = undefined;
+	state.verifierReceipt = undefined;
+	state.verifierAttempt = 0;
 }
 
 /** Live TUI ctx from `/mode` / set_mode so widgets hide on the visible UI. */

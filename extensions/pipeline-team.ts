@@ -34,7 +34,19 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
-import { coordinationState, setActivePipeline, commanderAvailable as isCommanderAvailable, onCoordinationModeChange, setCoordinationMode } from "./lib/coordination-state.ts";
+import {
+	coordinationState,
+	setActivePipeline,
+	commanderAvailable as isCommanderAvailable,
+	onCoordinationModeChange,
+	setCoordinationMode,
+	bumpVerifierAttempt,
+	getExecutionContract,
+	getVerifierReceipt,
+	resetExecutionVerification,
+	setExecutionContract,
+	setVerifierReceipt,
+} from "./lib/coordination-state.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
@@ -48,12 +60,11 @@ import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, typ
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
-import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
-import { recordEvidence, recordRunEvent } from "./lib/evidence-store.ts";
-import { buildVerifierPrompt, canComplete, createVerifierReceipt, parseVerifierStatus, workspaceHash, type VerifierReceipt } from "./lib/verifier-runtime.ts";
+import { resolveAcceptanceContract, retainBoundChecklist } from "./lib/execution-contract.ts";
+import { workspaceHash } from "./lib/verifier-runtime.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
-import { initializeRun, saveGoal, saveVerifierReceipt } from "./lib/execution-run.ts";
-import { createBuilderWorktree, applyWorktreeDiff, type WorktreeRef } from "./lib/worktree.ts";
+import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
+import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { execFileSync } from "node:child_process";
 
 // ── Types ────────────────────────────────────────
@@ -208,9 +219,6 @@ export default function (pi: ExtensionAPI) {
 	let planOutput = "";     // $PLAN — from phase 3
 	let reviewOutput = "";   // $REVIEW — from phase 5 (when looping)
 	let reviewLoopCount = 0;
-	let executionGoal: GoalContract | undefined;
-	let verifierReceipt: VerifierReceipt | undefined;
-	let verifierAttempt = 0;
 
 	// ── Load Config ──────────────────────────────
 
@@ -258,9 +266,7 @@ export default function (pi: ExtensionAPI) {
 		planOutput = "";
 		reviewOutput = "";
 		reviewLoopCount = 0;
-		executionGoal = undefined;
-		verifierReceipt = undefined;
-		verifierAttempt = 0;
+		resetExecutionVerification();
 
 		phaseStates = config.phases.map(p => ({
 			def: p,
@@ -394,16 +400,7 @@ export default function (pi: ExtensionAPI) {
 
 		const agentKey = `pipeline-${agentDef.name.toLowerCase().replace(/\s+/g, "-")}-${agentState.index}`;
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
-		let workerCwd = ctx.cwd;
-		let workerWorktree: WorktreeRef | undefined;
-		if (process.env.PI_PIPELINE_WORKTREES === "1" && isExecutionWorker(agentDef.name)) {
-			try {
-				workerWorktree = createBuilderWorktree(ctx.cwd, join(sessionDir, "worktrees"), `${agentKey}-${Date.now().toString(36)}`);
-				workerCwd = workerWorktree.path;
-			} catch (error) {
-				return Promise.resolve({ output: `Worktree creation failed: ${error instanceof Error ? error.message : String(error)}`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
-			}
-		}
+		const workerCwd = ctx.cwd;
 
 		const extDir = dirname(fileURLToPath(import.meta.url));
 		const securityGuardExtPath = join(extDir, "security-guard.ts");
@@ -466,14 +463,7 @@ export default function (pi: ExtensionAPI) {
 				agentState.proc = null;
 				agentState.elapsed = Date.now() - startTime;
 				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
-				let output = externalFull ?? textChunks.join("");
-				if (code === 0 && workerWorktree) {
-					try { applyWorktreeDiff(workerWorktree, ctx.cwd); }
-					catch (error) { code = 1; output += `\nWorktree merge failed: ${error instanceof Error ? error.message : String(error)}`; }
-				}
-				if (executionGoal && sessionDir) {
-					try { recordEvidence(join(sessionDir, "execution-runs", executionGoal.id), { id: `${executionGoal.id}-${journalId}-claim`, type: "review", source: "worker_claim", value: output.slice(0, 12000), timestamp: new Date().toISOString() }); } catch {}
-				}
+				const output = externalFull ?? textChunks.join("");
 				agentState.output = output;
 				agentState.status = code === 0 ? "done" : "error";
 				agentState.lastWork = resultOneLiner(output, extractResultBlock(output).result)
@@ -794,84 +784,22 @@ export default function (pi: ExtensionAPI) {
 		return all;
 	}
 
-	// ── Execution contract / verifier ─────────────
-	function ensureExecutionGoal(summary: string): GoalContract {
-		if (executionGoal) return executionGoal;
-		const id = `pipeline-${Date.now().toString(36)}`;
-		executionGoal = {
-			version: 1,
-			id,
-			objective: summary.trim() || "Complete the active pipeline",
-			scope: [],
-			constraints: [],
-			successCriteria: ["All configured pipeline phases complete", "Relevant verification commands pass"],
-			evidenceRequired: [
-				{ id: "git-diff", description: "Inspect the final repository diff", type: "diff" },
-				{ id: "verification", description: "Run the relevant verification commands", type: "test" },
-			],
-			risks: [],
-			subgoals: [],
-			status: "running",
-		};
-		if (sessionDir) {
-			try { initializeRun(join(sessionDir, "execution-runs"), executionGoal); } catch {}
-		}
-		return executionGoal;
+	function bindPipelinePlan(planText: string): void {
+		const bound = resolveAcceptanceContract(planText, "pipeline", getExecutionContract());
+		if ("error" in bound) return;
+		setExecutionContract(bound);
 	}
 
 	function collectPipelineDiff(cwd: string): string {
 		try {
 			return execFileSync("git", ["diff", "--no-ext-diff", "--", "."], { cwd, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 });
-		} catch { return "Unable to collect git diff"; }
+		} catch { return ""; }
 	}
 
-	async function runPipelineVerifier(ctx: any, summary: string): Promise<{ receipt?: VerifierReceipt; error?: string }> {
-		const goal = ensureExecutionGoal(summary);
-		if (sessionDir) { try { saveGoal(join(sessionDir, "execution-runs", goal.id), goal); } catch {} }
-		const diff = collectPipelineDiff(ctx.cwd);
-		let changedFiles: string[] = [];
-		try { changedFiles = execFileSync("git", ["diff", "--name-only", "--no-ext-diff"], { cwd: ctx.cwd, encoding: "utf8" }).split("\n").filter(Boolean); } catch {}
-		const evidence = [
-			{ id: `${goal.id}-diff`, type: "diff" as const, source: "runtime" as const, value: diff.slice(0, 12000), timestamp: new Date().toISOString() },
-			{ id: `${goal.id}-files`, type: "file" as const, source: "runtime" as const, value: JSON.stringify(changedFiles), timestamp: new Date().toISOString() },
-		];
-		if (sessionDir) {
-			try { recordEvidence(join(sessionDir, "execution-runs", goal.id), evidence[0]); recordEvidence(join(sessionDir, "execution-runs", goal.id), evidence[1]); } catch {}
-		}
-		const prompt = buildVerifierPrompt({ goal, evidence, diff, workerSummary: summary });
-		const extDir = dirname(fileURLToPath(import.meta.url));
-		const verifierModel = allAgents.get("reviewer")?.model || allAgents.get("warden")?.model || "";
-		const args = ["--mode", "json", "-p", "--no-extensions", "-e", join(extDir, "security-guard.ts"), "--tools", "read,grep,find,ls", ...(verifierModel ? ["--model", verifierModel] : []), prompt];
-		const output: string[] = [];
-		const auth = currentDispatchAuthorization();
-		if (!auth) return { error: "Verifier requires an explicit pipeline dispatch authorization" };
-		const result = await runDispatch({
-			authorization: auth,
-			command: ["pi", ...args],
-			cwd: ctx.cwd,
-			env: childEnvironment({ PI_SUBAGENT: "1", PI_AGENT_NAME: "reviewer-verifier" }),
-			launchDir: sessionDir,
-			launchId: `${goal.id}-verifier-${verifierAttempt + 1}`,
-			transport: "headless",
-			pollTimeoutMs: 15 * 60 * 1000,
-			onStdoutLine: (line) => {
-				try {
-					const event = JSON.parse(line);
-					const delta = event.assistantMessageEvent?.delta;
-					if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") output.push(delta || "");
-				} catch {}
-			},
-		});
-		const text = result.outputText || output.join("");
-		const status = parseVerifierStatus(text);
-		if (result.exitCode !== 0 || !status) return { error: result.stderr || "Verifier returned no unambiguous decision" };
-		const receipt = createVerifierReceipt({ output: text, objectiveHash: objectiveHash(goal), criteria: goal.successCriteria.map(criterion => ({ criterion, status: status === "PASS" ? "pass" : "unknown", evidenceIds: [evidence[0].id, evidence[1].id], note: text.slice(-1200) })), commandsRun: ["git diff --no-ext-diff -- .", "git diff --name-only --no-ext-diff"], changedFiles, workspaceHash: workspaceHash(diff, changedFiles), attempt: verifierAttempt + 1, verifierModel });
-		if (!receipt) return { error: "Could not construct verifier receipt" };
-		if (sessionDir) {
-			const runDir = join(sessionDir, "execution-runs", goal.id);
-			try { saveVerifierReceipt(runDir, receipt); recordRunEvent(runDir, { id: `${goal.id}-verify-${verifierAttempt + 1}`, type: status === "PASS" ? "verification_passed" : "verification_failed", actor: "reviewer-verifier", timestamp: new Date().toISOString(), payload: receipt }); } catch {}
-		}
-		return { receipt };
+	function collectPipelineFiles(cwd: string): string[] {
+		try {
+			return execFileSync("git", ["diff", "--name-only", "--no-ext-diff"], { cwd, encoding: "utf8" }).split("\n").filter(Boolean);
+		} catch { return []; }
 	}
 
 	// ── Tools ────────────────────────────────────
@@ -885,7 +813,7 @@ export default function (pi: ExtensionAPI) {
 			skip_to: Type.Optional(Type.String({ description: "Optional: skip to a specific phase name (e.g. 'plan' to skip gather)" })),
 		}),
 
-		execute: explicitDispatchHandler("pipeline-team", (async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
+		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
 			const { summary, skip_to } = params as { summary: string; skip_to?: string };
 
 			if (!activeConfig || phaseStates.length === 0) {
@@ -901,66 +829,77 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			// Mark current phase done
 			phaseStates[currentPhaseIndex].status = "done";
 			phaseStates[currentPhaseIndex].summary = summary;
-			// Capture the user-facing objective early, then refine acceptance criteria
-			// from the PLAN phase. These fields are persisted separately from UI text.
-			const phaseName = current.def.name.toLowerCase();
-			if (phaseName === "understand" || phaseName === "gather") ensureExecutionGoal(summary);
-			if (phaseName === "plan" && executionGoal) {
-				const criteria = summary.split("\n").map(line => line.replace(/^[-*]\s*(?:\[[ x]\])?\s*/, "").trim()).filter(line => line.length >= 8).slice(0, 12);
-				if (criteria.length > 0) executionGoal.successCriteria = criteria;
-				if (sessionDir) { try { saveGoal(join(sessionDir, "execution-runs", executionGoal.id), executionGoal); } catch {} }
+			if (current.def.name.toLowerCase() === "plan") {
+				planOutput = retainBoundChecklist(planOutput, summary);
+				bindPipelinePlan(planOutput);
 			}
 
-			// Accumulate context
 			if (currentPhaseIndex === 0) {
 				taskSummary = summary;
 			}
 			accContext += `\n\n## Phase ${currentPhaseIndex + 1}: ${phaseStates[currentPhaseIndex].def.name}\n${summary}`;
 
-			// Determine next phase
 			let nextIndex = currentPhaseIndex + 1;
 			if (skip_to) {
 				const target = phaseStates.findIndex(p => p.def.name.toLowerCase() === skip_to.toLowerCase());
 				if (target > currentPhaseIndex) {
-				for (let i = currentPhaseIndex + 1; i < target; i++) {
-					phaseStates[i].status = "skipped" as PhaseStatus;
-					phaseStates[i].summary = `Skipped to ${skip_to}`;
+					for (let i = currentPhaseIndex + 1; i < target; i++) {
+						phaseStates[i].status = "skipped" as PhaseStatus;
+						phaseStates[i].summary = `Skipped to ${skip_to}`;
+					}
+					nextIndex = target;
 				}
-				nextIndex = target;
-			}
 			}
 
 			if (nextIndex >= phaseStates.length) {
-				if (current.def.name.toLowerCase() === "review") {
-					verifierAttempt++;
-					const verification = await runPipelineVerifier(_ctx, summary);
+				planOutput = retainBoundChecklist(planOutput, summary);
+				bindPipelinePlan(planOutput);
+				const files = collectPipelineFiles(_ctx.cwd);
+				const hash = workspaceHash(collectPipelineDiff(_ctx.cwd), files);
+				let receipt = getVerifierReceipt();
+				let gate = pipelineCompleteDecision(planOutput, receipt, hash, getExecutionContract());
+				if (!gate.allowed && gate.contract && gate.reason !== undefined && !gate.reason.startsWith("合同不全")) {
+					const auth = currentDispatchAuthorization();
+					if (!auth) {
+						phaseStates[currentPhaseIndex].status = "active";
+						return { content: [{ type: "text", text: "Verifier requires an explicit pipeline dispatch authorization." }], details: { error: true, phase: "verification" } };
+					}
+					const attempt = bumpVerifierAttempt();
+					const verification = await runIsolatedVerifier({
+						cwd: _ctx.cwd,
+						contract: gate.contract,
+						authorization: auth,
+						attempt,
+						launchDir: sessionDir,
+					});
 					if (verification.receipt) {
-						verifierReceipt = verification.receipt;
-						const action = verifierAction(verification.receipt.status, verifierAttempt, DEFAULT_VERIFIER_ATTEMPTS, verification.receipt.status !== "BLOCKED");
-						if (!canComplete(verification.receipt, objectiveHash(executionGoal), workspaceHash(collectPipelineDiff(_ctx.cwd), verification.receipt.changedFiles)) || action !== "complete") {
-							if (action === "retry") {
-								// Keep the same run alive and return to EXECUTE. The next
-								// dispatch receives the verifier output instead of silently
-								// starting a disconnected new workflow.
-								const executeIndex = phaseStates.findIndex(p => /^(execute|build)$/i.test(p.def.name));
-								if (executeIndex >= 0) {
-									phaseStates[currentPhaseIndex].status = "pending";
-									phaseStates[executeIndex].status = "active";
-									phaseStates[executeIndex].summary = `Verifier feedback (attempt ${verifierAttempt}): ${verification.receipt.criteria.map(c => c.note || `${c.criterion}: ${c.status}`).join("; ")}`;
-									currentPhaseIndex = executeIndex;
-									updateWidget();
-									return { content: [{ type: "text", text: `Verifier FAIL (attempt ${verifierAttempt}/${DEFAULT_VERIFIER_ATTEMPTS}). Returned to EXECUTE; dispatch a builder with the verifier feedback.` }], details: { phase: "execute", verifier: verification.receipt } };
-								}
-								return { content: [{ type: "text", text: "Verifier FAIL, but no EXECUTE phase is configured. Human intervention required." }], details: { phase: "verification", verifier: verification.receipt } };
-							}
-							return { content: [{ type: "text", text: `Verifier ${verification.receipt.status}. Human review required before completion.` }], details: { phase: "verification", verifier: verification.receipt } };
-						}
+						setVerifierReceipt(verification.receipt);
+						receipt = verification.receipt;
+						gate = pipelineCompleteDecision(planOutput, receipt, hash, getExecutionContract());
 					} else {
+						phaseStates[currentPhaseIndex].status = "active";
 						return { content: [{ type: "text", text: `Verifier could not complete: ${verification.error || "unknown error"}` }], details: { error: true, phase: "verification" } };
 					}
+				}
+				if (!gate.allowed) {
+					const attempt = coordinationState().verifierAttempt || 1;
+					const status = receipt?.status || "FAIL";
+					const action = verifierAction(status, attempt, DEFAULT_VERIFIER_ATTEMPTS, status !== "BLOCKED" && !String(gate.reason || "").startsWith("合同不全"));
+					if (action === "retry") {
+						const executeIndex = phaseStates.findIndex(p => /^(execute|build)$/i.test(p.def.name));
+						if (executeIndex >= 0) {
+							phaseStates[currentPhaseIndex].status = "pending";
+							phaseStates[executeIndex].status = "active";
+							phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.criteria.map(c => `${c.criterion}: ${c.status}`).join("; ") || gate.reason}`;
+							currentPhaseIndex = executeIndex;
+							updateWidget();
+							return { content: [{ type: "text", text: `Verifier FAIL (attempt ${attempt}/${DEFAULT_VERIFIER_ATTEMPTS}). Returned to ${phaseStates[executeIndex].def.name.toUpperCase()}; dispatch a builder with the verifier feedback.` }], details: { phase: phaseStates[executeIndex].def.name, verifier: receipt } };
+						}
+					}
+					phaseStates[currentPhaseIndex].status = "active";
+					return { content: [{ type: "text", text: gate.reason || "Pipeline cannot complete without an independent verifier PASS." }], details: { error: true, phase: "verification", verifier: receipt } };
 				}
 				activeConfig = null;
 				updateWidget();
@@ -979,7 +918,8 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: `Advanced to phase: ${phase.name.toUpperCase()} — ${phase.description}\nMode: ${phase.mode}\nAgents: ${phase.agents.length}` }],
 				details: { phase: phase.name, mode: phase.mode },
 			};
-		}) as any),
+		}) as any,
+
 
 		renderCall(args, theme) {
 			const summary = (args as any).summary || "";
@@ -1008,7 +948,7 @@ export default function (pi: ExtensionAPI) {
 			}), { description: "Array of agents to dispatch" }),
 		}),
 
-		execute: explicitDispatchHandler("pipeline-team", (async (_toolCallId, params, _signal, onUpdate, ctx) => {
+		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agents } = params as { agents: { role: string; task: string }[] };
 			const phase = phaseStates[currentPhaseIndex];
 
@@ -1056,6 +996,7 @@ export default function (pi: ExtensionAPI) {
 			// Store plan output if this is the plan phase
 			if (phase.def.name.toLowerCase() === "plan") {
 				planOutput = mergedOutput;
+				bindPipelinePlan(mergedOutput);
 			}
 
 			// Store review output if this is the review phase
@@ -1085,7 +1026,8 @@ export default function (pi: ExtensionAPI) {
 					reviewLoop: reviewLoopCount,
 				},
 			};
-		}) as any),
+		}) as any,
+
 
 		renderCall(args, theme) {
 			const agents = (args as any).agents || [];
@@ -1400,6 +1342,7 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
 You are in the PLAN phase. Dispatch a planner with \`dispatch_agents\` — do not write the plan yourself.
+The planner's output must include a ## Verification or ## Contract section with checkable list items (tests or observable results). Pipeline complete is refused without that checklist.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
@@ -1412,7 +1355,7 @@ Wait for ## RESULT, then call \`advance_phase\`.`;
 You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
 Dispatch a reviewer agent to audit the implementation.
 After reviewing the output:
-- If the reviewer says APPROVED → call \`advance_phase\` to complete the pipeline
+- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires an isolated verifier PASS against the plan checklist, including plan-build pipelines whose last phase is build.
 - If issues found and loops remaining → use \`dispatch_agents\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}

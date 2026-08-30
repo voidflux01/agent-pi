@@ -31,6 +31,9 @@ function resetState(): void {
 	setActivePipeline(null);
 	coordinationState().planApproved = false;
 	coordinationState().specApproved = false;
+	coordinationState().executionContract = undefined;
+	coordinationState().verifierReceipt = undefined;
+	coordinationState().verifierAttempt = 0;
 	drainCommanderReadyCallbacks();
 }
 
