@@ -68,7 +68,7 @@ Pi discovers all extensions, themes, and skills automatically.
 
 ## Optional developer tools
 
-Set `PI_OPTIONAL_ADAPTERS=1` to enable the bundled LSP client and MCP adapter. They are loaded lazily and failure-safe; the core extension suite remains usable when either dependency or its server is unavailable. `fff_find` and `fff_grep` use the native FFF engine when available and fall back to the platform search tools. Worktree isolation is opt-in: set `PI_PIPELINE_WORKTREES=1` for PIPELINE builders or `PI_TEAM_WORKTREES=1` for TEAM builders; worker diffs are merged back only after the worker exits successfully, and failed worktrees are retained for inspection.
+Set `PI_OPTIONAL_ADAPTERS=1` to enable the bundled LSP client and MCP adapter. They are loaded lazily and failure-safe; the core extension suite remains usable when either dependency or its server is unavailable. `fff_find` and `fff_grep` use the native FFF engine when available and fall back to the platform search tools. Worktree isolation is opt-in: set `PI_PIPELINE_WORKTREES=1` for PIPELINE builders or `PI_TEAM_WORKTREES=1` for TEAM builders; worker diffs are merged back only after the worker exits successfully, and failed worktrees are retained for inspection. Verifier retries are persisted per objective and capped at three attempts; use `/execution-status` to detect stale receipts.
 
 ## Extensions
 
