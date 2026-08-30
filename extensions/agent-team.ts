@@ -52,6 +52,7 @@ import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker,
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
+import { createBuilderWorktree, applyWorktreeDiff, type WorktreeRef } from "./lib/worktree.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -572,6 +573,16 @@ export default function (pi: ExtensionAPI) {
 		// Session file for this agent
 		const agentKey = state.def.name.toLowerCase().replace(/\s+/g, "-");
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
+		let workerCwd = runCwd;
+		let workerWorktree: WorktreeRef | undefined;
+		if (process.env.PI_TEAM_WORKTREES === "1" && isExecutionWorker(state.def.name) && !isToolkitCliAgent(state.def.name)) {
+			try {
+				workerWorktree = createBuilderWorktree(runCwd, join(sessionDir, "worktrees"), `${agentKey}-${Date.now().toString(36)}`);
+				workerCwd = workerWorktree.path;
+			} catch (error) {
+				return Promise.resolve({ output: `Worktree creation failed: ${error instanceof Error ? error.message : String(error)}`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model });
+			}
+		}
 
 
 		// Build args — first run creates session, subsequent runs resume
@@ -648,7 +659,7 @@ export default function (pi: ExtensionAPI) {
 			runtime: isToolkitCliAgent(canonicalName) ? toolkitRuntimeName(canonicalName) : undefined,
 			task,
 			model: isToolkitCliAgent(canonicalName) ? undefined : model,
-			cwd: runCwd,
+			cwd: workerCwd,
 			sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
 			resumed: !!state.sessionFile,
 			status: "dispatched",
@@ -714,6 +725,10 @@ export default function (pi: ExtensionAPI) {
 				clearInterval(timer);
 
 				let full = externalFull ?? textChunks.join("");
+				if (code === 0 && workerWorktree) {
+					try { applyWorktreeDiff(workerWorktree, runCwd); }
+					catch (error) { code = 1; stderrBuf += `\nWorktree merge failed: ${error instanceof Error ? error.message : String(error)}`; }
+				}
 				if ((code !== 0 && code !== null) && stderrBuf.trim()) {
 					if (isContextLossError(stderrBuf)) {
 						full = "Context overflow: agent session broke tool_use/tool_result pairing. Clear session and re-dispatch.";
@@ -947,7 +962,7 @@ export default function (pi: ExtensionAPI) {
 			task: Type.String({ description: "Task description for the agent to execute" }),
 		}),
 
-		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
+		execute: explicitDispatchHandler("agent-team", (async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
 
@@ -985,7 +1000,7 @@ export default function (pi: ExtensionAPI) {
 					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", fullOutputPath: "", model: defModel },
 				};
 			}
-		}),
+		}) as any),
 
 		renderResult(result, options, theme) {
 			const details = result.details as any;
@@ -1016,7 +1031,7 @@ export default function (pi: ExtensionAPI) {
 				model: model || undefined,
 			};
 
-			const rendered = renderSubagentWidget(renderState, options.width || 80, theme);
+			const rendered = renderSubagentWidget(renderState, (options as any).width || 80, theme);
 			const bg = STATUS_BG[status] || STATUS_BG.running;
 			const bgFn = (text: string): string => `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
 			const box = new Box(1, 1, bgFn);
@@ -1493,7 +1508,7 @@ ${agentCatalog}${commanderSection}`,
 
 	// ── Reset agent boxes on /new ─────────────────────────────────────
 
-	pi.on("session_switch", async (_event, _ctx) => withSessionLifecycle(async () => {
+	(pi.on as any)("session_switch", async (_event: any, _ctx: any) => withSessionLifecycle(async () => {
 		// /new fires session_switch — bind the replacement ctx before touching UI.
 		sessionEpoch++;
 		widgetCtx = _ctx;
