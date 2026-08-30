@@ -18,6 +18,8 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
+import { initializeRun } from "./lib/execution-run.ts";
 // Approval is bound to the reviewed snapshot (markPlanApproved() remains the unbound API).
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -303,6 +305,16 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function persistApprovedPlanContract(filePath: string, markdown: string, cwd: string): void {
+		const objective = (markdown.match(/^#\s+(.+)$/m)?.[1] || basename(filePath, ".md")).trim();
+		const criteria = [...markdown.matchAll(/^\s*[-*]\s*\[[ xX]\]\s+(.+)$/gm)].map(m => m[1].trim()).filter(Boolean);
+		const successCriteria = criteria.length ? criteria : [objective];
+		const evidenceRequired = [{ id: "diff", description: "Inspect real git diff", type: "diff" as const }, { id: "tests", description: "Run relevant tests", type: "test" as const }];
+		const goal: GoalContract = { version: 1, id: `plan-${objectiveHash({ objective, scope: [filePath], constraints: [], successCriteria, evidenceRequired: [evidenceRequired[0]] }).slice(0, 24)}`, objective, scope: [filePath], constraints: [], successCriteria, evidenceRequired, risks: [], subgoals: [], status: "approved", approvedAt: new Date().toISOString() };
+		goal.approvedHash = objectiveHash(goal);
+		initializeRun(join(cwd, ".pi", "agent-sessions", "execution-runs"), goal);
+	}
+
 	// ── show_plan tool ───────────────────────────────────────────────
 
 	pi.registerTool({
@@ -381,7 +393,9 @@ export default function (pi: ExtensionAPI) {
 			// ── Plan mode result ─────────────────────────────────────
 			if (result.action === "approved") {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
-				markPlanApproved(filePath, result.markdown?.trim() ? result.markdown : undefined);
+				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
+				markPlanApproved(file_path, approvedMarkdown);
+				try { persistApprovedPlanContract(file_path, approvedMarkdown, ctx.cwd || process.cwd()); } catch { /* approval remains valid if persistence is unavailable */ }
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
