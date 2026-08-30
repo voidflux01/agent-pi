@@ -23,9 +23,9 @@ import {
 	getVerifierReceipt,
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
-import { completionDecision } from "./lib/execution-gate.ts";
-import { workspaceHash } from "./lib/verifier-runtime.ts";
-import { currentDispatchAuthorization, dispatchAuthorizationForTurn, explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
+import { completeDecision } from "./lib/execution-gate.ts";
+import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
+import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -511,38 +511,31 @@ export default function (pi: ExtensionAPI) {
 
 			const cwd = ctx.cwd || process.cwd();
 
-			const currentDiff = execGit(["diff", "--no-ext-diff", "--", "."], cwd);
-			const currentFiles = execGit(["diff", "--name-only", "--no-ext-diff"], cwd).split("\n").filter(Boolean);
-			const currentHash = workspaceHash(currentDiff, currentFiles);
 			let contract = getExecutionContract();
+			const manifest = contract ? buildWorkspaceManifest(cwd, contract.fingerprint) : undefined;
+			const currentHash = manifest?.hash;
 			let receipt = getVerifierReceipt();
 			const surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report";
-			let gate = completionDecision({
+			let gate = completeDecision({
 				surface,
 				contract,
 				receipt,
-				workspaceHash: currentHash,
+				workspaceManifestHash: currentHash,
 			});
-			if (!gate.allowed && contract && !String(gate.reason || "").startsWith("合同不全")) {
-				const auth = currentDispatchAuthorization() ?? dispatchAuthorizationForTurn();
-				if (!auth) {
-					return { content: [{ type: "text" as const, text: "Completion report blocked: verifier requires dispatch authorization." }], details: { error: true } };
-				}
+			if (!gate.allowed && contract && !String(gate.reason || "").startsWith("合同不可验证")) {
 				const verification = await runIsolatedVerifier({
 					cwd,
 					contract,
-					authorization: auth,
 					attempt: bumpVerifierAttempt(),
-					launchDir: join(cwd, ".pi", "agent-sessions"),
 				});
 				if (verification.receipt) {
 					setVerifierReceipt(verification.receipt);
 					receipt = verification.receipt;
-					gate = completionDecision({
+					gate = completeDecision({
 						surface,
 						contract,
 						receipt,
-						workspaceHash: currentHash,
+						workspaceManifestHash: currentHash,
 					});
 				} else {
 					return { content: [{ type: "text" as const, text: `Completion report blocked: ${verification.error || gate.reason}` }], details: { error: true } };

@@ -31,7 +31,6 @@ export {
 	explicitDispatchHandler,
 	withSessionLifecycle,
 	currentDispatchAuthorization,
-	dispatchAuthorizationForTurn,
 	isExplicitDispatchActive,
 	type DispatchOrigin,
 	type DispatchAuthorization,

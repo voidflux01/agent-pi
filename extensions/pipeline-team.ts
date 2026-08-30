@@ -57,15 +57,14 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
-import { currentDispatchAuthorization, dispatchAuthorizationForTurn, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
-import { resolveAcceptanceContract, retainBoundChecklist } from "./lib/execution-contract.ts";
-import { workspaceHash } from "./lib/verifier-runtime.ts";
+import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
 import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
-import { execFileSync } from "node:child_process";
+import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -773,21 +772,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function bindPipelinePlan(planText: string): void {
-		const bound = resolveAcceptanceContract(planText, "pipeline", getExecutionContract());
-		if ("error" in bound) return;
-		setExecutionContract(bound);
-	}
-
-	function collectPipelineDiff(cwd: string): string {
-		try {
-			return execFileSync("git", ["diff", "--no-ext-diff", "--", "."], { cwd, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 });
-		} catch { return ""; }
-	}
-
-	function collectPipelineFiles(cwd: string): string[] {
-		try {
-			return execFileSync("git", ["diff", "--name-only", "--no-ext-diff"], { cwd, encoding: "utf8" }).split("\n").filter(Boolean);
-		} catch { return []; }
+		const bound = bindAcceptanceContract(planText, "pipeline");
+		setExecutionContract("error" in bound ? emptyContract(planText, "pipeline") : bound);
 	}
 
 	// ── Tools ────────────────────────────────────
@@ -820,7 +806,6 @@ export default function (pi: ExtensionAPI) {
 			phaseStates[currentPhaseIndex].status = "done";
 			phaseStates[currentPhaseIndex].summary = summary;
 			if (current.def.name.toLowerCase() === "plan") {
-				planOutput = retainBoundChecklist(planOutput, summary);
 				bindPipelinePlan(planOutput);
 			}
 
@@ -842,30 +827,23 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (nextIndex >= phaseStates.length) {
-				planOutput = retainBoundChecklist(planOutput, summary);
 				bindPipelinePlan(planOutput);
-				const files = collectPipelineFiles(_ctx.cwd);
-				const hash = workspaceHash(collectPipelineDiff(_ctx.cwd), files);
+				const contract = getExecutionContract();
+				const manifest = contract ? buildWorkspaceManifest(_ctx.cwd, contract.fingerprint) : undefined;
+				const hash = manifest?.hash;
 				let receipt = getVerifierReceipt();
-				let gate = pipelineCompleteDecision(planOutput, receipt, hash, getExecutionContract());
-				if (!gate.allowed && gate.contract && gate.reason !== undefined && !gate.reason.startsWith("合同不全")) {
-					const auth = currentDispatchAuthorization() ?? dispatchAuthorizationForTurn();
-					if (!auth) {
-						phaseStates[currentPhaseIndex].status = "active";
-						return { content: [{ type: "text", text: "Verifier requires an explicit pipeline dispatch authorization." }], details: { error: true, phase: "verification" } };
-					}
+				let gate = pipelineCompleteDecision(planOutput, receipt, hash);
+				if (!gate.allowed && gate.contract && !String(gate.reason || "").startsWith("合同不可验证")) {
 					const attempt = bumpVerifierAttempt();
 					const verification = await runIsolatedVerifier({
 						cwd: _ctx.cwd,
 						contract: gate.contract,
-						authorization: auth,
 						attempt,
-						launchDir: sessionDir,
 					});
 					if (verification.receipt) {
 						setVerifierReceipt(verification.receipt);
 						receipt = verification.receipt;
-						gate = pipelineCompleteDecision(planOutput, receipt, hash, getExecutionContract());
+						gate = pipelineCompleteDecision(planOutput, receipt, hash);
 					} else {
 						phaseStates[currentPhaseIndex].status = "active";
 						return { content: [{ type: "text", text: `Verifier could not complete: ${verification.error || "unknown error"}` }], details: { error: true, phase: "verification" } };
@@ -874,13 +852,13 @@ export default function (pi: ExtensionAPI) {
 				if (!gate.allowed) {
 					const attempt = coordinationState().verifierAttempt || 1;
 					const status = receipt?.status || "FAIL";
-					const action = verifierAction(status, attempt, DEFAULT_VERIFIER_ATTEMPTS, status !== "BLOCKED" && !String(gate.reason || "").startsWith("合同不全"));
+					const action = verifierAction(status, attempt, DEFAULT_VERIFIER_ATTEMPTS, status !== "BLOCKED" && !String(gate.reason || "").startsWith("合同不可验证"));
 					if (action === "retry") {
 						const executeIndex = phaseStates.findIndex(p => /^(execute|build)$/i.test(p.def.name));
 						if (executeIndex >= 0) {
 							phaseStates[currentPhaseIndex].status = "pending";
 							phaseStates[executeIndex].status = "active";
-							phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.criteria.map(c => `${c.criterion}: ${c.status}`).join("; ") || gate.reason}`;
+							phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.results.map(r => `${r.raw}: ${r.status}`).join("; ") || gate.reason}`;
 							currentPhaseIndex = executeIndex;
 							updateWidget();
 							return { content: [{ type: "text", text: `Verifier FAIL (attempt ${attempt}/${DEFAULT_VERIFIER_ATTEMPTS}). Returned to ${phaseStates[executeIndex].def.name.toUpperCase()}; dispatch a builder with the verifier feedback.` }], details: { phase: phaseStates[executeIndex].def.name, verifier: receipt } };
@@ -1330,7 +1308,7 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
 You are in the PLAN phase. Dispatch a planner with \`dispatch_agents\` — do not write the plan yourself.
-The planner's output must include a ## Verification or ## Contract section with checkable list items (tests or observable results). Pipeline complete is refused without that checklist.
+The planner's output must include a ## Contract section with executable assertions: [cmd] <command>, [file] <path>, or [match] <regex> :: <path>. Pipeline complete is refused without at least one executable assertion.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
@@ -1343,7 +1321,7 @@ Wait for ## RESULT, then call \`advance_phase\`.`;
 You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
 Dispatch a reviewer agent to audit the implementation.
 After reviewing the output:
-- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires an isolated verifier PASS against the plan checklist, including plan-build pipelines whose last phase is build.
+- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the ## Contract assertions to PASS deterministically, including plan-build pipelines whose last phase is build.
 - If issues found and loops remaining → use \`dispatch_agents\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}

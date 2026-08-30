@@ -1,17 +1,24 @@
-// ABOUTME: Completion gate for plan/spec show_report and any pipeline last-phase advance.
-// ABOUTME: Gating keys on a bound acceptance contract, not on mode — PLAN, SPEC, TEAM,
-// ABOUTME: and NORMAL-with-approved-plan all verify once a contract is bound. User /report
-// ABOUTME: is not a completion claim and is never blocked by verification.
+// ABOUTME: The single completion gate. Every write-capable surface (PLAN report,
+// ABOUTME: SPEC report, pipeline final advance, TEAM completion via show_report)
+// ABOUTME: flows through completeDecision. User /report is a report, not a claim,
+// ABOUTME: and is never gated.
+// ABOUTME: A contract must contain at least one executable [cmd]/[file]/[match]
+// ABOUTME: assertion; natural-language items are advisory and can never PASS.
 
-import { resolveAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
+import { bindAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
 import { canComplete } from "./verifier-runtime.ts";
 
 export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "user-report";
 
-export const INCOMPLETE_CONTRACT_REASON = "合同不全：缺少 ## Contract 或 ## Verification 清单。";
-export const MISSING_RECEIPT_REASON = "This execution requires an independent verifier PASS before completion.";
-export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or bound to a different plan.";
+export const INCOMPLETE_CONTRACT_REASON =
+	"合同不可验证：需要 [cmd]/[file]/[match] 可执行断言。自然语言条目仅作 advisory，不能触发完成。\n" +
+	"请补充 ## Contract 清单，例如：\n" +
+	"- [cmd] npm test\n" +
+	"- [file] extensions/lib/execution-contract.ts\n" +
+	"- [match] runIsolatedVerifier :: extensions/lib/isolated-verifier.ts";
+export const MISSING_RECEIPT_REASON = "This execution requires a deterministic verifier PASS before completion.";
+export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or bound to a different plan/workspace.";
 
 export function verificationRequired(input: {
 	surface: CompletionSurface;
@@ -19,41 +26,51 @@ export function verificationRequired(input: {
 }): boolean {
 	if (input.surface === "user-report") return false;
 	if (input.surface === "pipeline-complete") return true;
-	// Any show_report (plan or spec) is gated only when an acceptance contract is bound.
-	return !!input.contract && input.contract.criteria.length > 0;
+	// A bound contract (even one without executable assertions) gates plan/spec
+	// show_report — an unverifiable contract must refuse completion, not skip it.
+	return !!input.contract;
 }
 
+export function completeDecision(input: {
+	surface: CompletionSurface;
+	contract?: AcceptanceContract;
+	receipt?: VerifierReceipt;
+	workspaceManifestHash?: string;
+}): { allowed: boolean; reason?: string } {
+	if (!verificationRequired({ surface: input.surface, contract: input.contract })) return { allowed: true };
+	if (!input.contract || input.contract.mandatory.length === 0) {
+		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
+	}
+	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };
+	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash)) {
+		return { allowed: false, reason: STALE_RECEIPT_REASON };
+	}
+	return { allowed: true };
+}
+
+/** Back-compat alias kept for tests and long imports. */
 export function completionDecision(input: {
 	surface: CompletionSurface;
 	contract?: AcceptanceContract;
 	receipt?: VerifierReceipt;
-	workspaceHash?: string;
+	workspaceManifestHash?: string;
 }): { allowed: boolean; reason?: string } {
-	if (!verificationRequired({ surface: input.surface, contract: input.contract })) return { allowed: true };
-	if (!input.contract || input.contract.criteria.length === 0) {
-		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
-	}
-	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };
-	if (!canComplete(input.receipt, input.contract, input.workspaceHash)) {
-		return { allowed: false, reason: STALE_RECEIPT_REASON };
-	}
-	return { allowed: true };
+	return completeDecision(input);
 }
 
 /** Shipped complete-gate for every pipeline, including plan-build whose last phase is build. */
 export function pipelineCompleteDecision(
 	planText: string,
 	receipt: VerifierReceipt | undefined,
-	workspaceHash?: string,
-	previous?: AcceptanceContract,
+	workspaceManifestHash?: string,
 ): { allowed: boolean; reason?: string; contract?: AcceptanceContract } {
-	const bound = resolveAcceptanceContract(planText, "pipeline", previous);
+	const bound = bindAcceptanceContract(planText, "pipeline");
 	if ("error" in bound) return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
-	const decision = completionDecision({
+	const decision = completeDecision({
 		surface: "pipeline-complete",
 		contract: bound,
 		receipt,
-		workspaceHash,
+		workspaceManifestHash,
 	});
 	return { ...decision, contract: bound };
 }

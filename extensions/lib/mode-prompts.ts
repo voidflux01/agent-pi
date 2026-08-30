@@ -27,7 +27,7 @@ Before any write, edit, or bash/execution tool:
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
-After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after an isolated verifier returns PASS against the approved acceptance checklist. Do not claim completion from worker text.`;
+After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
@@ -109,7 +109,7 @@ ${GRILL_ME_SECTION}
 3. Present it with show_plan and wait for approval.
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
 5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
-6. Before declaring a write-capable plan complete, call show_report. Completion is blocked until the isolated verifier PASSes the approved checklist.
+6. Before declaring a write-capable plan complete, call show_report. Completion is blocked until the deterministic assertions in the approved ## Contract checklist PASS.
 7. For three or more phases, present a completion report with show_report.
 
 ## Plan format
@@ -143,7 +143,7 @@ ${GRILL_ME_SECTION}
 4. Integration check.
 
 ## Contract
-- <checkable criterion the isolated verifier can confirm>
+- [cmd] <exact test command> or [file] <path> or [match] <regex> :: <path>
 - <exact test command or observable result>
 \`\`\`
 

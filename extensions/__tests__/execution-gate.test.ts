@@ -2,177 +2,109 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bindAcceptanceContract, bindSpecContract } from "../lib/execution-contract.ts";
-import { verifierDispatchCommand } from "../lib/isolated-verifier.ts";
-import { completionDecision, pipelineCompleteDecision, verificationRequired } from "../lib/execution-gate.ts";
-import { createVerifierReceipt, type VerifierReceipt, workspaceHash } from "../lib/verifier-runtime.ts";
+import { bindAcceptanceContract, bindSpecContract, emptyContract, type AcceptanceContract } from "../lib/execution-contract.ts";
+import { completeDecision, pipelineCompleteDecision, verificationRequired } from "../lib/execution-gate.ts";
+import { createVerifierReceipt, type VerifierReceipt } from "../lib/verifier-runtime.ts";
+import type { DeterministicVerification } from "../lib/deterministic-verifier.ts";
 
 const PLAN = `# Plan: add login
 
-## Verification
-1. npm test -- auth.test.ts passes
+## Contract
+- [cmd] npm test -- auth.test.ts
+- [file] extensions/lib/execution-contract.ts
 `;
 
 const SPEC = `# Spec: add login
 
 ## Requirements
-1. npm test -- auth.test.ts passes
-2. Login page renders
+- [cmd] npm test -- auth.test.ts
+- login page renders (advisory)
 `;
 
-function contract() {
+function contract(): AcceptanceContract {
 	const bound = bindAcceptanceContract(PLAN, "plan");
 	if ("error" in bound) throw new Error("expected contract");
 	return bound;
 }
 
-function specContract() {
+function specContract(): AcceptanceContract {
 	const bound = bindSpecContract(SPEC);
 	if ("error" in bound) throw new Error("expected contract");
 	return bound;
 }
 
-function specPassReceipt(): VerifierReceipt {
-	const bound = specContract();
-	const receipt = createVerifierReceipt({
-		output: "criterion: npm test -- auth.test.ts passes\nstatus: pass\ncriterion: Login page renders\nstatus: pass\nPASS",
-		contract: bound,
-		commandsRun: ["bash: npm test -- auth.test.ts"],
-		changedFiles: [],
-		attempt: 1,
-		workspaceHash: workspaceHash("", []),
-	});
-	if (!receipt) throw new Error("expected receipt");
-	return receipt;
+function verification(status: DeterministicVerification["status"] = "PASS"): DeterministicVerification {
+	return {
+		status,
+		results: status === "PASS"
+			? [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: "pass" as const }]
+			: [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: status === "fail" ? "fail" as const : "blocked" as const, note: "boom" }],
+	};
 }
 
-function passReceipt(commandsRun = ["bash: npm test -- auth.test.ts"], bound = contract()): VerifierReceipt {
-	const receipt = createVerifierReceipt({
-		output: "criterion: npm test -- auth.test.ts passes\nstatus: pass\nPASS",
+function receipt(bound: AcceptanceContract, manifestHash = "m1", status: DeterministicVerification["status"] = "PASS"): VerifierReceipt {
+	return createVerifierReceipt({
 		contract: bound,
-		commandsRun,
-		changedFiles: [],
+		workspaceManifestHash: manifestHash,
+		verification: verification(status),
 		attempt: 1,
-		workspaceHash: workspaceHash("", []),
 	});
-	if (!receipt) throw new Error("expected receipt");
-	return receipt;
 }
 
-describe("completion surfaces", () => {
+describe("completion gate (contract-bound)", () => {
 	it("does not gate user /report or show_report without a bound contract", () => {
 		expect(verificationRequired({ surface: "user-report", contract: contract() })).toBe(false);
-		expect(completionDecision({ surface: "user-report", contract: contract() }).allowed).toBe(true);
+		expect(completeDecision({ surface: "user-report", contract: contract() }).allowed).toBe(true);
 		expect(verificationRequired({ surface: "plan-show-report" })).toBe(false);
-		expect(completionDecision({ surface: "plan-show-report" }).allowed).toBe(true);
+		expect(completeDecision({ surface: "plan-show-report" }).allowed).toBe(true);
 	});
 
-	it("gates any show_report once a contract is bound, regardless of mode", () => {
-		// PLAN contract bound, any mode.
-		expect(verificationRequired({ surface: "plan-show-report", contract: contract() })).toBe(true);
-		expect(completionDecision({ surface: "plan-show-report", contract: contract() }).allowed).toBe(false);
-		expect(completionDecision({
-			surface: "plan-show-report",
-			contract: contract(),
-			receipt: passReceipt(),
-			workspaceHash: workspaceHash("", []),
-		}).allowed).toBe(true);
-		// SPEC contract bound, any mode.
-		expect(verificationRequired({ surface: "spec-show-report", contract: specContract() })).toBe(true);
-		expect(completionDecision({ surface: "spec-show-report", contract: specContract() }).allowed).toBe(false);
-		expect(completionDecision({
-			surface: "spec-show-report",
-			contract: specContract(),
-			receipt: specPassReceipt(),
-			workspaceHash: workspaceHash("", []),
-		}).allowed).toBe(true);
+	it("gates every show_report once a verifiable contract is bound, in any mode", () => {
+		for (const surface of ["plan-show-report", "spec-show-report"] as const) {
+			expect(verificationRequired({ surface, contract: contract() })).toBe(true);
+			expect(completeDecision({ surface, contract: contract() }).allowed).toBe(false);
+			const bound = surface === "spec-show-report" ? specContract() : contract();
+			expect(completeDecision({ surface, contract: bound, receipt: receipt(bound), workspaceManifestHash: "m1" }).allowed).toBe(true);
+		}
 	});
 
-	it("binds spec contract from Requirements list", () => {
-		const bound = specContract();
-		expect(bound.source).toBe("spec");
-		expect(bound.criteria).toHaveLength(2);
-		expect(bound.requiresTests).toBe(true);
-		expect(bindSpecContract("# Spec\n\nNo checklist.")).toEqual({ error: "incomplete" });
-	});
-
-	it("rejects pipeline complete without PASS regardless of last phase name", () => {
-		const planText = `# Plan: build feature\n\n## Verification\n1. npm test\n`;
-		expect(pipelineCompleteDecision(planText, undefined).allowed).toBe(false);
-		const bound = bindAcceptanceContract(planText, "pipeline");
-		if ("error" in bound) throw new Error("expected contract");
-		const receipt = createVerifierReceipt({
-			output: "criterion: npm test\nstatus: pass\nPASS",
-			contract: bound,
-			commandsRun: ["bash: npm test"],
-			changedFiles: [],
-			attempt: 1,
-			workspaceHash: workspaceHash("", []),
-		});
-		expect(pipelineCompleteDecision(planText, receipt, workspaceHash("", [])).allowed).toBe(true);
-	});
-
-	it("fails complete when the plan has no checklist", () => {
-		const decision = pipelineCompleteDecision("# Plan: x\n\nJust vibes.\n", undefined);
-		expect(decision.allowed).toBe(false);
-		expect(decision.reason).toMatch(/合同不全/);
-	});
-
-	it("does not drop a bound planner checklist for an advance_phase summary without a section", () => {
-		const planner = `# Plan: build feature\n\n## Verification\n1. npm test\n`;
-		const summary = "All phases done. Worker said tests passed.";
-		const previous = bindAcceptanceContract(planner, "pipeline");
-		if ("error" in previous) throw new Error("expected contract");
-		const withoutReceipt = pipelineCompleteDecision(summary, undefined, undefined, previous);
-		expect(withoutReceipt.allowed).toBe(false);
-		expect(withoutReceipt.reason).not.toMatch(/合同不全/);
-		expect(withoutReceipt.contract?.fingerprint).toBe(previous.fingerprint);
-		const receipt = createVerifierReceipt({
-			output: "criterion: npm test\nstatus: pass\nPASS",
-			contract: previous,
-			commandsRun: ["bash: npm test"],
-			changedFiles: [],
-			attempt: 1,
-			workspaceHash: workspaceHash("", []),
-		});
-		expect(pipelineCompleteDecision(summary, receipt, workspaceHash("", []), previous).allowed).toBe(true);
-	});
-
-	it("invalidates an old receipt after the plan text changes", () => {
-		const original = contract();
-		const receipt = passReceipt();
-		const edited = PLAN.replace("auth.test.ts", "session.test.ts");
-		const next = bindAcceptanceContract(edited, "plan");
-		if ("error" in next) throw new Error("expected contract");
-		expect(completionDecision({
-			surface: "plan-show-report",
-			contract: original,
-			receipt,
-			workspaceHash: workspaceHash("", []),
-		}).allowed).toBe(true);
-		expect(completionDecision({
-			surface: "plan-show-report",
-			contract: next,
-			receipt,
-		}).allowed).toBe(false);
-	});
-
-	it("fails PASS when the contract requires tests but none were run", () => {
+	it("rejects completion when the deterministic run FAILs despite any LLM claim", () => {
 		const bound = contract();
-		const receipt = createVerifierReceipt({
-			output: "criterion: npm test -- auth.test.ts passes\nstatus: pass\nPASS",
-			contract: bound,
-			commandsRun: ["bash: git diff"],
-			changedFiles: [],
-			attempt: 1,
-			workspaceHash: workspaceHash("", []),
-		});
-		expect(receipt?.status).toBe("FAIL");
-		expect(completionDecision({
-			surface: "pipeline-complete",
-			contract: bound,
-			receipt,
-		}).allowed).toBe(false);
+		const failed = receipt(bound, "m1", "FAIL");
+		expect(failed.status).toBe("FAIL");
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, receipt: failed, workspaceManifestHash: "m1" }).allowed).toBe(false);
+	});
+
+	it("rejects pipeline complete without a matching receipt", () => {
+		expect(pipelineCompleteDecision(PLAN, undefined, "m1").allowed).toBe(false);
+		expect(pipelineCompleteDecision(PLAN, receipt(contract(), "m1"), "m1").allowed).toBe(true);
+	});
+
+	it("invalidates a receipt when the contract fingerprint changes", () => {
+		const original = contract();
+		const edited = bindAcceptanceContract(PLAN.replace("auth.test.ts", "session.test.ts"), "plan");
+		if ("error" in edited) throw new Error("expected contract");
+		expect(completeDecision({ surface: "plan-show-report", contract: original, receipt: receipt(original), workspaceManifestHash: "m1" }).allowed).toBe(true);
+		expect(completeDecision({ surface: "plan-show-report", contract: edited, receipt: receipt(original), workspaceManifestHash: "m1" }).allowed).toBe(false);
+	});
+
+	it("invalidates a receipt when the workspace manifest changes", () => {
+		const bound = contract();
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, receipt: receipt(bound, "m1"), workspaceManifestHash: "m1" }).allowed).toBe(true);
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, receipt: receipt(bound, "m1"), workspaceManifestHash: "m2" }).allowed).toBe(false);
+	});
+
+	it("refuses completion when the bound contract has no executable assertions", () => {
+		const unverifiable = emptyContract("# Plan: x\n\n## Contract\n- login page renders\n", "plan");
+		// A bound but unverifiable contract must block completion, never skip it.
+		expect(verificationRequired({ surface: "plan-show-report", contract: unverifiable })).toBe(true);
+		const decision = completeDecision({ surface: "plan-show-report", contract: unverifiable });
+		expect(decision.allowed).toBe(false);
+		expect(decision.reason).toMatch(/合同不可验证/);
+		expect(decision.reason).toContain("[cmd]");
+		const pipeline = pipelineCompleteDecision("# Plan: x\n\n## Verification\n1. npm test passes\n", undefined, "m1");
+		expect(pipeline.allowed).toBe(false);
+		expect(pipeline.reason).toMatch(/合同不可验证/);
 	});
 });
 
@@ -183,17 +115,19 @@ describe("shipped wiring", () => {
 		const src = readFileSync(join(root, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("pipelineCompleteDecision");
 		expect(src).toContain("runIsolatedVerifier");
-		expect(src).toContain("retainBoundChecklist");
-		expect(src).toContain("getExecutionContract()");
+		expect(src).toContain("buildWorkspaceManifest");
 		expect(src).not.toContain("current.def.name.toLowerCase() === \"review\"");
 	});
 
-	it("uses the isolated verifier and withholds write/dispatch tools", () => {
-		const src = readFileSync(join(root, "..", "lib", "isolated-verifier.ts"), "utf8");
-		expect(verifierDispatchCommand("check")).not.toContain("--no-extensions");
-		expect(verifierDispatchCommand("check").join(" ")).toContain("--tools read,grep,find,ls,bash,run_tests");
-		expect(src).not.toContain('"write"');
-		expect(src).not.toContain('"verify_execution"');
+	it("does not use LLM PASS parsing or git-diff hashing anywhere in the gate", () => {
+		const gateSrc = readFileSync(join(root, "..", "lib", "execution-gate.ts"), "utf8");
+		const verifierSrc = readFileSync(join(root, "..", "lib", "verifier-runtime.ts"), "utf8");
+		const verifierEntry = readFileSync(join(root, "..", "lib", "isolated-verifier.ts"), "utf8");
+		expect(gateSrc).toContain("completeDecision");
+		expect(verifierSrc).not.toContain("parseVerifierStatus");
+		expect(verifierSrc).not.toContain("workspaceHash");
+		expect(verifierEntry).not.toContain("authorization:");
+		expect(verifierEntry).not.toContain("runDispatch");
 	});
 
 	it("starts team, chain, pipeline, and subagent children with host extensions", () => {
@@ -202,13 +136,14 @@ describe("shipped wiring", () => {
 		}
 	});
 
-	it("gates agent show_report by bound contract and leaves user /report ungated", () => {
+	it("gates agent show_report and leaves user /report ungated", () => {
 		const src = readFileSync(join(root, "..", "completion-report.ts"), "utf8");
 		expect(src).toContain('surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report"');
 		expect(src).toContain("runIsolatedVerifier");
+		expect(src).toContain("buildWorkspaceManifest");
 		const reportStart = src.indexOf('pi.registerCommand("report"');
 		expect(reportStart).toBeGreaterThan(0);
-		expect(src.slice(reportStart)).not.toContain("completionDecision");
+		expect(src.slice(reportStart)).not.toContain("completeDecision");
 		expect(src.slice(reportStart)).not.toContain("runIsolatedVerifier");
 	});
 });

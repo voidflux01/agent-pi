@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { verifierAction } from "../lib/verification-policy.ts";
 import { runIsolatedVerifier } from "../lib/isolated-verifier.ts";
+import { buildWorkspaceManifest } from "../lib/workspace-manifest.ts";
 import { setExecutionContract, getExecutionContract, setVerifierReceipt, getVerifierReceipt, resetExecutionVerification } from "../lib/coordination-state.ts";
-import type { DispatchAuthorization } from "../lib/dispatch-gate.ts";
 
-const PLAN = `# Plan: add login\n\n## Verification\n1. npm test -- auth.test.ts passes\n`;
+const PLAN = `# Plan: add login\n\n## Contract\n- [cmd] ${process.execPath} -e "process.exit(0)"\n`;
 
 describe("session-scoped contract receipts", () => {
 	it("stores the bound contract and receipt in coordination state", () => {
@@ -20,20 +20,18 @@ describe("session-scoped contract receipts", () => {
 		expect(getExecutionContract()?.fingerprint).toBe(bound.fingerprint);
 		expect(getVerifierReceipt()).toBeUndefined();
 		setVerifierReceipt({
-			version: 1,
+			version: 2,
 			status: "PASS",
-			planFingerprint: bound.fingerprint,
-			criteria: [{ criterion: bound.criteria[0], status: "pass", evidenceIds: [] }],
-			commandsRun: ["bash: npm test -- auth.test.ts"],
-			changedFiles: [],
-			blockers: [],
+			contractFingerprint: bound.fingerprint,
+			workspaceManifestHash: "m",
+			results: [{ kind: "cmd", raw: "[cmd] node -e exit(0)", status: "pass" }],
 			attempt: 1,
 			createdAt: "now",
 		});
 		expect(getVerifierReceipt()?.status).toBe("PASS");
 		setExecutionContract(bound);
 		expect(getVerifierReceipt()?.status).toBe("PASS");
-		const edited = bindAcceptanceContract(PLAN.replace("auth.test.ts", "session.test.ts"), "plan");
+		const edited = bindAcceptanceContract(PLAN.replace("exit(0)", "exit(1)"), "plan");
 		if ("error" in edited) throw new Error("expected contract");
 		setExecutionContract(edited);
 		expect(getVerifierReceipt()).toBeUndefined();
@@ -50,8 +48,8 @@ describe("verifier retry policy", () => {
 	});
 });
 
-describe("isolated verifier runner", () => {
-	it("records commands the child actually ran and builds a receipt from parsed criteria", async () => {
+describe("deterministic verifier runner", () => {
+	function makeRepo(): string {
 		const repo = mkdtempSync(join(tmpdir(), "pi-verifier-"));
 		execFileSync("git", ["init", "-q"], { cwd: repo });
 		execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
@@ -59,49 +57,45 @@ describe("isolated verifier runner", () => {
 		writeFileSync(join(repo, "README.md"), "x\n");
 		execFileSync("git", ["add", "."], { cwd: repo });
 		execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
-		const bound = bindAcceptanceContract(PLAN, "pipeline");
-		if ("error" in bound) throw new Error("expected contract");
-		const auth = { origin: "subagent-tool" as const, token: "test" } as DispatchAuthorization;
-		const result = await runIsolatedVerifier({
-			cwd: repo,
-			contract: bound,
-			authorization: auth,
-			attempt: 1,
-			launchDir: join(repo, ".pi", "agent-sessions"),
-			execute: async () => ({
-				output: "criterion: npm test -- auth.test.ts passes\nstatus: pass\nPASS",
-				commandsRun: ["bash: npm test -- auth.test.ts"],
-				exitCode: 0,
-			}),
-		});
-		expect(result.receipt?.status).toBe("PASS");
-		expect(result.receipt?.commandsRun).toEqual(["bash: npm test -- auth.test.ts"]);
-		expect(result.receipt?.planFingerprint).toBe(bound.fingerprint);
+		return repo;
+	}
+
+	function repoPlan(code: string): ReturnType<typeof bindAcceptanceContract> {
+		return bindAcceptanceContract(`# Plan: p\n\n## Contract\n- [cmd] ${process.execPath} -e "process.exit(${code})"\n`, "pipeline");
+	}
+
+	it("builds a PASS receipt from deterministic assertions with manifest binding", async () => {
+		const repo = makeRepo();
+		try {
+			const bound = repoPlan("0");
+			if ("error" in bound) throw new Error("expected contract");
+			const result = await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
+			expect(result.receipt?.status).toBe("PASS");
+			expect(result.receipt?.contractFingerprint).toBe(bound.fingerprint);
+			expect(result.receipt?.workspaceManifestHash).toMatch(/^[0-9a-f]{64}$/);
+			expect(result.receipt?.results.every(r => r.status === "pass")).toBe(true);
+		} finally { rmSync(repo, { recursive: true, force: true }); }
 	});
 
-	it("blocks when the verifier process writes the workspace", async () => {
-		const repo = mkdtempSync(join(tmpdir(), "pi-dirty-"));
-		execFileSync("git", ["init", "-q"], { cwd: repo });
-		execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
-		execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
-		writeFileSync(join(repo, "README.md"), "x\n");
-		execFileSync("git", ["add", "."], { cwd: repo });
-		execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
-		const bound = bindAcceptanceContract(PLAN, "pipeline");
-		if ("error" in bound) throw new Error("expected contract");
-		const auth = { origin: "subagent-tool" as const, token: "test" } as DispatchAuthorization;
-		const result = await runIsolatedVerifier({
-			cwd: repo,
-			contract: bound,
-			authorization: auth,
-			attempt: 1,
-			launchDir: join(repo, ".pi", "agent-sessions"),
-			execute: async () => {
-				writeFileSync(join(repo, "evil.txt"), "nope\n");
-				return { output: "PASS", commandsRun: [], exitCode: 0 };
-			},
-		});
-		expect(result.receipt).toBeUndefined();
-		expect(result.error).toMatch(/modified the workspace/);
+	it("builds a FAIL receipt when an assertion command fails", async () => {
+		const repo = makeRepo();
+		try {
+			const bound = repoPlan("1");
+			if ("error" in bound) throw new Error("expected contract");
+			const result = await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
+			expect(result.receipt?.status).toBe("FAIL");
+		} finally { rmSync(repo, { recursive: true, force: true }); }
+	});
+
+	it("verification never modifies the workspace", async () => {
+		const repo = makeRepo();
+		try {
+			const bound = repoPlan("0");
+			if ("error" in bound) throw new Error("expected contract");
+			const before = buildWorkspaceManifest(repo, bound.fingerprint);
+			await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
+			const after = buildWorkspaceManifest(repo, bound.fingerprint);
+			expect(after.hash).toBe(before.hash);
+		} finally { rmSync(repo, { recursive: true, force: true }); }
 	});
 });

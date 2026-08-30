@@ -71,7 +71,7 @@ describe("defaultTeamName", () => {
 describe("orchestrator RESULT trust", () => {
 	it("treats child output as untrusted and requires independent verification", () => {
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted report");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("isolated verifier");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("deterministic assertions");
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("PASS");
 		expect(buildAgentResultContractPrompt()).toContain("untrusted worker claim");
 	});
