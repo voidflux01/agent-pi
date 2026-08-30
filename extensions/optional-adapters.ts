@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 export default async function (pi: ExtensionAPI) {
   if (process.env.PI_OPTIONAL_ADAPTERS !== "1") return;
   try {
-        const lsp = await import("pi-lsp-client/src/index.ts");
+    const lsp = await import("pi-lsp-client/src/index.ts");
     if (typeof lsp.default === "function") lsp.default(pi as any);
   } catch (error) {
     console.warn(`[optional-adapters] LSP unavailable: ${error instanceof Error ? error.message : String(error)}`);
