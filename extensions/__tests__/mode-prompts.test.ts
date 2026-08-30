@@ -44,9 +44,9 @@ describe("PLAN_PROMPT", () => {
 	it("keeps scout-then-plan steps, with grill as enhancement only", () => {
 		expect(PLAN_PROMPT).toContain("Enhancement only");
 		expect(PLAN_PROMPT).toContain("do not skip, reorder, or replace this mode's workflow");
-		expect(PLAN_PROMPT).toContain("1. Scout if you cannot name the files to change");
+		expect(PLAN_PROMPT).toContain("1. Recon first: inspect the repository");
 		expect(PLAN_PROMPT).toContain("blocked until show_plan is approved");
-		expect(PLAN_PROMPT.indexOf("1. Scout if you cannot name the files to change")).toBeLessThan(PLAN_PROMPT.indexOf("2. Write"));
+		expect(PLAN_PROMPT.indexOf("1. Recon first: inspect the repository")).toBeLessThan(PLAN_PROMPT.indexOf("3. Write"));
 		expect(PLAN_PROMPT.indexOf("## Scout")).toBeLessThan(PLAN_PROMPT.indexOf("## Grill-me"));
 		expect(PLAN_PROMPT).not.toContain("grill_record_turn");
 	});

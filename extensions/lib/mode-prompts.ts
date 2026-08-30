@@ -103,8 +103,9 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${GRILL_ME_SECTION}
 
 ## Plan workflow
-1. Scout if you cannot name the files to change; otherwise inspect read-only yourself.
-2. Write \.context/todo.md using the structured format below.
+1. Recon first: inspect the repository (or dispatch one bounded read-only scout) before asking questions. Do not ask the user questions the repository can answer.
+2. Ask at most one round of four focused questions. Record defensible assumptions instead of asking about low-risk details.
+3. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
 5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
@@ -169,6 +170,9 @@ export function buildPlanPrompt(commanderAvailable: boolean): string {
 export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-driven workflow for every feature request.
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+## Recon first
+Inspect the repository before asking questions. Ask at most one round of four focused questions.
 
 ## Workflow
 
