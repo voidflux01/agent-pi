@@ -468,7 +468,7 @@ const ShowReportParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
-	let activeSession: { kind: "report"; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: { kind: "report"; title: string; url: string; launchUrl?: string; server: Server; onClose: () => void } | null = null;
 
 	function cleanupServer() {
 		const server = activeServer;
@@ -496,7 +496,7 @@ export default function (pi: ExtensionAPI) {
 			"copy the report, or save it to the desktop.",
 		parameters: ShowReportParams,
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		execute: (async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const {
 				title = "Completion Report",
 				summary = "",
@@ -596,7 +596,7 @@ export default function (pi: ExtensionAPI) {
 			} finally {
 				cleanupServer();
 			}
-		},
+		}) as any,
 
 		renderCall(args, theme) {
 			const titleArg = (args as any).title || "Completion Report";
