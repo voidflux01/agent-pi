@@ -4,7 +4,7 @@
 // ABOUTME: commands, and path escapes are BLOCKED, not guessed.
 
 import { execFile, type ExecFileException } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ContractAssertion, VerificationStatus } from "./execution-contract.ts";
 
@@ -32,12 +32,26 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
 export class PathEscapeError extends Error {}
 
-function checkInsideRoot(root: string, candidate: string): string {
+function checkLexicalInsideRoot(root: string, candidate: string): string {
 	const absolute = resolve(root, candidate);
-	if (!absolute.startsWith(resolve(root) + "/") && absolute !== resolve(root)) {
+	const rootAbsolute = resolve(root);
+	if (!absolute.startsWith(rootAbsolute + "/") && absolute !== rootAbsolute) {
 		throw new PathEscapeError(`path escapes workspace: ${candidate}`);
 	}
 	return absolute;
+}
+
+function checkInsideRoot(root: string, candidate: string): string {
+	const absolute = checkLexicalInsideRoot(root, candidate);
+	const stat = lstatSync(absolute);
+	if (stat.isSymbolicLink()) throw new PathEscapeError(`symlink paths are not allowed: ${candidate}`);
+	const rootAbsolute = resolve(root);
+	const realRoot = realpathSync(rootAbsolute);
+	const realCandidate = realpathSync(absolute);
+	if (!realCandidate.startsWith(realRoot + "/") && realCandidate !== realRoot) {
+		throw new PathEscapeError(`path escapes workspace via symlink: ${candidate}`);
+	}
+	return realCandidate;
 }
 
 function runCommand(
@@ -103,10 +117,12 @@ export async function runAssertion(assertion: ContractAssertion, root: string, c
 			return runCommand(assertion.raw, assertion.command, assertion.args, root, timeoutMs);
 		case "file": {
 			try {
-				const absolute = checkInsideRoot(root, assertion.path);
-				if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+				const lexical = checkLexicalInsideRoot(root, assertion.path);
+				if (!existsSync(lexical)) {
 					return { kind: "file", raw: assertion.raw, status: "fail", note: `file missing: ${assertion.path}` };
 				}
+				const absolute = checkInsideRoot(root, assertion.path);
+				if (!statSync(absolute).isFile()) return { kind: "file", raw: assertion.raw, status: "fail", note: `not a file: ${assertion.path}` };
 				return { kind: "file", raw: assertion.raw, status: "pass" };
 			} catch (error) {
 				return { kind: "file", raw: assertion.raw, status: "blocked", note: error instanceof Error ? error.message : String(error) };
@@ -114,10 +130,12 @@ export async function runAssertion(assertion: ContractAssertion, root: string, c
 		}
 		case "match": {
 			try {
-				const absolute = checkInsideRoot(root, assertion.path);
-				if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+				const lexical = checkLexicalInsideRoot(root, assertion.path);
+				if (!existsSync(lexical)) {
 					return { kind: "match", raw: assertion.raw, status: "fail", note: `file missing: ${assertion.path}` };
 				}
+				const absolute = checkInsideRoot(root, assertion.path);
+				if (!statSync(absolute).isFile()) return { kind: "match", raw: assertion.raw, status: "fail", note: `not a file: ${assertion.path}` };
 				let pattern: RegExp;
 				try {
 					pattern = new RegExp(assertion.pattern);

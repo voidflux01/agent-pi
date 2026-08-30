@@ -98,4 +98,14 @@ describe("deterministic verifier runner", () => {
 			expect(after.hash).toBe(before.hash);
 		} finally { rmSync(repo, { recursive: true, force: true }); }
 	});
+
+	it("blocks a verification command that modifies the workspace", async () => {
+		const repo = makeRepo();
+		try {
+			const bound = bindAcceptanceContract(`# Plan: p\n\n## Contract\n- [cmd] ${process.execPath} -e "require('fs').writeFileSync('changed.txt','x')"\n`, "pipeline");
+			if ("error" in bound) throw new Error("expected contract");
+			const result = await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
+			expect(result.receipt?.status).toBe("BLOCKED");
+		} finally { rmSync(repo, { recursive: true, force: true }); }
+	});
 });

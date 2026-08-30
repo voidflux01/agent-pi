@@ -15,11 +15,21 @@ export async function runIsolatedVerifier(input: {
 	config?: VerifierConfig;
 }): Promise<{ receipt?: VerifierReceipt; error?: string }> {
 	const manifest = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
-	const verification = await runDeterministicVerification(input.contract, input.cwd, input.config);
+	let verification = await runDeterministicVerification(input.contract, input.cwd, input.config);
+	const afterManifest = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
+	if (afterManifest.hash !== manifest.hash) {
+		verification = {
+			status: "BLOCKED",
+			results: [
+				...verification.results,
+				{ kind: "advisory", raw: "[workspace] verifier command mutation", status: "blocked", note: "verification commands changed the workspace" },
+			],
+		};
+	}
 	return {
 		receipt: createVerifierReceipt({
 			contract: input.contract,
-			workspaceManifestHash: manifest.hash,
+			workspaceManifestHash: afterManifest.hash,
 			verification,
 			attempt: input.attempt,
 		}),

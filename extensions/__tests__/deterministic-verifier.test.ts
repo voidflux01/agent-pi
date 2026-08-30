@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAssertion, runDeterministicVerification } from "../lib/deterministic-verifier.ts";
@@ -16,6 +16,11 @@ describe("[cmd] assertions", () => {
 		const result = await runAssertion(parseAssertion(`[cmd] ${process.execPath} -e "process.exit(0)"`) as never, root());
 		expect(result.status).toBe("pass");
 		expect(result.exitCode).toBe(0);
+	});
+
+	it("preserves quoted arguments containing spaces", async () => {
+		const result = await runAssertion(parseAssertion(`[cmd] ${process.execPath} -e "process.exit(process.argv[1] === 'hello world' ? 0 : 1)" -- "hello world"`) as never, root());
+		expect(result.status).toBe("pass");
 	});
 
 	it("fails when the command exits non-zero", async () => {
@@ -58,6 +63,13 @@ describe("[file] assertions", () => {
 
 	it("blocks on path escapes", async () => {
 		const result = await runAssertion(parseAssertion("[file] ../etc/passwd") as never, root());
+		expect(result.status).toBe("blocked");
+	});
+
+	it("blocks symlink paths even when the link points inside or outside", async () => {
+		writeFileSync(join(cwd, "target.txt"), "x");
+		symlinkSync("target.txt", join(cwd, "link.txt"));
+		const result = await runAssertion(parseAssertion("[file] link.txt") as never, root());
 		expect(result.status).toBe("blocked");
 	});
 });

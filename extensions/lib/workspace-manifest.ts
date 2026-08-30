@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface WorkspaceFileEntry {
@@ -53,6 +53,12 @@ function safeEntry(cwd: string, root: string, rel: string): WorkspaceFileEntry |
 	if (!existsSync(absolute)) return undefined;
 	let stat;
 	try { stat = statSync(absolute); } catch { return undefined; }
+	try {
+		if (lstatSync(absolute).isSymbolicLink()) {
+			const target = readlinkSync(absolute);
+			return { path: rel.split(sep).join("/"), size: target.length, hash: sha256(`symlink:${target}`) };
+		}
+	} catch { return undefined; }
 	if (!stat.isFile()) return undefined;
 	let content = "";
 	try { content = readFileSync(absolute, "utf8"); } catch { return undefined; }

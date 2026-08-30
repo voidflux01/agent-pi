@@ -57,7 +57,7 @@ export function parseAssertion(raw: string): ContractAssertion {
 	const kind = marker[1].toLowerCase();
 	const body = marker[2].trim();
 	if (kind === "cmd") {
-		const tokens = body.split(/\s+/).filter(Boolean).map(stripQuotes);
+		const tokens = tokenizeCommand(body);
 		const [command, ...args] = tokens;
 		return command ? { kind: "cmd", raw, command, args } : advisory;
 	}
@@ -74,13 +74,29 @@ export function parseAssertion(raw: string): ContractAssertion {
 	return advisory;
 }
 
-/** Strip one balanced pair of surrounding quotes (no shell, so quotes are quoting only). */
-function stripQuotes(token: string): string {
-	const first = token[0];
-	if ((first === '"' || first === "'") && token.length > 1 && token[token.length - 1] === first) {
-		return token.slice(1, -1);
+/** Parse quoting without invoking a shell or performing expansion. */
+function tokenizeCommand(input: string): string[] {
+	const tokens: string[] = [];
+	let token = "";
+	let quote: "'" | '"' | undefined;
+	let escaped = false;
+	for (const char of input.trim()) {
+		if (escaped) { token += char; escaped = false; continue; }
+		if (char === "\\" && quote !== "'") { escaped = true; continue; }
+		if (quote) {
+			if (char === quote) quote = undefined;
+			else token += char;
+			continue;
+		}
+		if (char === "'" || char === '"') { quote = char; continue; }
+		if (/\s/.test(char)) {
+			if (token) { tokens.push(token); token = ""; }
+		} else token += char;
 	}
-	return token;
+	if (escaped) token += "\\";
+	if (quote) return [];
+	if (token) tokens.push(token);
+	return tokens;
 }
 
 export function isMandatory(assertion: ContractAssertion): boolean {
