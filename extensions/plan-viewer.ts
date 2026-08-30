@@ -196,7 +196,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Track active servers so we can clean them up
 	let activeServer: Server | null = null;
-	let activeSession: { kind: ViewerPurpose; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: { kind: ViewerPurpose; title: string; url: string; launchUrl?: string; server: Server; onClose: () => void } | null = null;
 
 	function cleanupServer() {
 		const server = activeServer;
@@ -327,7 +327,7 @@ export default function (pi: ExtensionAPI) {
 			"The markdown file IS the UI — update it to change what the user sees.",
 		parameters: ShowPlanParams,
 
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		execute: (async (_toolCallId, params, signal, _onUpdate, ctx) => {
 			const { file_path, title, mode: modeStr } = params as {
 				file_path: string;
 				title?: string;
@@ -421,7 +421,7 @@ export default function (pi: ExtensionAPI) {
 					filePath: file_path,
 				},
 			};
-		},
+			}) as any,
 
 		renderCall(args, theme) {
 			const filePath = (args as any).file_path || "?";

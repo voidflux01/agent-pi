@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
+import { verifierDispatchCommand } from "../lib/isolated-verifier.ts";
 import { completionDecision, pipelineCompleteDecision, verificationRequired } from "../lib/execution-gate.ts";
 import { createVerifierReceipt, type VerifierReceipt, workspaceHash } from "../lib/verifier-runtime.ts";
 
@@ -144,6 +145,14 @@ describe("shipped wiring", () => {
 		expect(src).toContain("retainBoundChecklist");
 		expect(src).toContain("getExecutionContract()");
 		expect(src).not.toContain("current.def.name.toLowerCase() === \"review\"");
+	});
+
+	it("uses the isolated verifier and withholds write/dispatch tools", () => {
+		const src = readFileSync(join(root, "..", "lib", "isolated-verifier.ts"), "utf8");
+		expect(verifierDispatchCommand("check")).toContain("--no-extensions");
+		expect(verifierDispatchCommand("check").join(" ")).toContain("--tools read,grep,find,ls,bash,run_tests");
+		expect(src).not.toContain('"write"');
+		expect(src).not.toContain('"verify_execution"');
 	});
 
 	it("gates agent show_report in PLAN and leaves user /report ungated", () => {

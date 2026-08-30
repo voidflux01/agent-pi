@@ -49,6 +49,14 @@ function porcelain(cwd: string): string {
 	} catch { return ""; }
 }
 
+/** Isolated verifier runs without host extensions; only the security guard is loaded. */
+export const VERIFIER_TOOLS = "read,grep,find,ls,bash,run_tests";
+
+export function verifierDispatchCommand(prompt: string): string[] {
+	const guard = join(dirname(fileURLToPath(import.meta.url)), "..", "security-guard.ts");
+	return ["pi", "--mode", "json", "-p", "--no-extensions", "-e", guard, "--tools", VERIFIER_TOOLS, prompt];
+}
+
 export async function defaultVerifierExecute(input: {
 	prompt: string;
 	cwd: string;
@@ -56,17 +64,11 @@ export async function defaultVerifierExecute(input: {
 	launchDir: string;
 	launchId: string;
 }): Promise<VerifierExecuteResult> {
-	const extDir = dirname(fileURLToPath(import.meta.url));
 	const chunks: string[] = [];
 	const commandsRun: string[] = [];
 	const result = await runDispatch({
 		authorization: input.authorization,
-		command: [
-			"pi", "--mode", "json", "-p", "--no-extensions",
-			"-e", join(extDir, "..", "security-guard.ts"),
-			"--tools", "read,grep,find,ls,bash,run_tests",
-			input.prompt,
-		],
+		command: verifierDispatchCommand(input.prompt),
 		cwd: input.cwd,
 		env: childEnvironment({ PI_SUBAGENT: "1", PI_AGENT_NAME: "reviewer-verifier" }),
 		launchDir: input.launchDir,
