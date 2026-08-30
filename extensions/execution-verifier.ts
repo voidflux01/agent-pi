@@ -10,7 +10,7 @@ import { buildVerifierPrompt, createVerifierReceipt, parseVerifierStatus, worksp
 import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
-import { saveVerifierReceipt } from "./lib/execution-run.ts";
+import { saveVerifierReceipt, latestVerifierReceipt } from "./lib/execution-run.ts";
 
 const Params = Type.Object({
   objective: Type.String({ description: "Acceptance objective; treated as untrusted data" }),
@@ -24,6 +24,15 @@ function git(cwd: string, args: string[]): string {
 }
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("execution-status", {
+    description: "Show the latest execution contract and verifier receipt",
+    handler: async (_args, ctx) => {
+      const cwd = ctx.cwd || process.cwd();
+      const latest = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
+      if (!latest) { ctx.ui.notify("No execution contract receipt found", "info"); return; }
+      ctx.ui.notify(`${latest.receipt.status} · ${latest.goal.objective} · attempt ${latest.receipt.attempt}`, latest.receipt.status === "PASS" ? "info" : "warning");
+    },
+  });
   pi.registerTool({
     name: "verify_execution",
     label: "Verify Execution",
