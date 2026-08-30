@@ -165,7 +165,7 @@ export function bindAcceptanceContract(
 	return buildContract(markdown, source, ["Contract", "Verification"]);
 }
 
-/** SPEC spec.md contract: ## Requirements first, legacy ## Acceptance Criteria fallback. */
+/** SPEC spec.md contract: executable ## Contract first, then legacy requirement sections. */
 export function bindSpecContract(markdown: string): AcceptanceContract | { error: "incomplete" } {
-	return buildContract(markdown, "spec", ["Requirements", "Acceptance Criteria"]);
+	return buildContract(markdown, "spec", ["Contract", "Requirements", "Acceptance Criteria"]);
 }

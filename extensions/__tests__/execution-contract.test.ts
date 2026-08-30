@@ -61,6 +61,25 @@ describe("assertion parsing", () => {
 		expect(bound.mandatory).toHaveLength(1);
 	});
 
+	it("prefers an executable Contract section over natural-language Requirements", () => {
+		const spec = `# Spec: search notes
+
+## Requirements
+- Search results are case-insensitive.
+- Empty queries return all notes.
+
+## Contract
+- [cmd] node --test
+- [match] searchNotes :: notes.js
+`;
+		const bound = bindSpecContract(spec);
+		if ("error" in bound) throw new Error("expected contract");
+		expect(bound.source).toBe("spec");
+		expect(bound.mandatory).toHaveLength(2);
+		expect(bound.mandatory[0]).toMatchObject({ kind: "cmd", command: "node", args: ["--test"] });
+		expect(bound.mandatory[1]).toMatchObject({ kind: "match", pattern: "searchNotes", path: "notes.js" });
+	});
+
 	it("changes fingerprint when the approved text changes", () => {
 		const a = bindAcceptanceContract(PLAN, "plan");
 		const b = bindAcceptanceContract(PLAN.replace("npm test", "npm run test"), "plan");
