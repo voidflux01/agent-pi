@@ -11,9 +11,8 @@ import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { listEvidence } from "./lib/evidence-store.ts";
-import { activeRunDirectory } from "./lib/execution-run.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
-import { saveVerifierReceipt, loadVerifierReceipt, latestVerifierReceipt, setActiveRun } from "./lib/execution-run.ts";
+import { saveVerifierReceipt, loadGoal, loadVerifierReceipt, latestVerifierReceipt, setActiveRun, activeRunDirectory } from "./lib/execution-run.ts";
 import { redactSensitive } from "./lib/sensitive-data.ts";
 
 const Params = Type.Object({
@@ -50,7 +49,10 @@ export default function (pi: ExtensionAPI) {
     parameters: Params,
     execute: explicitDispatchHandler("pipeline-team", (async (_id, params, _signal, _update, ctx) => {
       const p = params as { objective: string; criteria: string[]; worker_summary?: string; attempt?: number };
-      const goal: GoalContract = { version: 1, id: `verify-${Date.now().toString(36)}`, objective: p.objective, scope: [], constraints: [], successCriteria: p.criteria, evidenceRequired: [{ id: "diff", description: "Inspect real git diff", type: "diff" }], risks: [], subgoals: [], status: "verifying" };
+      const activeGoal = activeRunDirectory() ? loadGoal(activeRunDirectory()!) : undefined;
+      const goal: GoalContract = activeGoal && activeGoal.objective.trim() === p.objective.trim()
+        ? { ...activeGoal, successCriteria: p.criteria.length ? p.criteria : activeGoal.successCriteria, status: "verifying" }
+        : { version: 1, id: `verify-${Date.now().toString(36)}`, objective: p.objective, scope: [], constraints: [], successCriteria: p.criteria, evidenceRequired: [{ id: "diff", description: "Inspect real git diff", type: "diff" }], risks: [], subgoals: [], status: "verifying" };
       let diff: string;
       let files: string[];
       try {
