@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeRun, loadGoal, loadVerifierReceipt, saveVerifierReceipt } from "../lib/execution-run.ts";
@@ -16,6 +16,8 @@ describe("execution run persistence", () => {
     const receipt = { version: 1 as const, status: "PASS" as const, objectiveHash: "h", criteria: [{ criterion: "y", status: "pass" as const, evidenceIds: [] }], commandsRun: [], changedFiles: [], blockers: [], attempt: 1, createdAt: "now" };
     saveVerifierReceipt(dir, receipt);
     expect(loadVerifierReceipt(dir)?.status).toBe("PASS");
+    writeFileSync(join(dir, "verifier-receipt.json"), JSON.stringify({ version: 1, status: "PASS", objectiveHash: "h", criteria: [], changedFiles: [], attempt: 0 }));
+    expect(loadVerifierReceipt(dir)).toBeUndefined();
   });
 });
 

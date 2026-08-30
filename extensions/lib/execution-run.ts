@@ -26,7 +26,11 @@ export function saveGoal(runDir: string, goal: GoalContract): void {
 }
 
 export function loadGoal(runDir: string): GoalContract | undefined {
-  try { return JSON.parse(readFileSync(join(runDir, "goal.json"), "utf8")) as GoalContract; } catch { return undefined; }
+  try {
+    const value = JSON.parse(readFileSync(join(runDir, "goal.json"), "utf8"));
+    if (!value || value.version !== 1 || typeof value.id !== "string" || typeof value.objective !== "string" || !Array.isArray(value.successCriteria)) return undefined;
+    return value as GoalContract;
+  } catch { return undefined; }
 }
 
 export function saveVerifierReceipt(runDir: string, receipt: VerifierReceipt): void {
@@ -38,7 +42,12 @@ export function saveVerifierReceipt(runDir: string, receipt: VerifierReceipt): v
 }
 
 export function loadVerifierReceipt(runDir: string): VerifierReceipt | undefined {
-  try { return JSON.parse(readFileSync(join(runDir, "verifier-receipt.json"), "utf8")) as VerifierReceipt; } catch { return undefined; }
+  try {
+    const value = JSON.parse(readFileSync(join(runDir, "verifier-receipt.json"), "utf8"));
+    if (!value || value.version !== 1 || !["PASS", "FAIL", "BLOCKED"].includes(value.status) || typeof value.objectiveHash !== "string" || !Array.isArray(value.criteria) || !Array.isArray(value.changedFiles) || !Number.isInteger(value.attempt) || value.attempt < 1) return undefined;
+    if (value.criteria.some((c: any) => !c || typeof c.criterion !== "string" || !["pass", "fail", "unknown"].includes(c.status))) return undefined;
+    return value as VerifierReceipt;
+  } catch { return undefined; }
 }
 
 export function initializeRun(baseDir: string, goal: GoalContract): string {
