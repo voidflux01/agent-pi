@@ -36,6 +36,23 @@ export function appendMemory(cwd: string, text: string, tags: string[] = []): Me
 }
 
 export default function (pi: ExtensionAPI) {
+  pi.registerCommand("memory", {
+    description: "Workspace memory: /memory save <text> | /memory search <query> | /memory list",
+    handler: async (args, ctx) => {
+      const [action = "list", ...rest] = args.trim().split(/\s+/);
+      const cwd = ctx.cwd || process.cwd();
+      if (action === "save") {
+        if (!rest.join(" ").trim()) { ctx.ui.notify("Usage: /memory save <text>", "warning"); return; }
+        const record = appendMemory(cwd, rest.join(" "));
+        ctx.ui.notify(`Saved workspace memory ${record.id}`, "info");
+        return;
+      }
+      const records = readMemories(cwd);
+      const query = rest.join(" ").toLowerCase();
+      const result = action === "search" ? records.filter(r => `${r.text} ${r.tags.join(" ")}`.toLowerCase().includes(query)) : records;
+      ctx.ui.notify(result.slice(-20).map(r => `${r.id}: ${r.text}`).join("\n") || "No workspace memories", "info");
+    },
+  });
   pi.registerTool({
     name: "workspace_memory",
     label: "Workspace Memory",
