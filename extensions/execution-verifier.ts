@@ -10,7 +10,7 @@ import { buildVerifierPrompt, createVerifierReceipt, parseVerifierStatus, worksp
 import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
-import { saveVerifierReceipt, latestVerifierReceipt } from "./lib/execution-run.ts";
+import { saveVerifierReceipt, loadVerifierReceipt, latestVerifierReceipt } from "./lib/execution-run.ts";
 
 const Params = Type.Object({
   objective: Type.String({ description: "Acceptance objective; treated as untrusted data" }),
@@ -55,6 +55,10 @@ export default function (pi: ExtensionAPI) {
       } catch (error) {
         return { content: [{ type: "text", text: `Verification blocked: unable to inspect git workspace (${error instanceof Error ? error.message : String(error)})` }], details: { status: "BLOCKED" } };
       }
+      const stableRunId = `verify-${objectiveHash(goal).slice(0, 24)}`;
+      const runDir = join(ctx.cwd, ".pi", "agent-sessions", "execution-runs", stableRunId);
+      const previous = loadVerifierReceipt(runDir);
+      const attempt = Math.max(p.attempt || 1, (previous?.attempt || 0) + 1);
       const prompt = buildVerifierPrompt({ goal, evidence: [{ id: `${goal.id}-diff`, type: "diff", source: "runtime", value: diff.slice(0, 12000), timestamp: new Date().toISOString() }], diff, workerSummary: p.worker_summary });
       const auth = currentDispatchAuthorization();
       if (!auth) return { content: [{ type: "text", text: "Verification refused: explicit dispatch authorization is required." }], details: { status: "BLOCKED" } };
@@ -65,8 +69,8 @@ export default function (pi: ExtensionAPI) {
       if (result.exitCode !== 0) return { content: [{ type: "text", text: `Verifier process failed (exit ${result.exitCode}): ${result.stderr || output.slice(-1200)}` }], details: { status: "BLOCKED", exitCode: result.exitCode } };
       const status = parseVerifierStatus(output);
       if (!status) return { content: [{ type: "text", text: `Verifier returned no unambiguous decision: ${result.stderr || "unknown error"}` }], details: { status: "BLOCKED" } };
-      const receipt = createVerifierReceipt({ output, objectiveHash: objectiveHash(goal), criteria: p.criteria.map(criterion => ({ criterion, status: status === "PASS" ? "pass" : "unknown", evidenceIds: [`${goal.id}-diff`], note: output.slice(-1200) })), commandsRun: ["git diff --no-ext-diff -- .", "git diff --name-only --no-ext-diff"], changedFiles: files, workspaceHash: workspaceHash(diff, files), attempt: p.attempt || 1 });
-      try { saveVerifierReceipt(join(ctx.cwd, ".pi", "agent-sessions", "execution-runs", goal.id), receipt!); } catch {}
+      const receipt = createVerifierReceipt({ output, objectiveHash: objectiveHash(goal), criteria: p.criteria.map(criterion => ({ criterion, status: status === "PASS" ? "pass" : "unknown", evidenceIds: [`${goal.id}-diff`], note: output.slice(-1200) })), commandsRun: ["git diff --no-ext-diff -- .", "git diff --name-only --no-ext-diff"], changedFiles: files, workspaceHash: workspaceHash(diff, files), attempt });
+      try { saveVerifierReceipt(runDir, receipt!); } catch {}
       return { content: [{ type: "text", text: `Verifier: ${status}\n${output.slice(-4000)}` }], details: { status, receipt } };
     }) as any),
   });
