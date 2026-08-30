@@ -11,7 +11,7 @@ import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
-import { saveVerifierReceipt, loadVerifierReceipt, latestVerifierReceipt } from "./lib/execution-run.ts";
+import { saveVerifierReceipt, loadVerifierReceipt, latestVerifierReceipt, setActiveRun } from "./lib/execution-run.ts";
 
 const Params = Type.Object({
   objective: Type.String({ description: "Acceptance objective; treated as untrusted data" }),
@@ -59,6 +59,7 @@ export default function (pi: ExtensionAPI) {
       const stableRunId = `verify-${objectiveHash(goal).slice(0, 24)}`;
       const runDir = join(ctx.cwd, ".pi", "agent-sessions", "execution-runs", stableRunId);
       const previous = loadVerifierReceipt(runDir);
+      setActiveRun(runDir);
       const attempt = Math.max(p.attempt || 1, (previous?.attempt || 0) + 1);
       if (attempt > DEFAULT_VERIFIER_ATTEMPTS) return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached.` }], details: { status: "BLOCKED", attempt } };
       const prompt = buildVerifierPrompt({ goal, evidence: [{ id: `${goal.id}-diff`, type: "diff", source: "runtime", value: diff.slice(0, 12000), timestamp: new Date().toISOString() }], diff, workerSummary: p.worker_summary });

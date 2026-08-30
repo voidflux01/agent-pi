@@ -7,6 +7,10 @@ import type { GoalContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
 import { recordRunEvent } from "./evidence-store.ts";
 
+let activeRun: string | undefined;
+export function setActiveRun(runDir: string): void { activeRun = runDir; }
+export function activeRunDirectory(): string | undefined { return activeRun; }
+
 export function runDirectory(baseDir: string, runId: string): string {
   if (!/^[a-zA-Z0-9._-]+$/.test(runId)) throw new Error("Invalid run id");
   return join(baseDir, runId);
@@ -39,6 +43,7 @@ export function loadVerifierReceipt(runDir: string): VerifierReceipt | undefined
 export function initializeRun(baseDir: string, goal: GoalContract): string {
   const dir = runDirectory(baseDir, goal.id);
   saveGoal(dir, goal);
+  setActiveRun(dir);
   recordRunEvent(dir, { id: `${goal.id}-created`, type: "goal_created", actor: "runtime", timestamp: new Date().toISOString(), payload: { objective: goal.objective } });
   return dir;
 }
