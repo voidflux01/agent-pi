@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
+import { isPlanningArtifactWrite, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -77,6 +77,29 @@ describe("shouldBypassTaskGate", () => {
 
 	it("should bypass for 'pipeline_status' pipeline tool", () => {
 		expect(shouldBypassTaskGate("pipeline_status")).toBe(true);
+	});
+});
+
+describe("planning artifact task-gate bypass", () => {
+	it("allows PLAN to write only its pre-approval plan file", () => {
+		expect(isPlanningArtifactWrite("write", "PLAN", { path: ".context/todo.md" })).toBe(true);
+		expect(isPlanningArtifactWrite("edit", "PLAN", { path: ".context/other.md" })).toBe(false);
+		expect(isPlanningArtifactWrite("write", "PLAN", { path: "src/app.ts" })).toBe(false);
+	});
+
+	it("allows SPEC planning documents before approval", () => {
+		expect(isPlanningArtifactWrite("write", "SPEC", { path: "context-os/specs/x/planning/questions.md" })).toBe(true);
+		expect(isPlanningArtifactWrite("write", "SPEC", { path: "context-os/specs/x/spec.md" })).toBe(true);
+		expect(isPlanningArtifactWrite("write", "SPEC", { path: "src/app.ts" })).toBe(false);
+	});
+
+	it("does not bypass ordinary execution tools", () => {
+		expect(isPlanningArtifactWrite("bash", "PLAN", { path: ".context/todo.md" })).toBe(false);
+	});
+
+	it("requires an explicit planning mode", () => {
+		expect(isPlanningArtifactWrite("write", "NORMAL", { path: ".context/todo.md" })).toBe(false);
+		expect(isPlanningArtifactWrite("write", undefined, { path: "context-os/specs/x/spec.md" })).toBe(false);
 	});
 });
 

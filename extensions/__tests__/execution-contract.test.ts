@@ -19,6 +19,14 @@ describe("assertion parsing", () => {
 		expect(a).toMatchObject({ kind: "cmd", command: "npm", args: ["test", "--", "auth.test.ts"] });
 	});
 
+	it("accepts a Markdown-fenced command with a result annotation", () => {
+		expect(parseAssertion("[cmd] `node --test` → all tests pass")).toMatchObject({
+			kind: "cmd",
+			command: "node",
+			args: ["--test"],
+		});
+	});
+
 	it("parses [file] and [match]", () => {
 		expect(parseAssertion("[file] extensions/lib/x.ts")).toMatchObject({ kind: "file", path: "extensions/lib/x.ts" });
 		expect(parseAssertion("[match] foo::bar :: extensions/lib/x.ts")).toMatchObject({ kind: "match", pattern: "foo::bar", path: "extensions/lib/x.ts" });

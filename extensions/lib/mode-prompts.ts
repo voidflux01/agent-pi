@@ -206,7 +206,13 @@ Save results to planning/requirements.md
 
 ### Phase 3: Write Spec
 Create spec.md with: Goal, User Stories, Requirements, Visual Design,
-Existing Code to Leverage, Out of Scope
+Existing Code to Leverage, Out of Scope, and a mandatory ## Contract section.
+The Contract section must contain at least one executable assertion, using the
+exact forms [cmd] <command>, [file] <path>, or [match] <regex> :: <path>.
+Prefer assertions that prove the requested behavior (for example, [cmd] npm
+test and [match] exportedFunction :: src/feature.ts). Natural-language
+verification notes may be included, but never replace these executable
+assertions: an approved spec without them cannot pass show_report.
 
 ### Phase 4: Present & Open
 - Use \`show_spec { folder_path: "context-os/specs/YYYY-MM-DD-feature-name/" }\` to open the

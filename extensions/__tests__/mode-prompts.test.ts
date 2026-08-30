@@ -184,6 +184,12 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("requirements.md");
 	});
 
+	it("requires an executable Contract section", () => {
+		expect(SPEC_PROMPT).toContain("mandatory ## Contract section");
+		expect(SPEC_PROMPT).toContain("[cmd] <command>");
+		expect(SPEC_PROMPT).toContain("cannot pass show_report");
+	});
+
 	it("contains 'commander_mailbox'", () => {
 		expect(SPEC_PROMPT).toContain("commander_mailbox");
 	});

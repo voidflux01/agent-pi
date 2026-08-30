@@ -254,6 +254,15 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			pipelineConfigs = [];
 		}
+
+		// set_mode PIPELINE can race session_start/config loading. In that case
+		// the mode-change listener ran before the configs existed and will not be
+		// called again (the mode value is already PIPELINE). Reconcile the current
+		// mode after loading so the pipeline tools are immediately usable.
+		if (coordinationState().mode === "PIPELINE" && !activeConfig && pipelineConfigs.length > 0) {
+			const preferred = pipelineConfigs.find((c) => c.name === "plan-build") || pipelineConfigs[0];
+			activatePipeline(preferred);
+		}
 	}
 
 	function activatePipeline(config: PipelineConfig) {
@@ -1426,6 +1435,14 @@ ${contextSummary}${planSection}${reviewSection}
 		setActivePipeline(null);
 		phaseStates = [];
 		clearPipelineUI();
+		(globalThis as any).__piActivatePipeline = (ctx?: typeof _ctx): boolean => {
+			if (coordinationState().mode !== "PIPELINE" || activeConfig || pipelineConfigs.length === 0) return false;
+			const preferred = pipelineConfigs.find((c) => c.name === "plan-build") || pipelineConfigs[0];
+			activatePipeline(preferred);
+			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
+			updateStatus();
+			return true;
+		};
 
 		// ── Expose global hooks for escape-cancel integration ────────────
 		(globalThis as any).__piKillPipelineProc = (): boolean => {

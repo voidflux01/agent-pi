@@ -89,6 +89,12 @@ export default function (pi: ExtensionAPI) {
 	function setMode(mode: Mode, ctx: ExtensionContext) {
 		const previous = coordinationState().mode;
 		setCoordinationMode(mode, ctx);
+		if (mode === "PIPELINE") {
+			// Pipeline selection is owned by pipeline-team. Ask it to reconcile
+			// its config here because its session-start listener can be registered
+			// after this mode change in a freshly booted Pi.
+			try { (globalThis as any).__piActivatePipeline?.(ctx); } catch {}
+		}
 		if (previous !== mode) resetApprovalForMode(mode);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);

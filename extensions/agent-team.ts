@@ -1421,7 +1421,8 @@ ${scoutSection}
 
 ## Dispatch rules
 - Keep each dispatch focused on one outcome.
-- Use builder agents for changes and tester agents for verification.
+- Use Builder agents for changes and Reviewer agents for verification/testing; the
+  current TEAM roster has no separate Tester role.
 - Do not dispatch merely to add ceremony.
 - After a specialist returns ## RESULT, toggle that task to done before stopping.
 - Report the result and next decision to the user.

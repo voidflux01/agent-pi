@@ -16,8 +16,27 @@ export const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"] as 
 /** Modes where task tracking is part of the workflow contract. */
 export const TASK_REQUIRED_MODES = ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
 
+const PLANNING_FILE_TOOLS = ["write", "edit", "write_file", "edit_file"] as const;
+
 function toolArgs(args: unknown): Record<string, unknown> {
 	return args && typeof args === "object" ? args as Record<string, unknown> : {};
+}
+
+function taskGatePath(args: unknown): string {
+	const params = toolArgs(args);
+	for (const key of ["path", "file", "file_path"]) {
+		if (typeof params[key] === "string") return params[key].trim().replace(/\\/g, "/");
+	}
+	return "";
+}
+
+/** Planning documents are the only writes allowed before a viewer approval. */
+export function isPlanningArtifactWrite(toolName: string, mode: string | undefined, args?: unknown): boolean {
+	if (!(PLANNING_FILE_TOOLS as readonly string[]).includes(toolName)) return false;
+	const path = taskGatePath(args);
+	if (mode === "PLAN") return path === ".context/todo.md";
+	if (mode === "SPEC") return path === "context-os" || path.startsWith("context-os/");
+	return false;
 }
 
 export function isScoutName(value: unknown): boolean {

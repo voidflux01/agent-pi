@@ -60,6 +60,15 @@ function escapeRegex(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
+/** Extract an exact command from Markdown code or from a command followed by an annotation. */
+function commandText(value: string): string {
+	const trimmed = value.trim();
+	const fenced = trimmed.match(/^(`+)([\s\S]*?)\1(?:\s*(?:→|->|—|-)\s+.*)?$/);
+	if (fenced) return fenced[2].trim();
+	const annotation = trimmed.search(/\s+(?:→|->|—)\s+/);
+	return (annotation >= 0 ? trimmed.slice(0, annotation) : trimmed).trim();
+}
+
 /** Parse one checklist item into a typed assertion. Unknown shapes degrade to advisory. */
 export function parseAssertion(raw: string): ContractAssertion {
 	const advisoryText = raw.replace(/^advisory\s*[:\-]\s*/i, "").trim();
@@ -69,7 +78,7 @@ export function parseAssertion(raw: string): ContractAssertion {
 	const kind = marker[1].toLowerCase();
 	const body = marker[2].trim();
 	if (kind === "cmd") {
-		const tokens = tokenizeCommand(body);
+		const tokens = tokenizeCommand(commandText(body));
 		const [command, ...args] = tokens;
 		return command ? { kind: "cmd", raw, command, args } : advisory;
 	}

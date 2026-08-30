@@ -50,7 +50,7 @@ import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskLis
 import { padRight } from "./lib/ui-helpers.ts";
 import { enqueueOrExecute } from "./lib/commander-ready.ts";
 import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
-import { shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
+import { isPlanningArtifactWrite, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
 import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
@@ -399,6 +399,7 @@ export default function (pi: ExtensionAPI) {
 		const mode = coordinationState().mode;
 		const requiredMode = taskRequiredForMode(mode);
 		if (event.toolName === "tasks") return { block: false };
+		if (isPlanningArtifactWrite(event.toolName, mode, event.arguments || event.params || event.input)) return { block: false };
 		// In orchestration modes, delegated work is subject to the same hard gate
 		// as local write/execution tools. Setup and status tools remain available.
 		if (shouldBypassTaskGate(event.toolName, requiredMode, event.arguments || event.params || event.input)) return { block: false };
