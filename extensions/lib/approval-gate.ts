@@ -12,7 +12,7 @@ export const APPROVAL_REQUIRED_MODES = ["PLAN", "SPEC"] as const;
 
 /** Tools that may run in PLAN/SPEC before the viewer is approved. */
 export const APPROVAL_BYPASS_TOOLS = [
-	"tasks", "set_mode", "ask_user", "show_plan", "show_spec", "show_file", "show_report",
+	"tasks", "set_mode", "ask_user", "show_plan", "show_spec", "show_file", "show_report", "verify_execution",
 	"pipeline_status",
 ] as const;
 
