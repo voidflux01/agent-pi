@@ -10,6 +10,8 @@ import { buildVerifierPrompt, createVerifierReceipt, parseVerifierStatus, worksp
 import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
+import { listEvidence } from "./lib/evidence-store.ts";
+import { activeRunDirectory } from "./lib/execution-run.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { saveVerifierReceipt, loadVerifierReceipt, latestVerifierReceipt, setActiveRun } from "./lib/execution-run.ts";
 import { redactSensitive } from "./lib/sensitive-data.ts";
@@ -63,7 +65,8 @@ export default function (pi: ExtensionAPI) {
       setActiveRun(runDir);
       const attempt = Math.max(p.attempt || 1, (previous?.attempt || 0) + 1);
       if (attempt > DEFAULT_VERIFIER_ATTEMPTS) return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached.` }], details: { status: "BLOCKED", attempt } };
-      const prompt = buildVerifierPrompt({ goal, evidence: [{ id: `${goal.id}-diff`, type: "diff", source: "runtime", value: redactSensitive(diff).slice(0, 12000), timestamp: new Date().toISOString() }], diff: redactSensitive(diff), workerSummary: p.worker_summary });
+      const evidence = [{ id: `${goal.id}-diff`, type: "diff" as const, source: "runtime" as const, value: redactSensitive(diff).slice(0, 12000), timestamp: new Date().toISOString() }, ...((activeRunDirectory() ? listEvidence(activeRunDirectory()!) : []).filter(e => e.source === "runtime").slice(-50))];
+      const prompt = buildVerifierPrompt({ goal, evidence, diff: redactSensitive(diff), workerSummary: p.worker_summary });
       const auth = currentDispatchAuthorization();
       if (!auth) return { content: [{ type: "text", text: "Verification refused: explicit dispatch authorization is required." }], details: { status: "BLOCKED" } };
       const extDir = dirname(fileURLToPath(import.meta.url));
