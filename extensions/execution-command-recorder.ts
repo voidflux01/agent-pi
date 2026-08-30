@@ -2,7 +2,7 @@
 // ABOUTME: Captures bounded runtime output; it never changes the verifier completion decision.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { activeRunDirectory } from "./lib/execution-run.ts";
+import { activeRunDirectory, clearActiveRun } from "./lib/execution-run.ts";
 import { recordEvidence } from "./lib/evidence-store.ts";
 
 const MAX_OUTPUT = 8_000;
@@ -15,6 +15,8 @@ function output(result: any): string {
 }
 
 export default function (pi: ExtensionAPI) {
+  pi.on("session_start", async () => { clearActiveRun(); });
+  (pi.on as any)("session_switch", async () => { clearActiveRun(); });
   pi.on("tool_execution_start", async (event: any) => {
     if (!activeRunDirectory() || !["bash", "run_tests"].includes(event.toolName)) return;
     const command = String(event.args?.command || event.args?.cmd || event.args?.script || "").slice(0, 2_000);

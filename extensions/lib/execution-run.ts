@@ -10,6 +10,7 @@ import { recordRunEvent } from "./evidence-store.ts";
 let activeRun: string | undefined;
 export function setActiveRun(runDir: string): void { activeRun = runDir; }
 export function activeRunDirectory(): string | undefined { return activeRun; }
+export function clearActiveRun(): void { activeRun = undefined; }
 
 export function runDirectory(baseDir: string, runId: string): string {
   if (!/^[a-zA-Z0-9._-]+$/.test(runId)) throw new Error("Invalid run id");
