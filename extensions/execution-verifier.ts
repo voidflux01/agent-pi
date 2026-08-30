@@ -6,7 +6,7 @@ import { Type } from "@sinclair/typebox";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildVerifierPrompt, createVerifierReceipt, parseVerifierStatus, workspaceHash } from "./lib/verifier-runtime.ts";
+import { buildVerifierPrompt, createVerifierReceipt, parseVerifierStatus, workspaceHash, canComplete } from "./lib/verifier-runtime.ts";
 import { objectiveHash, type GoalContract } from "./lib/execution-contract.ts";
 import { explicitDispatchHandler, currentDispatchAuthorization, run as runDispatch } from "./lib/dispatch-runtime.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
@@ -30,7 +30,11 @@ export default function (pi: ExtensionAPI) {
       const cwd = ctx.cwd || process.cwd();
       const latest = latestVerifierReceipt(join(cwd, ".pi", "agent-sessions", "execution-runs"));
       if (!latest) { ctx.ui.notify("No execution contract receipt found", "info"); return; }
-      ctx.ui.notify(`${latest.receipt.status} · ${latest.goal.objective} · attempt ${latest.receipt.attempt}`, latest.receipt.status === "PASS" ? "info" : "warning");
+      const diff = git(cwd, ["diff", "--no-ext-diff", "--", "."]);
+      const files = git(cwd, ["diff", "--name-only", "--no-ext-diff"]).split("\n").filter(Boolean);
+      const current = canComplete(latest.receipt, objectiveHash(latest.goal), workspaceHash(diff, files));
+      const state = current ? latest.receipt.status : "STALE";
+      ctx.ui.notify(`${state} · ${latest.goal.objective} · attempt ${latest.receipt.attempt}`, state === "PASS" ? "info" : "warning");
     },
   });
   pi.registerTool({
