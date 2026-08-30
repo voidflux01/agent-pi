@@ -47,11 +47,11 @@ export default function (pi: ExtensionAPI) {
 		execute: explicitDispatchHandler("subagent-tool", async (_id, _params, _signal, _update, ctx) => {
 			const contract = getExecutionContract();
 			if (!contract) {
-				return { content: [{ type: "text", text: "合同不可验证：没有已绑定的验收清单。先批准含 [cmd]/[file]/[match] 断言的 plan 或完成管线 PLAN 相。" }], details: { status: "BLOCKED" } };
+				return { content: [{ type: "text", text: "合同不可验证：没有已绑定的验收清单。先批准含 [cmd]/[file]/[match] 断言的 plan 或完成管线 PLAN 相。不得输出 done:true；请输出 done:false 或继续修复工作流。" }], details: { status: "BLOCKED", completionAllowed: false } };
 			}
 			const attempt = bumpVerifierAttempt();
 			if (attempt > DEFAULT_VERIFIER_ATTEMPTS) {
-				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached.` }], details: { status: "BLOCKED", attempt } };
+				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt } };
 			}
 			const verification = await runIsolatedVerifier({
 				cwd: ctx.cwd || process.cwd(),
@@ -59,12 +59,12 @@ export default function (pi: ExtensionAPI) {
 				attempt,
 			});
 			if (!verification.receipt) {
-				return { content: [{ type: "text", text: verification.error || "Verifier could not complete." }], details: { status: "BLOCKED" } };
+				return { content: [{ type: "text", text: `${verification.error || "Verifier could not complete."} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false } };
 			}
 			setVerifierReceipt(verification.receipt);
 			return {
 				content: [{ type: "text", text: `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => r.raw).join("; ") || "all assertions passed"}` }],
-				details: { status: verification.receipt.status, receipt: verification.receipt },
+				details: { status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt },
 			};
 		}) as any,
 

@@ -41,6 +41,16 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain(".context/todo.md");
 	});
 
+	it("binds RESULT done:true to deterministic verification and report success", () => {
+		expect(PLAN_PROMPT).toContain("Never emit `done: true`");
+		expect(PLAN_PROMPT).toContain("completionBlocked: true");
+		expect(PLAN_PROMPT).toContain("done: false");
+	});
+
+	it("documents literal inline-code match assertions", () => {
+		expect(PLAN_PROMPT).toContain("wrap literal code/path snippets in backticks");
+	});
+
 	it("keeps scout-then-plan steps, with grill as enhancement only", () => {
 		expect(PLAN_PROMPT).toContain("Enhancement only");
 		expect(PLAN_PROMPT).toContain("do not skip, reorder, or replace this mode's workflow");

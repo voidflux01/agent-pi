@@ -15,4 +15,11 @@ describe("completion report boundaries", () => {
 		expect(source).toContain("File is not part of this report");
 		expect(source).toContain("--end-of-options");
 	});
+
+	it("returns a structured completion blocker for non-Git workspaces", () => {
+		const source = readFileSync(new URL("../completion-report.ts", import.meta.url), "utf8");
+		expect(source).toContain("completionBlocked: true");
+		expect(source).toContain("not a Git repository");
+		expect(source).toContain("Do not output done:true");
+	});
 });

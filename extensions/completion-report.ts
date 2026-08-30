@@ -538,15 +538,16 @@ export default function (pi: ExtensionAPI) {
 						workspaceManifestHash: currentHash,
 					});
 				} else {
-					return { content: [{ type: "text" as const, text: `Completion report blocked: ${verification.error || gate.reason}` }], details: { error: true } };
+					return { content: [{ type: "text" as const, text: `Completion report blocked: ${verification.error || gate.reason}. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
 				}
 			}
-			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason}` }], details: { error: true, reason: gate.reason } };
+			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason}. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
 
 			// Check if we're in a git repo
 			if (!isGitRepo(cwd)) {
 				return {
-					content: [{ type: "text" as const, text: "Error: Not a git repository. The completion report requires git to gather file changes." }],
+					content: [{ type: "text" as const, text: "Completion report blocked: this workspace is not a Git repository, so file changes and rollback cannot be determined. Initialize Git or use show_file for review. Do not output done:true; report done:false or continue fixing." }],
+					details: { error: true, completionBlocked: true, reason: "not a git repository" },
 				};
 			}
 

@@ -81,6 +81,12 @@ describe("[match] assertions", () => {
 		expect(result.status).toBe("pass");
 	});
 
+	it("passes for a Markdown-formatted function signature assertion", async () => {
+		writeFileSync(join(cwd, "todos.js"), "export function removeTodo(todos, id) { return todos; }\n");
+		const result = await runAssertion(parseAssertion("[match] `export function removeTodo(todos, id)` :: `todos.js`") as never, root());
+		expect(result.status).toBe("pass");
+	});
+
 	it("fails when the regex does not match", async () => {
 		writeFileSync(join(cwd, "m.txt"), "hello world");
 		const result = await runAssertion(parseAssertion("[match] goodbye :: m.txt") as never, root());

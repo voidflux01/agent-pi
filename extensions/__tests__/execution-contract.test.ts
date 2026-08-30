@@ -24,6 +24,15 @@ describe("assertion parsing", () => {
 		expect(parseAssertion("[match] foo::bar :: extensions/lib/x.ts")).toMatchObject({ kind: "match", pattern: "foo::bar", path: "extensions/lib/x.ts" });
 	});
 
+	it("accepts Markdown inline-code fences around match patterns and paths", () => {
+		expect(parseAssertion("[match] `export function removeTodo(todos, id)` :: `todos.js`")).toMatchObject({
+			kind: "match",
+			pattern: "export function removeTodo\\(todos, id\\)",
+			path: "todos.js",
+		});
+		expect(parseAssertion("[file] `src/index.ts`")).toMatchObject({ kind: "file", path: "src/index.ts" });
+	});
+
 	it("degrades natural-language items to advisory", () => {
 		expect(parseAssertion("Login page renders")).toMatchObject({ kind: "advisory" });
 		expect(parseAssertion("advisory: Login page renders")).toMatchObject({ kind: "advisory", text: "Login page renders" });

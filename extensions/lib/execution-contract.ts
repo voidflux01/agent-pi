@@ -48,6 +48,18 @@ function parseListItems(body: string): string[] {
 	return items.filter(item => item.length > 0);
 }
 
+/** Read a value copied out of a plan, preserving whether it was inline code. */
+function readInlineCode(value: string): { value: string; fenced: boolean } {
+	const trimmed = value.trim();
+	const match = trimmed.match(/^(`+)([\s\S]*?)\1$/);
+	return match ? { value: match[2].trim(), fenced: true } : { value: trimmed, fenced: false };
+}
+
+/** Inline-code match assertions are literal snippets; plain matches remain regexes. */
+function escapeRegex(value: string): string {
+	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
 /** Parse one checklist item into a typed assertion. Unknown shapes degrade to advisory. */
 export function parseAssertion(raw: string): ContractAssertion {
 	const advisoryText = raw.replace(/^advisory\s*[:\-]\s*/i, "").trim();
@@ -62,12 +74,14 @@ export function parseAssertion(raw: string): ContractAssertion {
 		return command ? { kind: "cmd", raw, command, args } : advisory;
 	}
 	if (kind === "file") {
-		return body ? { kind: "file", raw, path: body } : advisory;
+		const path = readInlineCode(body).value;
+		return path ? { kind: "file", raw, path } : advisory;
 	}
 	if (kind === "match") {
 		const sep = body.lastIndexOf("::");
-		const pattern = body.slice(0, sep).trim();
-		const path = body.slice(sep + 2).trim();
+		const parsedPattern = readInlineCode(body.slice(0, sep));
+		const pattern = parsedPattern.fenced ? escapeRegex(parsedPattern.value) : parsedPattern.value;
+		const path = readInlineCode(body.slice(sep + 2)).value;
 		if (sep > 0 && pattern && path) return { kind: "match", raw, pattern, path };
 		return advisory;
 	}

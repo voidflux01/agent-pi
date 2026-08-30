@@ -27,7 +27,8 @@ Before any write, edit, or bash/execution tool:
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
-After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.`;
+After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
+If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
@@ -143,7 +144,7 @@ ${GRILL_ME_SECTION}
 4. Integration check.
 
 ## Contract
-- [cmd] <exact test command> or [file] <path> or [match] <regex> :: <path>
+- [cmd] <exact test command> or [file] <path> or [match] <regex> :: <path> (wrap literal code/path snippets in backticks)
 - <exact test command or observable result>
 \`\`\`
 
@@ -155,6 +156,7 @@ ${GRILL_ME_SECTION}
 - If the plan has three or more \`## Phase\` headings, call show_report before declaring the work done.
 - Do not spawn extra scouts once the needed context is sufficient. Each spawned scout still runs to RESULT.
 - Keep RESULT contracts machine-checkable and concise.
+- A final \`done: true\` is allowed only after \`verify_execution\` reports PASS and \`show_report\` completes successfully. If either tool is FAIL/BLOCKED/error, use \`done: false\` and quote the exact blocker.
 
 ## Approval
 Always write \.context/todo.md first, then call:
