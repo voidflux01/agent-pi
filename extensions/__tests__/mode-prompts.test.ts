@@ -88,11 +88,13 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).not.toContain("dispatch_agent");
 	});
 
-	it("scouts only when the files to change are not already known", () => {
+	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {
+		expect(PLAN_PROMPT).toContain("by default for repository reconnaissance");
+		expect(PLAN_PROMPT).toContain("two or more files");
+		expect(PLAN_PROMPT).toContain("dispatch the scout before writing the plan");
+		expect(PLAN_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
 		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
-		expect(PLAN_PROMPT).toContain("If the tree is small and the paths are already known, read them yourself");
 		expect(PLAN_PROMPT).toContain("may run before the task list exists");
-		expect(PLAN_PROMPT).not.toContain("scout is required");
 	});
 
 	it("does not tell PLAN to skip scouts the way NORMAL does", () => {
@@ -192,6 +194,15 @@ describe("SPEC_PROMPT", () => {
 
 	it("contains 'commander_mailbox'", () => {
 		expect(SPEC_PROMPT).toContain("commander_mailbox");
+	});
+
+	it("requires focused recon for non-trivial SPEC tasks while allowing small known-scope tasks to self-inspect", () => {
+		expect(SPEC_PROMPT).toContain("one read-only scout by default");
+		expect(SPEC_PROMPT).toContain("existing capabilities, reusable components, constraints, and integration points");
+		expect(SPEC_PROMPT).toContain("spans multiple files");
+		expect(SPEC_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
+		expect(SPEC_PROMPT).toContain("Do not spawn a scout just because SPEC is active");
+		expect(SPEC_PROMPT).toContain("never spawn more than one by default");
 	});
 
 	it("keeps Phase 2 questions.md, with grill as enhancement only", () => {

@@ -90,7 +90,7 @@ ${commanderSection}`;
 export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work that benefits from review before implementation.
 
 ## Scout
-Spawn one read-only scout before writing the plan when you cannot already name the files and symbols to change. If the tree is small and the paths are already known, read them yourself. Do not spawn a scout just because PLAN is active.
+In PLAN, use one read-only scout by default for repository reconnaissance when the task involves two or more files, an unfamiliar module, a call chain, dependencies, or existing patterns. In those cases, dispatch the scout before writing the plan. You may inspect the tree yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because PLAN is active, and never spawn more than one by default.
 A scout reports facts and file paths only. You synthesize the findings and write the plan.
 
 Spawn with:
@@ -178,7 +178,7 @@ export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-dri
 ${ORCHESTRATED_TASK_PROMPT}
 
 ## Recon first
-Inspect the repository before asking questions. Ask at most one round of four focused questions.
+For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active, and never spawn more than one by default. Ask at most one round of four focused questions.
 
 ## Workflow
 

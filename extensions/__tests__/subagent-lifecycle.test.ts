@@ -139,10 +139,11 @@ describe("timeout render warnings", () => {
 });
 
 describe("PLAN prompt complexity guidance", () => {
-	it("does not force a scout in PLAN when paths are already known", async () => {
+	it("requires a scout for non-trivial PLAN reconnaissance but allows known small tasks to skip it", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
 		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
-		expect(PLAN_PROMPT).not.toContain("scout is required");
+		expect(PLAN_PROMPT).toContain("two or more files");
+		expect(PLAN_PROMPT).toContain("dispatch the scout before writing the plan");
 		expect(PLAN_PROMPT).not.toContain("do not spawn scouts");
 	});
 

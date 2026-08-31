@@ -1398,7 +1398,7 @@ Commander is connected. Use commander_task for tracking and commander_mailbox fo
 		const scoutSection = agentStates.has("scout") ? `
 
 ## Context gathering
-Use dispatch_agent with the scout for bounded, read-only reconnaissance. Do not inspect the codebase yourself.
+When the task involves unfamiliar code, multiple files, a call chain, or existing patterns, dispatch the scout first for bounded, read-only reconnaissance before sending work to builders or reviewers. For a small task with known files and symbols, you may dispatch the appropriate specialist directly. Do not inspect the codebase yourself.
 Example: \`dispatch_agent { agent: "scout", task: "Map the relevant files and report paths, symbols, and risks." }\`` : `
 
 ## Context gathering

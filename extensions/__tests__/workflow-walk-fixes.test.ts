@@ -104,4 +104,10 @@ describe("source wiring", () => {
 		expect(src).toContain("countSessionToolCalls(sessionPath)");
 		expect(src).toContain("countSessionToolCalls(agentSessionFile)");
 	});
+
+	it("requires TEAM scout-first recon for unfamiliar or multi-file work", () => {
+		const src = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
+		expect(src).toContain("When the task involves unfamiliar code, multiple files, a call chain, or existing patterns, dispatch the scout first");
+		expect(src).toContain("For a small task with known files and symbols, you may dispatch the appropriate specialist directly");
+	});
 });
