@@ -234,6 +234,16 @@ export default function (pi: ExtensionAPI) {
 		});
 	});
 
+	// A follow-up user request starts a fresh reconnaissance decision. Without
+	// this boundary, inspection calls from the previous request can either make
+	// the next escalation happen too early or leave the model believing its old
+	// scout already covered the new request.
+	pi.on("input", (event) => {
+		if (event.source === "interactive" || event.source === "rpc" || event.source === "extension") {
+			resetNormalEscalation(normalEscalationState);
+		}
+	});
+
 	pi.on("before_agent_start", async (_event, _ctx) => {
 		midRunSystemPrompt = null;
 		const systemPrompt = systemPromptForMode(coordinationState().mode);

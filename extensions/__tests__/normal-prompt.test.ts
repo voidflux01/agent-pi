@@ -153,4 +153,11 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		expect(result).toContain("Do not scan the same area yourself");
 		expect(result).toContain("Do not read the archived transcript");
 	});
+
+	it("reassesses scout needs for each new user request", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result).toContain("every new user request");
+		expect(result).toContain("historical evidence");
+		expect(result).toContain("dispatch a fresh read-only SCOUT");
+	});
 });

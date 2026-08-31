@@ -70,6 +70,7 @@ Start with direct work and reassess as evidence accumulates. For non-trivial, mu
 subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }
 \`\`\`
 This call blocks until the scout RESULT returns. Treat that ## RESULT as the report. Do not read the archived transcript unless RESULT is missing a path you need. Do not scan the same area yourself in that turn. If the scout fails, continue directly.
+Reassess this choice for every new user request: a SCOUT dispatched for an earlier request is historical evidence and does not replace reconnaissance for the current request. If the new request is non-trivial and its context is still uncertain, dispatch a fresh read-only SCOUT.
 
 ## Progressive escalation
 NORMAL is allowed to grow with the task; do not commit to an unbounded solo debugging loop. After roughly 3-5 focused inspection calls, two failed root-cause hypotheses, or repeated searches over the same area without new evidence, stop and reassess. If the cause is still unclear, dispatch one scout for an independent read-only investigation, even if the task initially looked simple. Do not repeat the same exploration before the scout returns.

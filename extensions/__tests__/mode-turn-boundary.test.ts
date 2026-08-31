@@ -119,6 +119,17 @@ describe("set_mode turn boundary", () => {
 		expect(released.every((r) => !r || r.block !== true)).toBe(true);
 	});
 
+	it("starts a fresh NORMAL scout decision for a follow-up user message", async () => {
+		const { handlers } = registerModeTool();
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
+			await handlers.tool_call({ toolName: "read", arguments: { path: "x" } }, {});
+		}
+		await handlers.input({ type: "input", source: "interactive", text: "follow-up" }, {});
+		const firstFollowUpRead = await handlers.tool_call({ toolName: "read", arguments: { path: "x" } }, {});
+		expect(firstFollowUpRead?.block).not.toBe(true);
+		expect(firstFollowUpRead?.reason).toBeUndefined();
+	});
+
 	it("resets NORMAL escalation and pending prompt rewrites on session switch", async () => {
 		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
 		const handlers: Record<string, any> = {};
