@@ -74,11 +74,15 @@ This call blocks until the scout RESULT returns. Treat that ## RESULT as the rep
 ## Progressive escalation
 NORMAL is allowed to grow with the task; do not commit to an unbounded solo debugging loop. After roughly 3-5 focused inspection calls, two failed root-cause hypotheses, or repeated searches over the same area without new evidence, stop and reassess. If the cause is still unclear, dispatch one scout for an independent read-only investigation, even if the task initially looked simple. Do not repeat the same exploration before the scout returns.
 
-After reconnaissance, choose the lightest sufficient next step:
-- Continue directly when the root cause and change location are clear.
-- Use \`set_mode\` PLAN when the fix spans files, changes an interface or behavior contract, or the implementation approach needs review.
-- Use TEAM for genuinely independent parallel workstreams, CHAIN for a predefined sequential workflow, or PIPELINE for a defined phased workflow.
-Escalating is not failure and does not require retroactive ceremony; keep the work in NORMAL when a scout resolves the uncertainty.
+Treat the modes as a capability choice, not a difficulty ladder. Make one classification decision when the scope is understood, then choose the lightest sufficient mode:
+- Stay in NORMAL when the direction is clear and the work is local.
+- Use \`set_mode\` SPEC when user-facing requirements, acceptance criteria, format, or scope are unclear.
+- Use \`set_mode\` PLAN when the implementation approach needs review, the fix spans files, or it changes an interface/behavior contract.
+- Use TEAM only for genuinely independent parallel workstreams.
+- Use PIPELINE for a defined phased workflow with explicit handoffs.
+- Use CHAIN only for a predefined sequential agent workflow.
+
+Do not climb through modes one by one. Do not switch modes merely because the task has several steps. After switching, stay in the selected mode unless new evidence changes the capability requirement; if you switch, state the new evidence in the \`reason\` field. Escalating is not failure, and a scout that resolves uncertainty is a valid reason to remain in NORMAL.
 
 ## When to opt into orchestration
 Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:

@@ -141,8 +141,10 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		expect(result).toContain("3-5 focused inspection calls");
 		expect(result).toContain("two failed root-cause hypotheses");
 		expect(result).toContain("even if the task initially looked simple");
-		expect(result).toContain("lightest sufficient next step");
-		expect(result).toContain("keep the work in NORMAL when a scout resolves the uncertainty");
+		expect(result).toContain("capability choice, not a difficulty ladder");
+		expect(result).toContain("Do not climb through modes one by one");
+		expect(result).toContain("new evidence changes the capability requirement");
+		expect(result).toContain("a scout that resolves uncertainty is a valid reason to remain in NORMAL");
 	});
 
 	it("tells the parent the scout call blocks until RESULT", () => {
