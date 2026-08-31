@@ -28,3 +28,9 @@ export function childEnvironment(overrides: Record<string, string | undefined> =
 	// JIRA token for the Commander MCP server), so do not silently discard them.
 	return { ...inherited, ...overrides };
 }
+
+/** Add a parent-communication extension tool without disturbing agent tool policy. */
+export function ensurePiTool(tools: string, toolName: string): string {
+	const names = tools.split(",").map((name) => name.trim()).filter(Boolean);
+	return names.includes(toolName) ? names.join(",") : [...names, toolName].join(",");
+}

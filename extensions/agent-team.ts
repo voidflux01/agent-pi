@@ -32,7 +32,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
 import { statusButton } from "./lib/pipeline-render.ts";
@@ -604,6 +604,7 @@ export default function (pi: ExtensionAPI) {
 		const taskId = commanderAvailable ? g.__piCurrentTask?.commanderTaskId as number | undefined : undefined;
 
 		let tools = state.def.tools;
+		if (!isToolkitCliAgent(canonicalName)) tools = ensurePiTool(tools, "ask_parent");
 		// Commander tools are extension-registered (not built-in), so they must NOT
 		// go in --tools (which only accepts built-in names and warns on unknowns).
 		// Package discovery loads commander-mcp; pi auto-activates extension tools.

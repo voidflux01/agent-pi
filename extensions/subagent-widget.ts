@@ -23,7 +23,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { formatDuration } from "./lib/duration-format.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
@@ -302,6 +302,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
+		if (!isToolkitCliAgent(state.name)) tools = ensurePiTool(tools, "ask_parent");
 		// Loaded only by the visible herdr transport: writes the pane's done marker
 		// on the child's first agent_end, since an interactive worker stays alive
 		// after finishing its task.

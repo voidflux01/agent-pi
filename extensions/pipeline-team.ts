@@ -47,7 +47,7 @@ import {
 	setExecutionContract,
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
@@ -436,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 			"--mode", "json",
 			"-p",
 			"--model", model,
-			"--tools", agentDef.tools,
+			"--tools", ensurePiTool(agentDef.tools, "ask_parent"),
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];

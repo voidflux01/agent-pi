@@ -36,7 +36,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
@@ -360,7 +360,7 @@ export default function (pi: ExtensionAPI) {
 			"--mode", "json",
 			"-p",
 			"--model", model,
-			"--tools", agentDef.tools,
+			"--tools", ensurePiTool(agentDef.tools, "ask_parent"),
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
