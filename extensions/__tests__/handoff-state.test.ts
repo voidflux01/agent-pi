@@ -124,4 +124,37 @@ describe("handoff state", () => {
 			rmSync(workspace, { recursive: true, force: true });
 		}
 	});
+
+	it("does not resurrect a handoff when resume is the only action", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-idle-resume-"));
+		const handlers = new Map<string, Function>();
+		let resumeTool: any;
+		const pi = {
+			registerCommand() {},
+			registerTool(_definition: any) { resumeTool = _definition; },
+			on(name: string, handler: Function) { handlers.set(name, handler); },
+		};
+		const ctx: any = {
+			cwd: workspace,
+			sessionManager: { getSessionId: () => "resumed-session" },
+		};
+		try {
+			const original = buildHandoffSnapshot({
+				workspace,
+				sessionId: "old-session",
+				objective: "Inspect reconciliation tables",
+				status: "in_progress",
+			});
+			writeHandoff(workspace, original);
+			handoffExtension(pi as any);
+			await handlers.get("session_start")!({ reason: "startup" }, ctx);
+			await resumeTool.execute("resume", {}, undefined, undefined, ctx);
+			await handlers.get("session_shutdown")!({ reason: "quit" }, ctx);
+			const after = readHandoff(workspace)!;
+			expect(after.status).toBe("in_progress");
+			expect(after.updatedAt).toBe(original.updatedAt);
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
 });
