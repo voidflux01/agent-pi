@@ -14,6 +14,7 @@ import { coordinationState, setCoordinationMode, commanderAvailable as isCommand
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
+import { createNormalEscalationState, normalEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
 
 const MODE_FILE = "/tmp/pi-current-mode.txt";
 
@@ -26,6 +27,7 @@ export default function (pi: ExtensionAPI) {
 	resetApprovals();
 	setCoordinationMode("NORMAL");
 	installPinnedToolSurface(pi);
+	const normalEscalationState = createNormalEscalationState();
 
 
 	function updateWidgets(mode: Mode, ctx: ExtensionContext) {
@@ -215,6 +217,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		const mode = coordinationState().mode;
+		if (mode !== "NORMAL") {
+			resetNormalEscalation(normalEscalationState);
+		} else {
+			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.arguments || event.params || event.input);
+			if (escalation.block) {
+				return { block: true, reason: normalEscalationReason(escalation.count) };
+			}
+		}
 		return decideApprovalGate({
 			mode,
 			approved: approvalStateForMode(mode),
@@ -242,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 		applyExtensionDefaults(import.meta.url, ctx);
 		midRunSystemPrompt = null;
 		resetApprovals();
+		resetNormalEscalation(normalEscalationState);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};
@@ -257,6 +268,10 @@ export default function (pi: ExtensionAPI) {
 	// ── Session switch (/new) ──────────────────────
 
 	pi.on("session_switch", async (_event, ctx) => {
+		// A resumed/new session must not inherit recon pressure or a pending
+		// provider-prompt rewrite from the session that was left behind.
+		resetNormalEscalation(normalEscalationState);
+		midRunSystemPrompt = null;
 		// Re-apply current mode widgets after banner is shown to ensure correct rendering order
 		// The banner is shown in agent-banner.ts's session_switch handler, so we need to
 		// re-set widgets here to ensure mode-block (if any) renders before banner is re-set

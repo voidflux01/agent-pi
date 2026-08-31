@@ -92,4 +92,58 @@ describe("set_mode turn boundary", () => {
 			payload: { system: "keep" },
 		})).toBeUndefined();
 	});
+
+	it("interrupts a NORMAL read-only loop and releases it after scout dispatch", async () => {
+		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const pi: any = {
+			registerTool() {},
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (event: any, ctx?: any) => any) {
+				if (event === "tool_call") toolCallHandlers.push(handler);
+			},
+		};
+		modeCycler(pi);
+
+		for (let i = 0; i < 5; i++) {
+			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", arguments: { command: "rg -n TODO ." } }, {})));
+			expect(result.every((r) => !r || r.block !== true)).toBe(true);
+		}
+		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", arguments: { command: "find . -type f" } }, {})));
+		expect(blocked.some((r) => r?.block === true)).toBe(true);
+
+		const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", arguments: { name: "scout", task: "map" } }, {})));
+		expect(scout.every((r) => !r || r.block !== true)).toBe(true);
+		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "README.md" } }, {})));
+		expect(released.every((r) => !r || r.block !== true)).toBe(true);
+	});
+
+	it("resets NORMAL escalation and pending prompt rewrites on session switch", async () => {
+		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const handlers: Record<string, any> = {};
+		const tools: Record<string, any> = {};
+		const pi: any = {
+			registerTool(def: any) { tools[def.name] = def; },
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (event: any, ctx?: any) => any) {
+				if (event === "tool_call") toolCallHandlers.push(handler);
+				else handlers[event] = handler;
+			},
+		};
+		modeCycler(pi);
+
+		for (let i = 0; i < 6; i++) await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "x" } }, {})));
+		await handlers.session_switch({}, { hasUI: false });
+		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "x" } }, {})));
+		expect(released.every((r) => !r || r.block !== true)).toBe(true);
+
+		await tools.set_mode.execute("mode-1", { mode: "PLAN" }, undefined, undefined, { abort: vi.fn(), hasUI: false });
+		await handlers.session_switch({}, { hasUI: false });
+		const providerResult = await handlers.before_provider_request({
+			type: "before_provider_request",
+			payload: { messages: [{ role: "system", content: "NORMAL current" }] },
+		});
+		expect(providerResult).toBeUndefined();
+	});
 });
