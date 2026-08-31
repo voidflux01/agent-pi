@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { deliverMail, listMail, readMail, settleMail, sendSteer, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
 
@@ -213,6 +214,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("ask-answer", {
 		description: "Answer a pending ask_parent question: /ask-answer <id> <text>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = listAsks("open").map((ask) => ({ value: ask.id, label: ask.id, description: ask.question }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args: string, ctx: any) => {
 			const m = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
 			if (!m) {

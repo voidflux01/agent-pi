@@ -3,7 +3,7 @@
 // ABOUTME: Uses WebSocket for reliable streaming through cloudflared tunnels.
 
 import type { ExtensionAPI, ExtensionContext, MessageUpdateEvent, ToolExecutionStartEvent, ToolExecutionEndEvent } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
@@ -941,6 +941,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("chat", {
 		description: "Open web chat (relay mode). '/chat --remote' for tunnel, '/chat stop' to shut down",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = ["--remote", "stop"].map((value) => ({ value, label: value }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			const trimmed = args.trim().toLowerCase();
 

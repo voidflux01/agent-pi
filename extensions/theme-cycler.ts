@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import { truncateToWidth, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { persistTheme } from "./lib/persist-theme.ts";
 
@@ -122,6 +122,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("theme", {
 		description: "Select a theme: /theme or /theme <name>",
+		getArgumentCompletions: (_prefix: string): AutocompleteItem[] | null => {
+			const ctx = currentCtx;
+			if (!ctx) return null;
+			const prefix = _prefix.trim();
+			const items = getThemeList(ctx).map((theme) => ({ value: theme.name, label: theme.name }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			currentCtx = ctx;
 			if (!ctx.hasUI) return;

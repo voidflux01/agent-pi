@@ -1028,6 +1028,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("agents-team", {
 		description: "Select a team: /agents-team or /agents-team <name>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Object.keys(teams).map((name) => ({ value: name, label: name }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);

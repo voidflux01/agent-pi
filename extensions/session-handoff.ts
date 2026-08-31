@@ -4,12 +4,13 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalPath, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import {
 	buildHandoffSnapshot,
+	handoffPath,
 	hasMeaningfulHandoff,
 	readHandoff,
 	renderHandoff,
@@ -134,13 +135,24 @@ export default function (pi: ExtensionAPI) {
 			const options = [
 				{ value: "resume", label: "resume", description: "Queue this handoff for the next turn" },
 				{ value: "complete", label: "complete", description: "Mark this handoff completed" },
+				{ value: "clear", label: "clear", description: "Delete this workspace handoff" },
 			];
 			const filtered = options.filter((item) => item.value.startsWith(prefix.trim()));
 			return filtered.length > 0 ? filtered : null;
 		},
-		handler: async (args, ctx) => {
+			handler: async (args, ctx) => {
 			const workspace = cwdOf(ctx);
 			const saved = readHandoff(workspace);
+			if (String(args || "").trim() === "clear") {
+				try { unlinkSync(handoffPath(workspace)); } catch (error: any) {
+					if (error?.code !== "ENOENT") { ctx.ui.notify("Could not clear the task handoff.", "error"); return; }
+				}
+				pendingPrompt = undefined;
+				dirty = false;
+				pendingStatus = undefined;
+				ctx.ui.notify("Task handoff cleared.", "success");
+				return;
+			}
 			if (String(args || "").trim() === "resume") {
 				if (!saved) { ctx.ui.notify("No task handoff found for this workspace.", "info"); return; }
 				pendingPrompt = saved;

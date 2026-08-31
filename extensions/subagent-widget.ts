@@ -15,7 +15,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Box, Text } from "@mariozechner/pi-tui";
+import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as fs from "fs";
 import * as os from "os";
@@ -950,6 +950,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("subcont", {
 		description: "Continue an existing subagent's conversation: /subcont <number> <prompt>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Array.from(agents.keys()).map((id) => ({ value: String(id), label: String(id) }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 
@@ -1003,6 +1008,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("subrm", {
 		description: "Remove a specific subagent widget: /subrm <number>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Array.from(agents.keys()).map((id) => ({ value: String(id), label: String(id) }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const commandEpoch = sessionEpoch;

@@ -23,7 +23,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
-	Box, Text, Container, Spacer, Markdown,
+	Box, Text, Container, Spacer, Markdown, type AutocompleteItem,
 	matchesKey, Key, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
@@ -1102,6 +1102,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("pipeline", {
 		description: "Select a pipeline: /pipeline or /pipeline <name>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = pipelineConfigs.map((pipeline) => ({ value: pipeline.name, label: pipeline.name }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			if (pipelineConfigs.length === 0) {

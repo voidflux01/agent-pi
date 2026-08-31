@@ -75,7 +75,7 @@ describe("handoff state", () => {
 			writeHandoff(workspace, buildHandoffSnapshot({ workspace, sessionId: "old-session", objective: "Resume this", mode: "PLAN", nextAction: "Inspect evidence" }));
 			handoffExtension(pi as any);
 			expect(command.getArgumentCompletions("r").map((item: any) => item.value)).toEqual(["resume"]);
-			expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["resume", "complete"]);
+		expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["resume", "complete", "clear"]);
 			await handlers.get("session_start")!({ reason: "startup" }, ctx);
 			expect(notifications.join("\n")).toContain("Unfinished handoff found");
 			const resumed = await handlers.get("before_agent_start")!({}, ctx);
@@ -84,6 +84,9 @@ describe("handoff state", () => {
 			await handlers.get("tool_result")!({ toolName: "tasks", result: { details: {} } }, ctx);
 			await new Promise((resolve) => setTimeout(resolve, 550));
 			expect(JSON.parse(readFileSync(handoffPath(workspace), "utf8")).tasks[0].text).toBe("Continue");
+			await command.handler("clear", ctx);
+			expect(readHandoff(workspace)).toBeUndefined();
+			delete (globalThis as any).__piTaskList;
 		} finally {
 			await handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
 			delete (globalThis as any).__piTaskList;

@@ -26,7 +26,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key } from "@mariozechner/pi-tui";
+import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
@@ -691,6 +691,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("chain", {
 		description: "Switch active chain: /chain or /chain <name>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = chains.map((chain) => ({ value: chain.name, label: chain.name, description: chain.description }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			if (chains.length === 0) {

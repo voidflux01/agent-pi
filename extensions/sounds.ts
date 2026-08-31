@@ -2,7 +2,7 @@
 // ABOUTME: /sounds command opens browser UI to browse, preview, and assign sounds from soundcn.xyz to Pi events.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -363,6 +363,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("sounds", {
 		description: "Open the sound browser, or use: /sounds toggle | /sounds status",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = ["toggle", "status"].map((value) => ({ value, label: value }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			if (!ctx.hasUI) {
 				ctx.ui.notify("/sounds requires interactive mode", "error");
