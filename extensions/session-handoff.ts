@@ -197,6 +197,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (event: any, ctx) => {
+		// Child Pi sessions share the workspace with their parent, but their
+		// handoff belongs to the parent session. Never consume or mutate it from
+		// a SCOUT/TEAM/CHAIN/Pipeline worker.
+		if (process.env.PI_SUBAGENT === "1") return;
 		const saved = readHandoff(cwdOf(ctx));
 		if (saved && saved.status !== "completed" && saved.sessionId !== sessionIdOf(ctx)) {
 			pendingPrompt = saved;

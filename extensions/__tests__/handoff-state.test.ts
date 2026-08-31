@@ -94,4 +94,34 @@ describe("handoff state", () => {
 			rmSync(workspace, { recursive: true, force: true });
 		}
 	});
+
+	it("does not consume the parent handoff in a child Pi session", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-child-"));
+		const handlers = new Map<string, Function>();
+		const notifications: string[] = [];
+		const pi = {
+			registerCommand() {},
+			registerTool() {},
+			on(name: string, handler: Function) { handlers.set(name, handler); },
+		};
+		const ctx: any = {
+			cwd: workspace,
+			hasUI: true,
+			ui: { notify(message: string) { notifications.push(message); } },
+			sessionManager: { getSessionId: () => "child-session" },
+		};
+		const previous = process.env.PI_SUBAGENT;
+		try {
+			writeHandoff(workspace, buildHandoffSnapshot({ workspace, sessionId: "parent-session", objective: "Parent work", mode: "NORMAL" }));
+			process.env.PI_SUBAGENT = "1";
+			handoffExtension(pi as any);
+			await handlers.get("session_start")!({ reason: "startup" }, ctx);
+			expect(notifications).toEqual([]);
+			expect(await handlers.get("before_agent_start")!({}, ctx)).toEqual({});
+		} finally {
+			if (previous === undefined) delete process.env.PI_SUBAGENT;
+			else process.env.PI_SUBAGENT = previous;
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
 });
