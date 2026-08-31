@@ -10,9 +10,11 @@ function registeredObjects(source: string): string[] {
 	let searchFrom = 0;
 
 	while (true) {
-		const marker = source.indexOf("pi.registerTool({", searchFrom);
+		const directMarker = source.indexOf("pi.registerTool({", searchFrom);
+		const wrappedMarker = source.indexOf("registerToolWithExecutor(pi, {", searchFrom);
+		const marker = directMarker < 0 ? wrappedMarker : wrappedMarker < 0 ? directMarker : Math.min(directMarker, wrappedMarker);
 		if (marker < 0) break;
-		const start = marker + "pi.registerTool(".length;
+		const start = marker + (marker === directMarker ? "pi.registerTool(".length : "registerToolWithExecutor(pi, ".length);
 		let depth = 0;
 		let quote = "";
 		let escaped = false;
@@ -68,6 +70,10 @@ describe("registered tool lifecycle audit", () => {
 			expect(hasStaticName || hasDynamicName, file).toBe(true);
 			expect(object).toMatch(/\bexecute\s*(?::|\()/);
 			expect(object).toMatch(/\breturn\b/);
+		}
+		for (const file of files) {
+			if (file.endsWith("/tool-caller.ts")) continue;
+			expect(readFileSync(file, "utf8")).not.toContain("pi.registerTool({");
 		}
 	});
 

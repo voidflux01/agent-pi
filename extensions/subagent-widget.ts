@@ -15,6 +15,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as fs from "fs";
@@ -600,7 +601,7 @@ export default function (pi: ExtensionAPI) {
 
 		// ── Tools for the Main Agent ──────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_create",
 		description: "Spawn a subagent to perform a task. When `name` is scout, this call blocks until that scout finishes and returns its RESULT — treat that ## RESULT as the report, do not read the archived transcript unless a path is missing, and do not start overlapping reconnaissance in the same turn. Toolkit CLIs (omp-agent, prime-agent, and other named harnesses) also block until the CLI exits; do not poll with subagent_list or sleep. Other roles return the subagent ID immediately and deliver results as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team, omp-agent, prime-agent), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
 		parameters: Type.Object({
@@ -655,7 +656,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
 		description: "Spawn multiple subagents at once with optional Commander task group. Pre-creates Commander tasks to avoid race conditions where multiple agents try to claim the same task.\n\nWhen an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
@@ -775,7 +776,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_continue",
 		description: "Continue an existing subagent's conversation. Use this to give further instructions to a finished subagent. Returns immediately while it runs in the background.",
 		parameters: Type.Object({
@@ -813,7 +814,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_remove",
 		description: "Remove a specific subagent. Kills it if it's currently running.",
 		parameters: Type.Object({
@@ -843,7 +844,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_list",
 		description: "List all active and finished subagents, showing their IDs, tasks, and status.",
 		parameters: Type.Object({}),
@@ -862,7 +863,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_cleanup",
 		description: "Clean up finished and stale subagents. Removes done/error agents and kills agents running longer than max_age_seconds. Use before spawning new batches or when the screen is cluttered.",
 		parameters: Type.Object({

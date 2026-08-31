@@ -2,6 +2,7 @@
 // ABOUTME: Polls Commander MCP tools for tasks, agents, messages, and groups. Auto-refreshes every 3 seconds.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync } from "node:fs";
@@ -278,7 +279,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_board tool ──────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_board",
 		label: "Show Board",
 		description:

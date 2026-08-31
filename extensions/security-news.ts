@@ -2,6 +2,7 @@
 // ABOUTME: Registers a security_news tool that returns trust-ranked, freshness-aware advisory data.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 
@@ -282,7 +283,7 @@ function formatSource(source: SecuritySource): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithExecutor(pi, {
     name: "security_news",
     label: "Security News",
     description: "Curated security news and advisory retrieval from trusted sources such as CISA, NVD, OWASP, and CVE. Supports source listing, latest advisories, filtered search, and CVE lookup.",

@@ -9,6 +9,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { loadPolicy, scanCommand, scanFilePath, formatThreatsForBlock } from "./lib/security-engine.ts";
 import { approvalStateForMode, decideApprovalGate } from "./lib/approval-gate.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
 
@@ -258,10 +259,8 @@ export default function (pi: ExtensionAPI) {
 
 		// Build executor cache from any tools that expose their execute functions
 		// via the global registry pattern
-		if (g.__piRegisteredToolExecutors) {
-			for (const [name, executor] of Object.entries(g.__piRegisteredToolExecutors)) {
-				toolExecutors.set(name, executor);
-			}
+		for (const [name, executor] of Object.entries(getRegisteredToolExecutors())) {
+			toolExecutors.set(name, executor);
 		}
 	});
 

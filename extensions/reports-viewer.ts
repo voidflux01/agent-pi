@@ -2,6 +2,7 @@
 // ABOUTME: Opens a search-first /reports view with recent category sections and full-screen tables.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { spawn, execFileSync } from "node:child_process";
@@ -162,7 +163,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_reports",
 		label: "Show Reports",
 		description: "Open a searchable /reports browser view for persisted plans, questions, specs, and completion reports.",

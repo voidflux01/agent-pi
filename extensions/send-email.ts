@@ -2,6 +2,7 @@
 // ABOUTME: Registers a send_email tool that proxies to commander_agentmail for reports, briefings, and custom emails.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { commanderAvailable } from "./lib/coordination-state.ts";
@@ -22,7 +23,7 @@ interface SendEmailParams {
 // ── Tool Registration ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "email_delivery_status",
 		label: "Email Delivery Status",
 		description: "Show recent local delivery receipts for send_email. A submitted receipt confirms the provider call returned, not final inbox delivery.",
@@ -33,7 +34,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "send_email",
 		label: "Send Email",
 		description: [

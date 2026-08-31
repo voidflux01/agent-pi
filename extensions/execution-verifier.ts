@@ -3,6 +3,7 @@
 // ABOUTME: Status is decided by assertion execution, not by an LLM.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import {
@@ -39,7 +40,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "verify_execution",
 		label: "Verify Execution",
 		description: "Run deterministic assertions against the approved contract. Assertions cannot be supplied by the caller; PASS requires every [cmd]/[file]/[match] to succeed.",

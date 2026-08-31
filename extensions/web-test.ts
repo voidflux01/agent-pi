@@ -36,6 +36,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { execFileSync } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
@@ -559,7 +560,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── web_remote tool ──────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "web_remote",
 		label: "Web Remote",
 		description: [

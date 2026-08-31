@@ -2,6 +2,7 @@
 // ABOUTME: Renders structured defensive security assessments with findings, mitigations, and source sections.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -145,7 +146,7 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  pi.registerTool({
+  registerToolWithExecutor(pi, {
     name: "show_security_report",
     label: "Show Security Report",
     description: "Open a dedicated security analysis report viewer for defensive local/network assessments. Supports a summary, findings, mitigations, and sections for intelligence, inspection, and scan results.",

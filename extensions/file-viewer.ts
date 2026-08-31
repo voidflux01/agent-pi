@@ -2,6 +2,7 @@
 // ABOUTME: Serves a local web UI for viewing and optionally editing a single file directly from the CLI.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
@@ -287,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_file",
 		label: "Show File",
 		description:
@@ -325,7 +326,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "close_viewer",
 		label: "Close Viewer",
 		description: "Close the currently active local browser viewer from the CLI if one is open.",

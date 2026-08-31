@@ -21,6 +21,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import {
 	Box, Text, Container, Spacer, Markdown, type AutocompleteItem,
@@ -787,7 +788,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Tools ────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "advance_phase",
 		label: "Advance Phase",
 		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require dispatch_agents first — do not advance on a self-written summary.",
@@ -912,7 +913,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "dispatch_agents",
 		label: "Dispatch Agents",
 		description: "Dispatch one or more agents for the current pipeline phase. Agents run in parallel or sequential mode depending on the phase configuration. Use this in phases 2-5 to do the actual work. When reporting outcomes to the user: lead with results and next decisions; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
@@ -1050,7 +1051,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "pipeline_status",
 		label: "Pipeline Status",
 		description: "Returns the current pipeline state — phases, current phase, accumulated context summary. No parameters needed.",

@@ -2,6 +2,7 @@
 // ABOUTME: Restores only a bounded summary on the first turn; full transcripts remain in Pi sessions.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
@@ -169,7 +170,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "resume_handoff",
 		label: "Resume Handoff",
 		parameters: Type.Object({}),

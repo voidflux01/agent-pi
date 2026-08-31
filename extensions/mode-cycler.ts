@@ -2,6 +2,7 @@
 // ABOUTME: Gates which extension's before_agent_start fires and injects PLAN/SPEC prompts.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
@@ -148,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── set_mode tool (autonomous mode switching) ──
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "set_mode",
 		label: "Set Mode",
 		description: "Switch the operational mode. Call this from NORMAL mode to activate PLAN, SPEC, TEAM, CHAIN, or PIPELINE based on task classification.",

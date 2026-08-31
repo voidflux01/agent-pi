@@ -2,6 +2,7 @@
 // ABOUTME: Opens a web viewer to browse, search, and resume saved research sessions.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { execFileSync } from "node:child_process";
@@ -159,7 +160,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_research tool ───────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_research",
 		label: "Show Research",
 		description:

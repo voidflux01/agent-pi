@@ -25,6 +25,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
@@ -590,7 +591,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── run_chain Tool ──────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "run_chain",
 		label: "Run Chain",
 		description: "Execute the active agent chain pipeline. Each step runs sequentially — output from one step feeds into the next. Agents maintain session context across runs.",

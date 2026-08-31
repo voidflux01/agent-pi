@@ -22,6 +22,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
@@ -924,7 +925,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── dispatch_agent Tool (registered at top level) ──
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
 		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names. When reporting the outcome to the user: lead with the result and the next decision; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",

@@ -2,6 +2,7 @@
 // ABOUTME: Uses safe system command wrappers and refuses invasive or privileged escalation behavior.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import os from "node:os";
@@ -60,7 +61,7 @@ async function captureSummary(iface: string, seconds: number, packetCount: numbe
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithExecutor(pi, {
     name: "network_inspect",
     label: "Network Inspect",
     description: "Passive local network inspection with safe actions only: interface inventory, listener inventory, and bounded capture summaries. No privilege escalation or invasive scanning is performed.",

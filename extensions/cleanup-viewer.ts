@@ -2,6 +2,7 @@
 // ABOUTME: Provides /cleanup slash command and show_cleanup tool. AI analysis via Claude Agent SDK (OAuth).
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import fs from "node:fs";
@@ -560,7 +561,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_cleanup tool ────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_cleanup",
 		label: "Disk Cleanup",
 		description:

@@ -3,6 +3,7 @@
 // ABOUTME: Uses WebSocket for reliable streaming through cloudflared tunnels.
 
 import type { ExtensionAPI, ExtensionContext, MessageUpdateEvent, ToolExecutionStartEvent, ToolExecutionEndEvent } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
@@ -887,7 +888,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_chat tool ───────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_chat",
 		label: "Web Chat",
 		description:
