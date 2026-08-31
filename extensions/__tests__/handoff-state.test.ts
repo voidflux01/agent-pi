@@ -35,6 +35,7 @@ describe("handoff state", () => {
 			expect(hasMeaningfulHandoff(snapshot)).toBe(true);
 			expect(renderHandoff(snapshot)).toContain("Next action: Run the test suite");
 			expect(renderHandoffPrompt(snapshot)).toContain("Resumable task handoff");
+			expect(renderHandoffPrompt(snapshot)).toContain("re-dispatch");
 		} finally {
 			rmSync(workspace, { recursive: true, force: true });
 		}

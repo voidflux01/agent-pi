@@ -156,7 +156,7 @@ Do not treat claims as proof: inspect the listed next evidence and run verificat
 
 ${renderHandoff(snapshot)}
 
-If continuing, keep the existing objective and task statuses coherent. If the next action is unclear, ask the user rather than replaying the entire transcript.`;
+If continuing, keep the existing objective and task statuses coherent. For each non-terminal child, re-dispatch its recorded task with the same agent role before claiming the work is complete; do not duplicate children already marked done. If the next action is unclear, ask the user rather than replaying the entire transcript.`;
 }
 
 export function hasMeaningfulHandoff(snapshot: HandoffSnapshot): boolean {

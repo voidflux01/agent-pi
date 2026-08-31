@@ -96,7 +96,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 		activePipeline: state.activePipeline,
 		tasks,
 		children,
-		nextAction: activeTask?.text || (activeChild ? `${["failed", "error"].includes(activeChild.status) ? "Recover" : "Review"} ${activeChild.agent} result` : undefined),
+		nextAction: activeTask?.text || (activeChild ? `${["failed", "error"].includes(activeChild.status) ? "Re-dispatch" : "Continue"} ${activeChild.agent}: ${activeChild.task || "recorded child task"}` : undefined),
 		verification: state.executionContract ? {
 			status: receipt?.status || "UNVERIFIED",
 			attempt: state.verifierAttempt,
