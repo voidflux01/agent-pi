@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
 	approvalStateForMode,
 	decideApprovalGate,
+	isReadOnlyBash,
 	isPlanningArtifact,
 	markPlanApproved,
 	markSpecApproved,
@@ -88,6 +89,22 @@ describe("decideApprovalGate", () => {
 				mode: "SPEC", approved: false, toolName: "bash", args: { command },
 			}).block).toBe(false);
 		}
+	});
+
+	it("allows composed read-only bash with safe stderr suppression", () => {
+		const command = 'cd /tmp/app && ls .pi 2>/dev/null; grep -rln "foo bar" .context 2>/dev/null | head';
+		expect(isReadOnlyBash({ command })).toBe(true);
+		expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName: "bash", args: { command } }).block).toBe(false);
+	});
+
+	it("rejects shell expansion, writes, and dangerous find predicates", () => {
+		for (const command of [
+			"grep foo > result.txt",
+			"grep foo $FILE",
+			"find . -exec rm {}",
+			"find . -delete",
+			"ls &",
+		]) expect(isReadOnlyBash({ command })).toBe(false);
 	});
 
 	it("still blocks mutating bash before approval", () => {

@@ -161,6 +161,8 @@ function nestedCallTool(args: unknown): { toolName: string; args: unknown } | un
 const READ_ONLY_BASH_BINS = new Set([
 	"date", "uname", "pwd", "whoami", "hostname", "wc", "echo", "printf",
 	"true", "false", "basename", "dirname", "nproc", "arch", "id", "printenv",
+	"cd", "ls", "find", "grep", "rg", "head", "tail", "sort", "cut", "tr",
+	"cat", "file", "stat", "du", "df", "realpath",
 ]);
 
 function bashCommand(args: unknown): string {
@@ -172,13 +174,84 @@ function bashCommand(args: unknown): string {
 	return "";
 }
 
-/** True for inspection-only bash (date, wc, pwd, …) with no shell operators. */
+/**
+ * Split a small, deliberately conservative shell subset. Quotes are retained
+ * in segments so grep/find patterns such as "foo bar" remain valid. Shell
+ * expansion, redirection, backgrounding, and command substitution are not
+ * accepted; the one harmless exception is stderr suppression to /dev/null.
+ */
+function readOnlyBashSegments(command: string): string[] | undefined {
+	const normalized = command.replace(/(?:^|\s)2>\s*\/dev\/null(?=\s|[;|&]|$)/g, " ");
+	const segments: string[] = [];
+	let start = 0;
+	let quote = "";
+	for (let i = 0; i < normalized.length; i++) {
+		const ch = normalized[i];
+		if (ch === "\\" && quote !== "'") { i++; continue; }
+		if (ch === "'" || ch === '"') {
+			if (!quote) quote = ch;
+			else if (quote === ch) quote = "";
+			continue;
+		}
+		if (quote) continue;
+		if (ch === "$" || ch === "`" || ch === "<" || ch === ">" || ch === "(" || ch === ")" || ch === "{" || ch === "}" || ch === "!") return undefined;
+		if (ch === ";" || ch === "\n" || ch === "|") {
+			if (ch === "|" && normalized[i + 1] === "|") i++;
+			const segment = normalized.slice(start, i).trim();
+			if (!segment) return undefined;
+			segments.push(segment);
+			start = i + 1;
+		} else if (ch === "&") {
+			if (normalized[i + 1] !== "&") return undefined;
+			const segment = normalized.slice(start, i).trim();
+			if (!segment) return undefined;
+			segments.push(segment);
+			i++;
+			start = i + 1;
+		}
+	}
+	if (quote) return undefined;
+	const last = normalized.slice(start).trim();
+	if (!last) return undefined;
+	segments.push(last);
+	return segments;
+}
+
+function readOnlyBashTokens(segment: string): string[] | undefined {
+	const tokens: string[] = [];
+	let token = "";
+	let quote = "";
+	for (let i = 0; i < segment.length; i++) {
+		const ch = segment[i];
+		if (ch === "\\" && quote !== "'") {
+			if (++i >= segment.length) return undefined;
+			token += segment[i];
+		} else if ((ch === "'" || ch === '"')) {
+			if (!quote) quote = ch;
+			else if (quote === ch) quote = "";
+			else token += ch;
+		} else if (!quote && /\s/.test(ch)) {
+			if (token) { tokens.push(token); token = ""; }
+		} else token += ch;
+	}
+	if (quote) return undefined;
+	if (token) tokens.push(token);
+	return tokens.length ? tokens : undefined;
+}
+
+/** True for inspection-only bash, including safe composed read-only commands. */
 export function isReadOnlyBash(args: unknown): boolean {
 	const command = bashCommand(args);
 	if (!command) return false;
-	if (/[;&|`$<>(){}!\n]/.test(command)) return false;
-	const bin = command.split(/\s+/)[0]?.replace(/^\/(?:usr\/)?bin\//, "") ?? "";
-	return READ_ONLY_BASH_BINS.has(bin);
+	const segments = readOnlyBashSegments(command);
+	if (!segments) return false;
+	return segments.every((segment) => {
+		const tokens = readOnlyBashTokens(segment);
+		if (!tokens) return false;
+		const bin = tokens[0]?.replace(/^\/(?:usr\/)?bin\//, "") ?? "";
+		if (!READ_ONLY_BASH_BINS.has(bin)) return false;
+		return !tokens.some((token) => /^(?:--?(?:exec|execdir|delete|ok)|-delete|-exec|-execdir|-ok)$/.test(token));
+	});
 }
 
 export function toolPath(args: unknown): string | undefined {
