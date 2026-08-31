@@ -60,6 +60,10 @@ function readChildren(workspace: string): TaskJournalEntry[] {
 	}
 }
 
+function resumableChildren(workspace: string): TaskJournalEntry[] {
+	return readChildren(workspace).filter((child) => !["done", "completed", "success"].includes(child.status));
+}
+
 function currentTasks(): Array<{ id: number; text: string; status: string }> {
 		return Array.isArray(g.__piTaskList?.tasks) ? g.__piTaskList.tasks : [];
 }
@@ -73,9 +77,12 @@ function changedFiles(workspace: string): boolean {
 function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: HandoffSnapshot["status"] } = {}): HandoffSnapshot {
 	const state = coordinationState();
 	const tasks = currentTasks();
-	const children = readChildren(cwdOf(ctx));
+	// Completed scouts are historical evidence, not resumable work. Keeping them
+	// out of the handoff prevents old reconnaissance from consuming the next
+	// session's context; failed/running children remain actionable.
+	const children = resumableChildren(cwdOf(ctx));
 	const activeTask = tasks.find((task) => task.status === "inprogress");
-	const activeChild = children.find((child) => child.status === "running" || child.status === "dispatched");
+	const activeChild = children.find((child) => child.status === "running" || child.status === "dispatched" || child.status === "failed" || child.status === "error");
 	const receipt = state.verifierReceipt;
 	return buildHandoffSnapshot({
 		workspace: cwdOf(ctx),
@@ -87,7 +94,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 		activePipeline: state.activePipeline,
 		tasks,
 		children,
-		nextAction: activeTask?.text || (activeChild ? `Review ${activeChild.agent} result` : undefined),
+		nextAction: activeTask?.text || (activeChild ? `${["failed", "error"].includes(activeChild.status) ? "Recover" : "Review"} ${activeChild.agent} result` : undefined),
 		verification: state.executionContract ? {
 			status: receipt?.status || "UNVERIFIED",
 			attempt: state.verifierAttempt,
