@@ -64,12 +64,21 @@ Commander: offline. Do not call commander_* tools.`;
 ${GRILL_ME_SECTION}
 
 ## Optional scout
-For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
+Start with direct work and reassess as evidence accumulates. For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
 
 \`\`\`
 subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }
 \`\`\`
 This call blocks until the scout RESULT returns. Treat that ## RESULT as the report. Do not read the archived transcript unless RESULT is missing a path you need. Do not scan the same area yourself in that turn. If the scout fails, continue directly.
+
+## Progressive escalation
+NORMAL is allowed to grow with the task; do not commit to an unbounded solo debugging loop. After roughly 3-5 focused inspection calls, two failed root-cause hypotheses, or repeated searches over the same area without new evidence, stop and reassess. If the cause is still unclear, dispatch one scout for an independent read-only investigation, even if the task initially looked simple. Do not repeat the same exploration before the scout returns.
+
+After reconnaissance, choose the lightest sufficient next step:
+- Continue directly when the root cause and change location are clear.
+- Use \`set_mode\` PLAN when the fix spans files, changes an interface or behavior contract, or the implementation approach needs review.
+- Use TEAM for genuinely independent parallel workstreams, CHAIN for a predefined sequential workflow, or PIPELINE for a defined phased workflow.
+Escalating is not failure and does not require retroactive ceremony; keep the work in NORMAL when a scout resolves the uncertainty.
 
 ## When to opt into orchestration
 Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:

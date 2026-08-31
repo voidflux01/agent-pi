@@ -135,6 +135,16 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		expect(result.toLowerCase()).toContain("continue directly");
 	});
 
+	it("supports progressive escalation when direct debugging gets stuck", () => {
+		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
+		expect(result).toContain("reassess as evidence accumulates");
+		expect(result).toContain("3-5 focused inspection calls");
+		expect(result).toContain("two failed root-cause hypotheses");
+		expect(result).toContain("even if the task initially looked simple");
+		expect(result).toContain("lightest sufficient next step");
+		expect(result).toContain("keep the work in NORMAL when a scout resolves the uncertainty");
+	});
+
 	it("tells the parent the scout call blocks until RESULT", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
 		expect(result).toContain("blocks until the scout RESULT returns");
