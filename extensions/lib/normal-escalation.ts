@@ -2,7 +2,7 @@
 // ABOUTME: Keeps simple work frictionless while requiring a low-cost scout after a recon loop.
 
 export const NORMAL_RECON_TOOLS = ["read", "grep", "find", "ls", "glob"] as const;
-export const NORMAL_RECON_LIMIT = 6;
+export const NORMAL_RECON_LIMIT = 8;
 
 export interface NormalEscalationState {
 	consecutiveReconCalls: number;

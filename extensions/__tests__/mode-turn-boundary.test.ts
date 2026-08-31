@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import modeCycler from "../mode-cycler.ts";
 import { setCoordinationMode } from "../lib/coordination-state.ts";
 import { markPlanApproved, resetApprovals } from "../lib/approval-gate.ts";
+import { NORMAL_RECON_LIMIT } from "../lib/normal-escalation.ts";
 
 function registerModeTool() {
 	let tool: any;
@@ -105,7 +106,7 @@ describe("set_mode turn boundary", () => {
 		};
 		modeCycler(pi);
 
-		for (let i = 0; i < 5; i++) {
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
 			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", arguments: { command: "rg -n TODO ." } }, {})));
 			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}

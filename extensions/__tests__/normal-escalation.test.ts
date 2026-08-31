@@ -18,7 +18,7 @@ describe("NORMAL progressive escalation", () => {
 		}
 	});
 
-	it("blocks the next recon loop at the limit", () => {
+	it("blocks the recon loop at the limit", () => {
 		const state = createNormalEscalationState();
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "read");
 		expect(recordNormalToolCall(state, "find")).toEqual({ block: true, count: NORMAL_RECON_LIMIT });
