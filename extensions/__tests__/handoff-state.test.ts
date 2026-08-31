@@ -56,8 +56,9 @@ describe("handoff state", () => {
 		const workspace = mkdtempSync(join(tmpdir(), "handoff-extension-"));
 		const handlers = new Map<string, Function>();
 		const notifications: string[] = [];
+		let command: any;
 		const pi = {
-			registerCommand() {},
+			registerCommand(_name: string, definition: any) { command = definition; },
 			registerTool() {},
 			on(name: string, handler: Function) { handlers.set(name, handler); },
 		};
@@ -73,6 +74,8 @@ describe("handoff state", () => {
 		try {
 			writeHandoff(workspace, buildHandoffSnapshot({ workspace, sessionId: "old-session", objective: "Resume this", mode: "PLAN", nextAction: "Inspect evidence" }));
 			handoffExtension(pi as any);
+			expect(command.getArgumentCompletions("r").map((item: any) => item.value)).toEqual(["resume"]);
+			expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["resume", "complete"]);
 			await handlers.get("session_start")!({ reason: "startup" }, ctx);
 			expect(notifications.join("\n")).toContain("Unfinished handoff found");
 			const resumed = await handlers.get("before_agent_start")!({}, ctx);

@@ -3,6 +3,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
@@ -129,6 +130,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("handoff", {
 		description: "Show the compact task handoff for this workspace",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const options = [
+				{ value: "resume", label: "resume", description: "Queue this handoff for the next turn" },
+				{ value: "complete", label: "complete", description: "Mark this handoff completed" },
+			];
+			const filtered = options.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			const workspace = cwdOf(ctx);
 			const saved = readHandoff(workspace);
