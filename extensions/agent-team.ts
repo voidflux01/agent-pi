@@ -511,6 +511,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		ctx: any,
 		parentRunId?: string,
+		signal?: AbortSignal,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number; model: string }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0, model: "" });
@@ -825,7 +826,7 @@ export default function (pi: ExtensionAPI) {
 					timeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 					journal: { dir: sessionDir, id: journalId },
 					paneTitle,
-					isCancelled: () => runEpoch !== sessionEpoch,
+					isCancelled: () => runEpoch !== sessionEpoch || !!signal?.aborted,
 					onProcess: (proc: any) => { state.proc = lifecycle.trackProcess(proc); },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
@@ -859,7 +860,7 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: paneTitle,
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
-				isAborted: () => runEpoch !== sessionEpoch,
+				isAborted: () => runEpoch !== sessionEpoch || !!signal?.aborted,
 					onProcess: (child) => { state.proc = lifecycle.trackProcess(child as any); },
 				onStdoutLine: handleStdoutLine,
 				onStderr: (chunk) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
@@ -897,7 +898,7 @@ export default function (pi: ExtensionAPI) {
 			task: Type.String({ description: "Task description for the agent to execute" }),
 		}),
 
-		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
+		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
 			const orchestrationRun = createOrchestrationRun({ context: ctx, actor: "agent-team", mode: "TEAM", budget: { maxSteps: 1 }, workspaceCwd: ctx?.cwd });
@@ -912,7 +913,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				orchestrationRun.consumeStep();
-				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId);
+				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, signal);
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).

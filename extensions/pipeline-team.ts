@@ -439,6 +439,7 @@ export default function (pi: ExtensionAPI) {
 		agentState: AgentState,
 		ctx: any,
 		parentRunId?: string,
+		signal?: AbortSignal,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -596,6 +597,7 @@ export default function (pi: ExtensionAPI) {
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 				herdrPaneKey: journalId,
+				isAborted: () => !!signal?.aborted,
 				journal: { dir: sessionDir, id: journalId },
 				onProcess: (child) => { agentState.proc = lifecycle.trackProcess(child as any); },
 				onStdoutLine: (line) => {
@@ -645,6 +647,7 @@ export default function (pi: ExtensionAPI) {
 		mode: "parallel" | "sequential",
 		ctx: any,
 		parentRunId?: string,
+		signal?: AbortSignal,
 	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean; blockedReason?: string }> {
 		if (!isExplicitDispatchActive()) {
 			return { outputs: [], fullOutputs: [], fullOutputPaths: [], success: false, blockedReason: "Dispatch refused: only an explicit tool or slash command may start a child" };
@@ -691,7 +694,7 @@ export default function (pi: ExtensionAPI) {
 					updateWidget();
 					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
-				return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId);
+				return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId, signal);
 			};
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
@@ -728,7 +731,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const task = d.task.replace(/\$INPUT/g, input);
-				const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId);
+				const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId, signal);
 				outputs.push(result.output);
 				fullOutputs.push(result.fullOutput || "");
 				fullOutputPaths.push(result.fullOutputPath || "");
@@ -998,7 +1001,7 @@ export default function (pi: ExtensionAPI) {
 			}), { description: "Array of agents to dispatch" }),
 		}),
 
-		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
+		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, signal, onUpdate, ctx) => {
 			const { agents } = params as { agents: { role: string; task: string }[] };
 			const phase = phaseStates[currentPhaseIndex];
 
@@ -1041,7 +1044,7 @@ export default function (pi: ExtensionAPI) {
 			orchestrationRun.consumeStep();
 			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
 			try {
-				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId);
+				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, signal);
 				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
 				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
 			} catch (error) {

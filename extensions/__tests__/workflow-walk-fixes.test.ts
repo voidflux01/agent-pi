@@ -92,6 +92,16 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: result.runId");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 	});
+
+	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {
+		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+		const team = readFileSync(join(root, "agent-team.ts"), "utf8");
+		const chain = readFileSync(join(root, "agent-chain.ts"), "utf8");
+		const pipeline = readFileSync(join(root, "pipeline-team.ts"), "utf8");
+		expect(team).toContain("runEpoch !== sessionEpoch || !!signal?.aborted");
+		expect(chain).toContain("!lifecycle.isCurrent(runEpoch) || !!signal?.aborted");
+		expect(pipeline).toContain("isAborted: () => !!signal?.aborted");
+	});
 	it("gates advance_phase on dispatchCount", () => {
 		const src = readFileSync(join(__dirname, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("phaseRequiresAgentDispatch");

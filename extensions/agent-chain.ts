@@ -329,6 +329,7 @@ export default function (pi: ExtensionAPI) {
 		stepIndex: number,
 		ctx: any,
 		parentRunId?: string,
+		signal?: AbortSignal,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -489,6 +490,7 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
+				isAborted: () => !lifecycle.isCurrent(runEpoch) || !!signal?.aborted,
 				onProcess: (child) => {
 					if (lifecycle.isCurrent(runEpoch)) {
 						currentChainProc = lifecycle.trackProcess(child);
@@ -542,6 +544,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		ctx: any,
 		resume = false,
+		signal?: AbortSignal,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number; runId?: string }> {
 		if (!isExplicitDispatchActive()) {
 			return { output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
@@ -635,7 +638,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			orchestrationRun.consumeStep();
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId);
+			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, signal);
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";
@@ -682,7 +685,7 @@ export default function (pi: ExtensionAPI) {
 			chain: Type.Optional(Type.String({ description: "Chain name to activate first, e.g. plan-build" })),
 		}),
 
-		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			widgetCtx = ctx;
 			const { task, chain: chainName } = params as { task: string; chain?: string };
 			if (chainName) {
@@ -704,7 +707,7 @@ export default function (pi: ExtensionAPI) {
 				});
 			}
 
-			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx))();
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(task, ctx, false, signal))();
 
 			// result.output is already the composed precision-preserving index.
 			const status = result.success ? "done" : "error";

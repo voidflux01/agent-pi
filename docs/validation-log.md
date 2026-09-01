@@ -160,3 +160,5 @@ the authoritative fixture command is `node --test`.
 - Full repository tests after cross-mode reconnaissance routing: 174 Bun passed; 950 Vitest passed; 13 skipped.
 - RunContext budget coverage now hard-blocks new steps after a token/cost ceiling is exceeded, while preserving the measured overage and terminal `run.failed` audit event.
 - Full repository tests after RunContext budget enforcement: 174 Bun passed; 950 Vitest passed; 13 skipped.
+- TEAM, CHAIN, and PIPELINE now propagate the parent tool AbortSignal into their worker transports; cancelling the primary orchestration call reaches standard Pi workers instead of only ending the parent wait.
+- Full repository tests after cross-entry cancellation propagation: 174 Bun passed; 951 Vitest passed; 13 skipped.
