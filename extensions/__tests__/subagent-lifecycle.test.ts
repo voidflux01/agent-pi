@@ -61,6 +61,15 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("if (!state.awaitResult)");
 		expect(src).toContain('deliverAs: "steer"');
 	});
+
+	it("attaches NORMAL/PLAN/SPEC subagent dispatches to an auditable parent run", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain("createOrchestrationRun");
+		expect(src).toContain('actor: `subagent:${state.name.toLowerCase()}`');
+		expect(src).toContain('parentRunId: orchestrationRun.runId');
+		expect(src).toContain('orchestrationRun.record("subagent.completed"');
+		expect(src).toContain('orchestrationRun.finish(');
+	});
 });
 
 describe("timeout resolution", () => {
