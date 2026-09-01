@@ -42,6 +42,10 @@ worker lifecycle boundaries.
 - The live orchestration Activity dashboard now shows bounded per-run
   token/cost usage alongside status, duration, verification, and recovery
   information, making mode-level efficiency differences visible during work.
+- `compose_exec` persists a bounded composition plan and supports explicit
+  `resume_run_id` recovery for stale runs: completed steps and their compact
+  results are reused, while only unfinished steps are executed in a new linked
+  run. Active or terminal source runs are rejected instead of replayed.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and

@@ -11,6 +11,9 @@ import { executeBuiltinTool, nestedApprovalBlock, nestedSecurityBlock } from "./
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { listRunEvents, type RunEvent } from "./lib/evidence-store.ts";
+import { summarizeOrchestrationRun } from "./lib/orchestration-query.ts";
+import { dirname, join } from "node:path";
 
 const Step = Type.Object({
 	tool: Type.String({ description: "Capability name, e.g. tasks or dispatch_agent" }),
@@ -23,12 +26,32 @@ const Step = Type.Object({
 });
 
 const ComposeParams = Type.Object({
-	steps: Type.Array(Step, { minItems: 1, maxItems: 16, description: "Steps to execute" }),
+	steps: Type.Optional(Type.Array(Step, { minItems: 1, maxItems: 16, description: "Steps to execute; omitted only when resuming a persisted composition" })),
 	parallel: Type.Optional(Type.Boolean({ description: "Run independent steps concurrently" })),
 	stop_on_error: Type.Optional(Type.Boolean({ description: "Stop after the first failed step in sequential mode" })),
+	resume_run_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9-]{1,128}$", description: "Explicitly resume a stale compose run by id" })),
 });
 
 type StepArgs = { tool: string; arguments?: Record<string, unknown>; label?: string; when?: { step: number; status: "completed" | "failed" | "blocked" | "skipped" } };
+
+function eventData(event: RunEvent): Record<string, unknown> {
+	if (!event.payload || typeof event.payload !== "object") return {};
+	const payload = event.payload as Record<string, unknown>;
+	return payload.data && typeof payload.data === "object" ? payload.data as Record<string, unknown> : payload;
+}
+
+function compositionEventDir(ctx: any, runId: string): string | undefined {
+	const sessionFile = ctx?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
+	return typeof sessionFile === "string" && sessionFile ? join(dirname(sessionFile), "compositions", runId) : undefined;
+}
+
+/** Keep a plan resumable without allowing one event to consume the whole journal. */
+function boundedCompositionPlan(steps: StepArgs[]): StepArgs[] | undefined {
+	try {
+		const plan = steps.map((step) => ({ ...step, ...(step.arguments === undefined ? {} : { arguments: step.arguments }) }));
+		return Buffer.byteLength(JSON.stringify(plan), "utf8") <= 48 * 1024 ? plan : undefined;
+	} catch { return undefined; }
+}
 
 function resolveStepReferences(value: unknown, results: any[], currentIndex: number): { value?: unknown; error?: string } {
 	if (typeof value === "string") {
@@ -132,17 +155,43 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "compose_exec",
 		label: "Compose Exec",
-		description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. Workspace-bounded read/write/edit and security-checked bash are supported; other built-ins remain on Pi's native path.",
+		description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. Workspace-bounded read/write/edit and security-checked bash are supported; other built-ins remain on Pi's native path. Use resume_run_id only for an explicit stale-run recovery.",
 		parameters: ComposeParams,
 		capabilityRisk: "execute",
 		capabilityEffect: { resources: ["extension-runtime"], ordering: "unknown" },
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const steps = params.steps as StepArgs[];
+			let steps = (Array.isArray(params.steps) ? params.steps : []) as StepArgs[];
 			const parallel = params.parallel === true;
 			const stopOnError = params.stop_on_error !== false;
 			const executors = getRegisteredToolExecutors();
 			const cwd = ctx?.cwd || process.cwd();
+			const requestedResumeId = typeof params.resume_run_id === "string" ? params.resume_run_id : undefined;
+			let resumeOf: string | undefined;
+			let reusedResults: any[] = [];
+			if (requestedResumeId) {
+				const sourceDir = compositionEventDir(ctx, requestedResumeId);
+				const sourceEvents = sourceDir ? listRunEvents(sourceDir) : [];
+				const sourceSummary = sourceDir ? summarizeOrchestrationRun(sourceDir) : undefined;
+				const terminal = sourceEvents.some((event) => event.type === "run.succeeded" || event.type === "run.failed" || event.type === "run.cancelled");
+				const started = sourceEvents.find((event) => event.type === "composition.started");
+				const startedData = started ? eventData(started) : {};
+				const persistedSteps = Array.isArray(startedData.steps) ? startedData.steps as StepArgs[] : undefined;
+				if (terminal || sourceSummary?.status !== "stale") return { content: [{ type: "text" as const, text: "compose resume blocked: source run is not stale; inspect it before resuming" }], details: { error: terminal ? "resume_terminal" : "resume_source_active" } };
+				if (!sourceDir || sourceEvents.length === 0 || !persistedSteps) return { content: [{ type: "text" as const, text: "compose resume blocked: source checkpoint is missing or not resumable" }], details: { error: "resume_checkpoint_missing" } };
+				const completed = new Map<number, any>();
+				for (const event of sourceEvents.filter((item) => item.type === "step.completed")) {
+					const data = eventData(event);
+					if (Number.isInteger(data.index) && data.result && typeof data.result === "object") completed.set(Number(data.index), { index: Number(data.index), tool: toolName(persistedSteps[Number(data.index)]?.tool || ""), status: "completed", result: data.result });
+				}
+				steps = persistedSteps;
+				reusedResults = [...completed.values()].sort((a, b) => a.index - b.index);
+				resumeOf = requestedResumeId;
+			}
+			if (steps.length === 0) return { content: [{ type: "text" as const, text: "compose_exec requires steps unless resume_run_id points to a resumable stale composition" }], details: { error: "steps_required" } };
 			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", mode: coordinationState().mode, workspaceCwd: cwd });
+			if (resumeOf) run.record("composition.resumed", { sourceRunId: resumeOf, reusedSteps: reusedResults.map((result) => result.index) });
+			const persistedPlan = boundedCompositionPlan(steps);
+			run.record("composition.started", { steps: persistedPlan, resumable: Boolean(persistedPlan), total: steps.length });
 			const parallelConflict = parallel ? (() => {
 				const capabilities = steps.map((step) => {
 					const name = toolName(step.tool);
@@ -202,11 +251,16 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const results: any[] = [];
+			for (const result of reusedResults) results[result.index] = result;
 			if (parallelConflict) {
 				results.push(...steps.map((step, index) => ({ index, tool: toolName(step.tool), status: "blocked", error: `parallel effect conflict: ${parallelConflict}` })));
-			} else if (parallel) results.push(...await Promise.all(steps.map((step, index) => runStep(step, index, []))));
+			} else if (parallel) {
+				const parallelResults = await Promise.all(steps.map((step, index) => results[index]?.status === "completed" ? results[index] : runStep(step, index, [])));
+				parallelResults.forEach((result, index) => { results[index] = result; });
+			}
 			else {
 				for (let index = 0; index < steps.length; index += 1) {
+					if (results[index]?.status === "completed") continue;
 					const result = await runStep(steps[index]!, index, results);
 					results.push(result);
 					if (stopOnError && (result.status === "failed" || result.status === "blocked")) break;
@@ -216,7 +270,7 @@ export default function (pi: ExtensionAPI) {
 			run.finish(failed ? "failed" : "succeeded", { total: steps.length, completed: results.length - failed, failed });
 			return {
 				content: [{ type: "text" as const, text: `compose_exec ${failed ? "completed with issues" : "completed"}: ${results.length}/${steps.length} step(s)` }],
-				details: { runId: run.runId, eventDir: run.eventDir, parallel, total: steps.length, completed: results.filter((result) => result.status === "completed").length, failed, results },
+				details: { runId: run.runId, eventDir: run.eventDir, ...(resumeOf ? { resumeOf, reusedSteps: reusedResults.map((result) => result.index) } : {}), parallel, total: steps.length, completed: results.filter((result) => result.status === "completed").length, failed, results },
 			};
 		},
 		renderCall(args, theme) {
