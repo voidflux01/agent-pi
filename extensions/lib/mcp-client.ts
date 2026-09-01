@@ -80,14 +80,15 @@ export class McpClient {
 		});
 
 		this.proc.stdout!.setEncoding("utf-8");
-		this.proc.stdout!.on("data", (chunk: string) => this.onData(chunk));
+		const proc = this.proc;
+		proc.stdout!.on("data", (chunk: string) => this.onData(chunk, proc));
 		this.proc.stderr!.on("data", () => {}); // Drain stderr
-		this.proc.on("close", () => this.onClose());
-		this.proc.on("error", (err) => this.onClose(err));
+		proc.on("close", () => this.onClose(proc));
+		proc.on("error", (err) => this.onClose(proc, err));
 
 		// Handle stdin errors (EPIPE when server dies) to prevent uncaught crash
-		this.proc.stdin!.on("error", (err) => {
-			this.onClose();
+		proc.stdin!.on("error", () => {
+			this.onClose(proc);
 		});
 
 		// Send initialize handshake
@@ -182,10 +183,11 @@ export class McpClient {
 		return this.connected;
 	}
 
-	private onData(chunk: string): void {
+	private onData(chunk: string, source?: ChildProcess): void {
+		if (source && this.proc !== source) return;
 		if (Buffer.byteLength(this.buffer) + Buffer.byteLength(chunk) > McpClient.MAX_BUFFER_BYTES) {
-			try { this.proc?.kill(); } catch {}
-			this.onClose();
+			try { (source || this.proc)?.kill(); } catch {}
+			this.onClose(source);
 			return;
 		}
 		const { messages, remainder } = parseJsonRpcLines(this.buffer + chunk);
@@ -206,7 +208,8 @@ export class McpClient {
 		}
 	}
 
-	private onClose(cause?: unknown): void {
+	private onClose(source?: ChildProcess, cause?: unknown): void {
+		if (source && this.proc !== source) return;
 		this.connected = false;
 		this.proc = null;
 		const detail = cause instanceof Error ? `: ${cause.message}` : "";

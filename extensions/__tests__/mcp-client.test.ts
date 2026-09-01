@@ -176,6 +176,31 @@ describe("McpClient", () => {
 		expect(client.isConnected()).toBe(true);
 	});
 
+	it("should ignore delayed events from a previous process after reconnect", async () => {
+		const client = new McpClient("/path/to/server.js", {});
+		const firstConnect = client.connect();
+		const firstProc = lastMockProc;
+		firstProc.stdout.emit("data", JSON.stringify({
+			jsonrpc: "2.0", id: 1,
+			result: { protocolVersion: "2024-11-05", capabilities: {} },
+		}) + "\n");
+		await firstConnect;
+
+		client.disconnect();
+		const reconnect = client.connect();
+		const secondProc = lastMockProc;
+		secondProc.stdout.emit("data", JSON.stringify({
+			jsonrpc: "2.0", id: 2,
+			result: { protocolVersion: "2024-11-05", capabilities: {} },
+		}) + "\n");
+		await reconnect;
+
+		firstProc.emit("close", 1);
+		firstProc.emit("error", new Error("stale process"));
+		firstProc.stdout.emit("data", '{"jsonrpc":"2.0","id":999}\n');
+		expect(client.isConnected()).toBe(true);
+	});
+
 	it("should send initialize handshake on connect", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		const connectPromise = client.connect();
