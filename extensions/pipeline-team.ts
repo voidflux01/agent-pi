@@ -68,6 +68,7 @@ import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
+import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -387,6 +388,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		agentState: AgentState,
 		ctx: any,
+		parentRunId?: string,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -532,9 +534,11 @@ export default function (pi: ExtensionAPI) {
 					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
 					PI_PANE_TITLE: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 					PI_SESSION_FILE: agentSessionFile || undefined,
+					PI_AGENT_PI_RUN_ID: parentRunId,
 				}),
 				launchDir: sessionDir,
 				launchId: journalId,
+				parentRunId,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
@@ -587,6 +591,7 @@ export default function (pi: ExtensionAPI) {
 		agentDefs: { role: string; task: string }[],
 		mode: "parallel" | "sequential",
 		ctx: any,
+		parentRunId?: string,
 	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean; blockedReason?: string }> {
 		if (!isExplicitDispatchActive()) {
 			return { outputs: [], fullOutputs: [], fullOutputPaths: [], success: false, blockedReason: "Dispatch refused: only an explicit tool or slash command may start a child" };
@@ -632,7 +637,7 @@ export default function (pi: ExtensionAPI) {
 					updateWidget();
 					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
-				return spawnAgent(def, d.task, phaseState.agents[i], ctx);
+				return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId);
 			};
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
@@ -669,7 +674,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const task = d.task.replace(/\$INPUT/g, input);
-				const result = await spawnAgent(def, task, phaseState.agents[i], ctx);
+				const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId);
 				outputs.push(result.output);
 				fullOutputs.push(result.fullOutput || "");
 				fullOutputPaths.push(result.fullOutputPath || "");
@@ -965,7 +970,23 @@ export default function (pi: ExtensionAPI) {
 			}));
 
 			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
-			const result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx);
+			const orchestrationRun = createOrchestrationRun({
+				context: ctx,
+				actor: `pipeline:${activeConfig.name}:phase:${phase.def.name}`,
+				budget: { maxSteps: Math.max(1, resolved.length) },
+			});
+			orchestrationRun.record("pipeline.started", { phase: phase.def.name, mode, agents: resolved.map(a => a.role) });
+			orchestrationRun.consumeStep();
+			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
+			try {
+				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId);
+				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
+				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
+			} catch (error) {
+				orchestrationRun.record("pipeline.failed", { phase: phase.def.name, error: error instanceof Error ? error.message : String(error) });
+				orchestrationRun.finish("failed", { phase: phase.def.name });
+				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true, phase: phase.def.name } };
+			}
 
 			// Merge outputs into accumulated context. Each output is already a
 			// compact precision-preserving index (## RESULT + full-output path),

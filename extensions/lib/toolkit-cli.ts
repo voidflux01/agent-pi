@@ -577,6 +577,7 @@ export async function runToolkitDispatch(opts: {
 	env?: NodeJS.ProcessEnv;
 	sessionDir: string;
 	runId: string;
+	parentRunId?: string;
 	paneTitle: string;
 	onProcess?: (proc: any) => void;
 	onStdoutLine?: (line: string) => void;
@@ -592,7 +593,7 @@ export async function runToolkitDispatch(opts: {
 	}
 	const orchestrationRun = createOrchestrationRun({
 		eventDir: join(opts.sessionDir, "compositions", opts.runId),
-		parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+		parentRunId: opts.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: `toolkit:${opts.agentName}`,
 		budget: { maxSteps: 1 },
 	});

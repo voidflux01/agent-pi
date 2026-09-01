@@ -15,7 +15,8 @@ const Params = Type.Object({
 
 function renderSummary(run: any): string {
 	const duration = run.durationMs === undefined ? "running" : `${Math.round(run.durationMs / 1000)}s`;
-	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events  ${run.runId}`;
+	const parent = run.parentRunId ? ` parent=${run.parentRunId}` : "";
+	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events  ${run.runId}${parent}`;
 }
 
 export default function (pi: ExtensionAPI) {

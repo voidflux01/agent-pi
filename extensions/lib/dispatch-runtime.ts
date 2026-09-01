@@ -57,6 +57,8 @@ export interface DispatchRuntimeSpec {
 	/** Directory used for Herdr launch markers. */
 	launchDir: string;
 	launchId: string;
+	/** Optional orchestration run that owns this child dispatch. */
+	parentRunId?: string;
 	/** Session JSONL used as the authoritative result for a visible run. */
 	sessionFile?: string;
 	herdrDoneExtPath?: string;
@@ -390,7 +392,7 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 	}
 	const orchestrationRun = createOrchestrationRun({
 		sessionFile: spec.sessionFile,
-		parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+		parentRunId: spec.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: "dispatch-runtime",
 		budget: { maxSteps: 1 },
 	});

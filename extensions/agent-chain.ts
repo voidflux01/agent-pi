@@ -53,6 +53,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
+import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -325,6 +326,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		stepIndex: number,
 		ctx: any,
+		parentRunId?: string,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -472,9 +474,11 @@ export default function (pi: ExtensionAPI) {
 					PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
 					PI_PANE_TITLE: herdrWorkerLabel(agentDef?.name || "chain", journalId),
 					PI_SESSION_FILE: agentSessionFile || undefined,
+					PI_AGENT_PI_RUN_ID: parentRunId,
 				}),
 				launchDir: sessionDir,
 				launchId: journalId,
+				parentRunId,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),
@@ -539,6 +543,13 @@ export default function (pi: ExtensionAPI) {
 		if (!activeChain) {
 			return { output: "No chain active", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
 		}
+		const orchestrationRun = createOrchestrationRun({
+			context: ctx,
+			parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+			actor: `chain:${activeChain.name}`,
+			budget: { maxSteps: activeChain.steps.length },
+		});
+		orchestrationRun.record("chain.started", { chain: activeChain.name, task });
 
 		const chainStart = Date.now();
 
@@ -583,27 +594,34 @@ export default function (pi: ExtensionAPI) {
 				stepStates[i].status = "error";
 				stepStates[i].lastWork = `Agent "${step.agent}" not found`;
 				updateWidget();
-				return {
+				const failed = {
 					output: `Error at step ${i + 1}: Agent "${step.agent}" not found. Available: ${Array.from(allAgents.keys()).join(", ")}`,
 					fullOutput: "",
 					fullOutputPath: "",
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
+				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, reason: "agent_not_found" });
+				orchestrationRun.finish("failed", { step: i + 1 });
+				return failed;
 			}
 
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx);
+			orchestrationRun.consumeStep();
+			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId);
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";
 				updateWidget();
-				return {
+				const failed = {
 					output: `Error at step ${i + 1} (${step.agent}): ${result.output}`,
 					fullOutput: result.fullOutput || "",
 					fullOutputPath: result.fullOutputPath || "",
 					success: false,
 					elapsed: Date.now() - chainStart,
 				};
+				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, exitCode: result.exitCode });
+				orchestrationRun.finish("failed", { step: i + 1 });
+				return failed;
 			}
 
 			stepStates[i].status = "done";
@@ -615,7 +633,10 @@ export default function (pi: ExtensionAPI) {
 			lastFullOutputPath = result.fullOutputPath || "";
 		}
 
-		return { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart };
+		const completed = { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart };
+		orchestrationRun.record("chain.completed", { steps: activeChain.steps.length });
+		orchestrationRun.finish("succeeded", { steps: activeChain.steps.length });
+		return completed;
 	}
 
 	// ── run_chain Tool ──────────────────────────

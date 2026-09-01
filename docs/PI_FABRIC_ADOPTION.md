@@ -25,6 +25,9 @@ worker lifecycle boundaries.
   every intermediate tool payload.
 - `orchestration_status` and `/orchestration-status` read the same persisted
   run events used by dispatch, toolkit, and composition paths.
+- TEAM, CHAIN, and PIPELINE now emit parent orchestration runs; their child
+  dispatch records carry `parentRunId`, so the execution graph can be rebuilt
+  after a restart.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.

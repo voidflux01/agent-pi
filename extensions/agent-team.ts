@@ -54,6 +54,7 @@ import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTask
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
+import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -509,6 +510,7 @@ export default function (pi: ExtensionAPI) {
 		agentName: string,
 		task: string,
 		ctx: any,
+		parentRunId?: string,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number; model: string }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0, model: "" });
@@ -650,6 +652,7 @@ export default function (pi: ExtensionAPI) {
 				PI_AGENT_NAME: displayName(state.def.name).toLowerCase(),
 				PI_PANE_TITLE: paneTitle,
 				PI_SESSION_FILE: state.sessionFile || undefined,
+				PI_AGENT_PI_RUN_ID: parentRunId,
 			});
 			let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
 			let toolkitModel: string | undefined;
@@ -816,6 +819,7 @@ export default function (pi: ExtensionAPI) {
 					env: spawnEnv,
 					sessionDir,
 					runId: journalId,
+					parentRunId,
 					paneTitle,
 					isCancelled: () => runEpoch !== sessionEpoch,
 					onProcess: (proc: any) => { state.proc = lifecycle.trackProcess(proc); },
@@ -843,6 +847,7 @@ export default function (pi: ExtensionAPI) {
 				env: spawnEnv,
 				launchDir: sessionDir,
 				launchId: journalId,
+				parentRunId,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: paneTitle,
@@ -889,6 +894,8 @@ export default function (pi: ExtensionAPI) {
 		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
+			const orchestrationRun = createOrchestrationRun({ context: ctx, actor: "agent-team", budget: { maxSteps: 1 } });
+			orchestrationRun.record("team.started", { agent, task });
 
 			try {
 				if (onUpdate) {
@@ -898,13 +905,16 @@ export default function (pi: ExtensionAPI) {
 					});
 				}
 
-				const result = await dispatchAgent(agent, task, ctx);
+				orchestrationRun.consumeStep();
+				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId);
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
 				const status = result.exitCode === 0 ? "done" : "error";
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
+				orchestrationRun.record("team.completed", { agent, exitCode: result.exitCode });
+				orchestrationRun.finish(result.exitCode === 0 ? "succeeded" : "failed", { agent, exitCode: result.exitCode });
 				return {
 					content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
 					details: {
@@ -919,6 +929,8 @@ export default function (pi: ExtensionAPI) {
 					},
 				};
 			} catch (err: any) {
+				orchestrationRun.record("team.failed", { agent, error: err?.message || String(err) });
+				orchestrationRun.finish("failed", { agent });
 				return {
 					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
 					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", fullOutputPath: "", model: defModel },

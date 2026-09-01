@@ -7,6 +7,7 @@ import { listRunEvents, type RunEvent } from "./evidence-store.ts";
 
 export interface OrchestrationRunSummary {
 	runId: string;
+	parentRunId?: string;
 	actor: string;
 	status: "running" | "succeeded" | "failed" | "cancelled" | "unknown";
 	startedAt?: string;
@@ -45,6 +46,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
+		...(typeof startData.parentRunId === "string" ? { parentRunId: startData.parentRunId } : {}),
 		actor: start?.actor || events[0]?.actor || "unknown",
 		status: statusFromEvents(events),
 		startedAt: start?.timestamp,
