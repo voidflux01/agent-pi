@@ -9,6 +9,7 @@ import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
 import { budgetBlockReason } from "./orchestration-budget.ts";
+import { createOrchestrationRun } from "./orchestration-run.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -589,6 +590,19 @@ export async function runToolkitDispatch(opts: {
 		opts.onStderr?.(message);
 		return { exitCode: 122, raw: message, transport: "headless" };
 	}
+	const orchestrationRun = createOrchestrationRun({
+		eventDir: join(opts.sessionDir, "compositions", opts.runId),
+		parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+		actor: `toolkit:${opts.agentName}`,
+		budget: { maxSteps: 1 },
+	});
+	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName });
+	const settleRun = (result: ToolkitDispatchResult): ToolkitDispatchResult => {
+		const status = result.exitCode === 130 ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
+		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport });
+		orchestrationRun.finish(status, { exitCode: result.exitCode, transport: result.transport });
+		return result;
+	};
 	const stub = { name: opts.agentName, tools: "", systemPrompt: "" };
 	const herdrAgent = toolkitHerdrAgent(opts.agentName);
 	const herdrLabel = toolkitHerdrLabel(opts.agentName, opts.paneTitle);
@@ -674,16 +688,16 @@ export async function runToolkitDispatch(opts: {
 							if (autoClose !== null) {
 								scheduleHerdrPaneClose(tab, autoClose);
 							}
-							return {
-								exitCode: cancelledRun ? 130 : (rc ?? 1),
-								raw: rawOut,
-								transport: "herdr",
-							};
+			return settleRun({
+				exitCode: cancelledRun ? 130 : (rc ?? 1),
+				raw: rawOut,
+				transport: "herdr",
+			});
 						}
 						cleanupLaunchFiles(refs);
 						await closeHerdrTabAsync(tab);
 						if (herdrCancelled || cancelled()) {
-							return { exitCode: 130, raw: "", transport: "herdr" };
+			return settleRun({ exitCode: 130, raw: "", transport: "herdr" });
 						}
 					}
 				}
@@ -702,5 +716,5 @@ export async function runToolkitDispatch(opts: {
 		onStderr: opts.onStderr,
 		isCancelled: opts.isCancelled,
 	});
-	return { exitCode: result.exitCode, raw: result.output, transport: "headless" };
+	return settleRun({ exitCode: result.exitCode, raw: result.output, transport: "headless" });
 }

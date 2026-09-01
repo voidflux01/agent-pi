@@ -26,6 +26,7 @@ import {
 } from "./herdr-client.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
 import { budgetBlockReason } from "./orchestration-budget.ts";
+import { createOrchestrationRun } from "./orchestration-run.ts";
 
 export {
 	explicitDispatchHandler,
@@ -89,6 +90,7 @@ export interface DispatchRuntimeResult {
 	/** Present when Herdr supplied the authoritative session text. */
 	outputText?: string;
 	transport: Exclude<DispatchTransport, "auto">;
+	runId?: string;
 }
 
 /** Default worker wait. Pass pollTimeoutMs: 0 to disable. */
@@ -386,13 +388,26 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		spec.onStderr?.(`Dispatch refused: ${budgetReason}`);
 		return { exitCode: 122, stderr: `Dispatch refused: ${budgetReason}`, failure: "process_error", transport: "headless" };
 	}
+	const orchestrationRun = createOrchestrationRun({
+		sessionFile: spec.sessionFile,
+		parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+		actor: "dispatch-runtime",
+		budget: { maxSteps: 1 },
+	});
+	orchestrationRun.record("dispatch.started", { launchId: spec.launchId, cwd: spec.cwd });
+	const settleRun = (result: DispatchRuntimeResult): DispatchRuntimeResult => {
+		const status = result.failure === "aborted" ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
+		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport, failure: result.failure });
+		orchestrationRun.finish(status, { exitCode: result.exitCode, transport: result.transport });
+		return { ...result, runId: orchestrationRun.runId };
+	};
 
 	const transport = spec.transport ?? "auto";
 	if (transport !== "headless") {
 		const herdrResult = await runHerdr(spec);
-		if (herdrResult) return herdrResult;
+		if (herdrResult) return settleRun(herdrResult);
 	}
 	const result = await runHeadless(spec);
 	spec.onTransport?.("headless");
-	return result;
+	return settleRun(result);
 }

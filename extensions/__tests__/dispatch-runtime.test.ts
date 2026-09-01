@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
+import { listRunEvents } from "../lib/evidence-store.ts";
 
 function fakeChild() {
 	const child = new EventEmitter() as EventEmitter & {
@@ -52,6 +53,7 @@ describe("shared dispatch runtime", () => {
 			cwd: dir,
 			launchDir: dir,
 			launchId: "runtime-1",
+			sessionFile: join(dir, "parent.jsonl"),
 			transport: "headless",
 			journal: { dir, id: "runtime-1" },
 			spawnProcess: (() => child) as any,
@@ -66,13 +68,17 @@ describe("shared dispatch runtime", () => {
 		child.stderr.end();
 		child.emit("close", 0);
 
-		await expect(promise).resolves.toMatchObject({ exitCode: 0, transport: "headless" });
+		const result = await promise;
+		expect(result).toMatchObject({ exitCode: 0, transport: "headless" });
+		expect(result.runId).toBeTruthy();
 		expect(lines).toEqual(['{"type":"message_update"}', "partial line"]);
 		expect(errors).toEqual(["warning"]);
 		expect(captured).toBe(child);
 		const journal = readFileSync(join(dir, "task-journal.jsonl"), "utf8");
 		expect(journal).toContain('"status":"done"');
 		expect(journal).toContain('"pid":4242');
+		const events = listRunEvents(join(dir, "compositions", result.runId!));
+		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
 	});
 
 	it("bounds captured headless stderr while retaining both ends", async () => {

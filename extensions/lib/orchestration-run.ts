@@ -39,14 +39,17 @@ export class RunBudgetError extends Error {
 	readonly code = "RUN_BUDGET_EXCEEDED";
 }
 
-function eventDirFromContext(context: any, runId: string): string | undefined {
-	const sessionFile = context?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
+function eventDirFromContext(context: any, runId: string, explicitSessionFile?: string, explicitEventDir?: string): string | undefined {
+	if (explicitEventDir) return explicitEventDir;
+	const sessionFile = explicitSessionFile || context?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
 	if (typeof sessionFile !== "string" || !sessionFile) return undefined;
 	return join(dirname(sessionFile), "compositions", runId);
 }
 
 export function createOrchestrationRun(options: {
 	context?: any;
+	sessionFile?: string;
+	eventDir?: string;
 	parentRunId?: string;
 	budget?: Partial<RunBudget>;
 	actor?: string;
@@ -59,7 +62,7 @@ export function createOrchestrationRun(options: {
 		...(options.budget?.maxTokens === undefined ? {} : { maxTokens: Math.max(1, options.budget.maxTokens) }),
 		...(options.budget?.maxCostUsd === undefined ? {} : { maxCostUsd: Math.max(0, options.budget.maxCostUsd) }),
 	};
-	const eventDir = eventDirFromContext(options.context, runId);
+	const eventDir = eventDirFromContext(options.context, runId, options.sessionFile, options.eventDir);
 	const events: RunEventRecord[] = [];
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
