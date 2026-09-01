@@ -87,4 +87,17 @@ describe("pruneRunArtifacts", () => {
 		expect(readJournal()).toContain('"after-crash"');
 		expect(existsSync(lockPath)).toBe(false);
 	});
+
+	it("recovers an owner-less lock left during acquisition", () => {
+		const lockPath = join(dir, "task-journal.jsonl.lock");
+		writeFileSync(lockPath, "", "utf8");
+		const stale = new Date(Date.now() - 10_000);
+		utimesSync(lockPath, stale, stale);
+		journalAppend(dir, {
+			version: 1, id: "after-ownerless-crash", kind: "team", agent: "builder", task: "task",
+			status: "done", startedAt: Date.now(), updatedAt: Date.now(),
+		});
+		expect(readJournal()).toContain('"after-ownerless-crash"');
+		expect(existsSync(lockPath)).toBe(false);
+	});
 });

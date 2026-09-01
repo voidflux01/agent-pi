@@ -59,6 +59,8 @@ export const RECONCILE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
 const JOURNAL_LOCK_ATTEMPTS = 25;
 const JOURNAL_LOCK_WAIT_MS = 20;
+/** Only owner-less locks may use age-based recovery; PID-owned locks use liveness. */
+const JOURNAL_OWNERLESS_LOCK_STALE_MS = 5_000;
 
 function sleep(ms: number): void {
 	try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
@@ -77,8 +79,11 @@ function withJournalLock<T>(sessionDir: string, action: () => T): T | undefined 
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "EEXIST") return undefined;
 				try {
-					const owner = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
-					if (Number.isInteger(owner) && owner > 0 && pidAlive(owner) === false) {
+					const ownerText = readFileSync(lockPath, "utf8").trim();
+					const owner = Number.parseInt(ownerText, 10);
+					const ownerDead = Number.isInteger(owner) && owner > 0 && pidAlive(owner) === false;
+					const ownerlessAndStale = !ownerText && Date.now() - statSync(lockPath).mtimeMs > JOURNAL_OWNERLESS_LOCK_STALE_MS;
+					if (ownerDead || ownerlessAndStale) {
 						unlinkSync(lockPath);
 						continue;
 					}
