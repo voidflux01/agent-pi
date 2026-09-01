@@ -309,6 +309,15 @@ describe("McpClient", () => {
 		await expect(callPromise).rejects.toThrow(/process/i);
 	});
 
+	it("should reject the handshake and pending calls on a process error", async () => {
+		const client = new McpClient("/path/to/server.js", {});
+		const connectPromise = client.connect();
+
+		lastMockProc.emit("error", new Error("spawn failed"));
+
+		await expect(connectPromise).rejects.toThrow("spawn failed");
+	});
+
 	it("should report connection state accurately", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		expect(client.isConnected()).toBe(false);

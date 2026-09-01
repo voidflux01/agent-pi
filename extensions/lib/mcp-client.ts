@@ -70,6 +70,7 @@ export class McpClient {
 		this.proc.stdout!.on("data", (chunk: string) => this.onData(chunk));
 		this.proc.stderr!.on("data", () => {}); // Drain stderr
 		this.proc.on("close", () => this.onClose());
+		this.proc.on("error", (err) => this.onClose(err));
 
 		// Handle stdin errors (EPIPE when server dies) to prevent uncaught crash
 		this.proc.stdin!.on("error", (err) => {
@@ -192,13 +193,14 @@ export class McpClient {
 		}
 	}
 
-	private onClose(): void {
+	private onClose(cause?: unknown): void {
 		this.connected = false;
 		this.proc = null;
+		const detail = cause instanceof Error ? `: ${cause.message}` : "";
 		// Reject all pending calls
 		for (const [id, pending] of this.pending) {
 			clearTimeout(pending.timer);
-			pending.reject(new Error("MCP server process closed unexpectedly"));
+			pending.reject(new Error(`MCP server process closed unexpectedly${detail}`));
 			this.pending.delete(id);
 		}
 	}
