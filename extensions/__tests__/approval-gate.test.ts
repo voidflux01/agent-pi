@@ -92,9 +92,16 @@ describe("decideApprovalGate", () => {
 	});
 
 	it("allows composed read-only bash with safe stderr suppression", () => {
-		const command = 'cd /tmp/app && ls .pi 2>/dev/null; grep -rln "foo bar" .context 2>/dev/null | head';
+		const command = 'cd /tmp/app && ls .pi 2>/dev/null; grep -rln "foo bar" .context 2>/dev/null | head && git log --oneline -5 && git status --short 2>/dev/null';
 		expect(isReadOnlyBash({ command })).toBe(true);
 		expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName: "bash", args: { command } }).block).toBe(false);
+	});
+
+	it("allows narrowly-scoped read-only Git inspection", () => {
+		for (const command of ["git log --oneline -5", "git status --short", "git status --porcelain -uno"]) {
+			expect(isReadOnlyBash({ command })).toBe(true);
+			expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName: "bash", args: { command } }).block).toBe(false);
+		}
 	});
 
 	it("rejects shell expansion, writes, and dangerous find predicates", () => {
@@ -104,6 +111,10 @@ describe("decideApprovalGate", () => {
 			"find . -exec rm {}",
 			"find . -delete",
 			"ls &",
+			"git commit -am done",
+			"git config --list",
+			"git -C /tmp/other status",
+			"git log --format=%H",
 		]) expect(isReadOnlyBash({ command })).toBe(false);
 	});
 

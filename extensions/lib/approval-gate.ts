@@ -165,6 +165,24 @@ const READ_ONLY_BASH_BINS = new Set([
 	"cat", "file", "stat", "du", "df", "realpath",
 ]);
 
+// Keep Git support deliberately narrow. `git` has many commands that can
+// mutate the repository (and even some read-looking commands accept config
+// or hook-related options), so the binary itself must not be treated as a
+// blanket read-only command.
+const READ_ONLY_GIT_SUBCOMMANDS = new Set(["log", "status"]);
+
+function isReadOnlyGit(tokens: string[]): boolean {
+	if (tokens[0] !== "git" || !READ_ONLY_GIT_SUBCOMMANDS.has(tokens[1] ?? "")) return false;
+	const subcommand = tokens[1];
+	const args = tokens.slice(2);
+	if (subcommand === "status") {
+		return args.every((token) => ["--short", "-s", "--porcelain", "-uno", "--untracked-files=no"].includes(token));
+	}
+	// Keep log options to presentation/count controls. In particular, do not
+	// allow Git global options such as -c/-C or arbitrary revisions here.
+	return args.every((token) => token === "--oneline" || /^-(?:[1-9][0-9]*)$/.test(token));
+}
+
 function bashCommand(args: unknown): string {
 	if (!args || typeof args !== "object") return "";
 	const params = args as Record<string, unknown>;
@@ -249,6 +267,7 @@ export function isReadOnlyBash(args: unknown): boolean {
 		const tokens = readOnlyBashTokens(segment);
 		if (!tokens) return false;
 		const bin = tokens[0]?.replace(/^\/(?:usr\/)?bin\//, "") ?? "";
+		if (bin === "git") return isReadOnlyGit(tokens);
 		if (!READ_ONLY_BASH_BINS.has(bin)) return false;
 		return !tokens.some((token) => /^(?:--?(?:exec|execdir|delete|ok)|-delete|-exec|-execdir|-ok)$/.test(token));
 	});
