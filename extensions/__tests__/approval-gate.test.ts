@@ -134,6 +134,7 @@ describe("decideApprovalGate", () => {
 		expect(decideApprovalGate({
 			mode: "PLAN", approved: false, toolName: "subagent_create", args: { name: "scout", task: "look" },
 		}).block).toBe(false);
+		expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName: "compose_exec", args: { steps: [] } }).block).toBe(true);
 	});
 
 	it("blocks a non-scout subagent before approval", () => {

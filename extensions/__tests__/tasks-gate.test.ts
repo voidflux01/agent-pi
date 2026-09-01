@@ -23,6 +23,7 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("dispatch_agents", true)).toBe(false);
 		expect(shouldBypassTaskGate("run_chain", true)).toBe(false);
 		expect(shouldBypassTaskGate("advance_phase", true)).toBe(false);
+		expect(shouldBypassTaskGate("compose_exec", true)).toBe(false);
 	});
 
 	it("should bypass for 'dispatch_agents' tool", () => {

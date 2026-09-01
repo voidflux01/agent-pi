@@ -9,7 +9,7 @@ export const TASK_GATE_BYPASS_TOOLS = [
 ] as const;
 
 /** Non-read-only workflow tools that require an active task in orchestration modes. */
-export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "run_chain", "advance_phase"] as const;
+export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "run_chain", "advance_phase", "compose_exec"] as const;
 
 export const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"] as const;
 
