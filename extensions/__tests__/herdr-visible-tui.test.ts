@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel, herdrIdentityArgv } from "../lib/herdr-client.ts";
+import { createHerdrTaskTab, createHerdrTaskTabAsync, herdrEnabled, herdrEnabledAsync, herdrBinary, visiblePiTuiArgs, visiblePiTuiCommand, launchDonePath, launchStartedPath, waitForLaunchStart, writeLaunchScript, herdrPaneRecords, registerHerdrPane, updateHerdrPaneStatus, inspectHerdrPanesAsync, splitDirectionFromRect, parseCallerPaneRect, parseSplitPaneRef, herdrCloseArgs, herdrWorkerLabel, herdrIdentityArgv } from "../lib/herdr-client.ts";
 
 const DONE = "/ext/herdr-done.ts";
 
@@ -32,6 +32,17 @@ const teamArgv = [
 ];
 
 describe("herdr transport availability", () => {
+	it("prefers Herdr's injected binary path", () => {
+		const previous = process.env.HERDR_BIN_PATH;
+		try {
+			process.env.HERDR_BIN_PATH = "/custom/herdr";
+			expect(herdrBinary()).toBe("/custom/herdr");
+		} finally {
+			if (previous === undefined) delete process.env.HERDR_BIN_PATH;
+			else process.env.HERDR_BIN_PATH = previous;
+		}
+	});
+
 	it("is disabled outside a Herdr environment", () => {
 		const previous = process.env.HERDR_ENV;
 		try {
@@ -190,6 +201,12 @@ describe("herdr tabs require explicit dispatch", () => {
 });
 
 describe("herdr sibling splits", () => {
+	it("submits launch scripts with atomic pane run", () => {
+		const client = readFileSync(join(__dirname, "..", "lib", "herdr-client.ts"), "utf8");
+		expect(client).toContain('["pane", "run", paneId, ...command]');
+		expect(client).not.toContain('["pane", "send-text", paneId, command]');
+	});
+
 	it("splits wide panes right and tall panes down", () => {
 		expect(splitDirectionFromRect({ width: 160, height: 40 })).toBe("right");
 		expect(splitDirectionFromRect({ width: 40, height: 80 })).toBe("down");

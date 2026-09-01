@@ -35,7 +35,7 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
@@ -388,7 +388,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let finished = false;
-			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }) => {
+			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
 				if (finished) return;
 				finished = true;
 				clearInterval(timer);
@@ -404,7 +404,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
-				state.status = code === 0 ? "done" : "error";
+				state.status = code === 0 && !failure ? "done" : "error";
 				state.proc = undefined;
 				if (state.toolCount === 0 && state.sessionFile) {
 					state.toolCount = countSessionToolCalls(state.sessionFile);
@@ -412,7 +412,7 @@ export default function (pi: ExtensionAPI) {
 				updateHerdrPaneStatus(
 					spawnCwd,
 					`sa-${state.id}`,
-					code === 0 ? "done" : "error",
+					code === 0 && !failure ? "done" : "error",
 				);
 				invalidateWidget(state.id);
 
@@ -455,12 +455,12 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
-						status: code === 0 ? "done" : "error",
+						status: code === 0 && !failure ? "done" : "error",
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						model: state.model || undefined,
 						outputFile: fullOutputPath || undefined,
-						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
+						note: [failure ? `dispatch: ${failure}` : "", contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : ""].filter(Boolean).join("; ") || undefined,
 						usage: (externalUsage ?? saUsage).totalTokens > 0 ? {
 							input: saUsage.input,
 							output: saUsage.output,
@@ -598,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 					} catch {}
 				},
 			}).then((result) => {
-				finish(result.exitCode, result.outputText);
+				finish(result.exitCode, result.outputText, undefined, result.failure);
 			}).catch(() => finish(1));
 		});
 	}

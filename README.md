@@ -232,6 +232,21 @@ A lightweight, zero-dependency text manipulation app bundled in `tex/`. Open it 
 
 ## Configuration
 
+### Herdr integration
+
+When running inside Herdr, agent-pi automatically opens delegated workers in
+watchable sibling panes and falls back to headless workers when Herdr is not
+available. For accurate Pi lifecycle state and native session restore, install
+Herdr's official Pi integration once:
+
+```bash
+herdr integration install pi
+```
+
+The transport uses Herdr's injected `HERDR_BIN_PATH` when available. Set
+`PI_HERDR_SUBAGENTS=0` to disable visible Herdr workers, or
+`PI_HERDR_SPLIT=0` to use background tabs instead of sibling splits.
+
 ### Model persistence
 
 Model changes are session-scoped by default. Use `/model-save` after selecting a model to make the current provider/model the default for future Pi sessions. This explicit step prevents temporary Herdr worker fallbacks from changing the global default.

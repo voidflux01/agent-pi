@@ -16,11 +16,9 @@
 // ABOUTME:    agent_end by herdr-done.ts, with the launch script's process-exit
 // ABOUTME:    write as fallback); the authoritative result text comes from pi's
 // ABOUTME:    session JSONL file on disk.
-// ABOUTME:  - pane run / send-text can drop the first character when the pane
-// ABOUTME:    shell is not ready, and zsh's compinit security prompt can eat
-// ABOUTME:    input. Mitigations: --env ZSH_DISABLE_COMPFIX=true on pane split
-// ABOUTME:    / tab create, a leading Enter before the command, and a
-// ABOUTME:    verify/retry loop driven by the marker file.
+// ABOUTME:  - pane run submits the launch command atomically; zsh's compinit
+// ABOUTME:    security prompt is disabled on created shells, and a marker-file
+// ABOUTME:    handshake verifies that the launch script actually started.
 // ABOUTME:  - closing a split must `pane close` the child only — never the
 // ABOUTME:    parent's tab. Tab-created workers still close their own tab.
 // ABOUTME:  - herdr auto-updates; protocol/version are checked per call.
@@ -49,18 +47,18 @@ export function detectHerdr(forceEnvCheck = true): HerdrInfo {
 		}
 		// Respect the active named session (default-session check would miss it).
 		const session = process.env.HERDR_SESSION || "";
-		const cmd = ["herdr", ...(session ? ["--session", session] : []), "status", "--json"];
+		const cmd = [herdrBinary(), ...(session ? ["--session", session] : []), "status", "--json"];
 		const out = execFileSync(cmd[0], cmd.slice(1), { encoding: "utf8", timeout: 10_000, env: childEnvironment() });
 		const d = JSON.parse(out);
 		const server = d.server || {};
 		const client = d.client || {};
-		const running = !!server.running;
+		const running = server.running === true && server.compatible !== false;
 		return {
 			available: running,
 			version: client.version,
 			protocol: client.protocol,
 			serverRunning: running,
-			reason: running ? undefined : "herdr server not running",
+			reason: running ? undefined : server.running === true ? "herdr client/server protocol is incompatible" : "herdr server not running",
 		};
 	} catch (err: any) {
 		return { available: false, serverRunning: false, reason: err?.message || "herdr unavailable" };
@@ -81,10 +79,15 @@ export interface HerdrCliResult {
 	code: number;
 }
 
+/** Prefer Herdr's injected binary path for portable integrations. */
+export function herdrBinary(): string {
+	return process.env.HERDR_BIN_PATH || "herdr";
+}
+
 /** Run `herdr --session <session> <args...>` (session from env when present). */
 export function herdrCli(args: string[], opts: { timeoutMs?: number; session?: string } = {}): HerdrCliResult {
 	const session = opts.session || process.env.HERDR_SESSION || "";
-	const cmd = ["herdr", ...(session ? ["--session", session] : []), ...args];
+	const cmd = [herdrBinary(), ...(session ? ["--session", session] : []), ...args];
 	try {
 		const out = execFileSync(cmd[0], cmd.slice(1), {
 			encoding: "utf8",
@@ -107,7 +110,7 @@ export function herdrCliAsync(args: string[], opts: { timeoutMs?: number; sessio
 	const session = opts.session || process.env.HERDR_SESSION || "";
 	const cmdArgs = [...(session ? ["--session", session] : []), ...args];
 	return new Promise((resolve) => {
-		execFile("herdr", cmdArgs, {
+		execFile(herdrBinary(), cmdArgs, {
 			encoding: "utf8",
 			timeout: opts.timeoutMs ?? 30_000,
 			env: childEnvironment(),
@@ -128,7 +131,10 @@ export function herdrEnabledAsync(): Promise<boolean> {
 	if (herdrCheckInFlight) return herdrCheckInFlight;
 	herdrCheckInFlight = herdrCliAsync(["status", "--json"], { timeoutMs: 3_000 }).then((r) => {
 		if (r.code !== 0) return false;
-		try { return !!JSON.parse(r.stdout)?.server?.running; } catch { return false; }
+		try {
+			const server = JSON.parse(r.stdout)?.server;
+			return server?.running === true && server?.compatible !== false;
+		} catch { return false; }
 	}).finally(() => { herdrCheckInFlight = undefined; });
 	return herdrCheckInFlight;
 }
@@ -280,7 +286,7 @@ export async function reconnectHerdrPaneAsync(record: HerdrPaneRecord): Promise<
 	// A crashed parent may have left the old startup marker behind. Clear it
 	// before sending so the handshake proves this replacement actually ran.
 	rmSync(record.startedPath, { force: true });
-	const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(record.scriptPath)}`);
+	const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", record.scriptPath]);
 	if (!sent || !(await waitForLaunchStart(record.startedPath, 5_000))) {
 		await closeHerdrTabAsync(tab);
 		return { ok: false, reason: "replacement pane did not acknowledge launch" };
@@ -684,18 +690,9 @@ export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, 
 	return ref;
 }
 
-/**
- * Send a command to the pane robustly:
- * 1. leading Enter (clears any pending prompt state)
- * 2. send-text (literal, no re-parsing)
- * 3. Enter to submit
- * Returns true when the send calls succeeded (not when the command ran).
- */
-export function sendCommandToPane(paneId: string, command: string): boolean {
-	const enter = herdrCli(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
-	const text = herdrCli(["pane", "send-text", paneId, command], { timeoutMs: 15_000 });
-	const submit = herdrCli(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
-	return enter.code === 0 && text.code === 0 && submit.code === 0;
+/** Submit a command atomically through Herdr's pane-run API. */
+export function sendCommandToPane(paneId: string, command: string[]): boolean {
+	return herdrCli(["pane", "run", paneId, ...command], { timeoutMs: 15_000 }).code === 0;
 }
 
 /** Close a worker we created (best-effort; also used for cancel).
@@ -707,12 +704,9 @@ export function closeHerdrTab(tab: HerdrTabRef): void {
 	herdrCli(args, { timeoutMs: 15_000 });
 }
 
-/** Non-blocking version of sendCommandToPane; preserves command ordering. */
-export async function sendCommandToPaneAsync(paneId: string, command: string): Promise<boolean> {
-	const enter = await herdrCliAsync(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
-	const text = await herdrCliAsync(["pane", "send-text", paneId, command], { timeoutMs: 15_000 });
-	const submit = await herdrCliAsync(["pane", "send-keys", paneId, "Enter"], { timeoutMs: 15_000 });
-	return enter.code === 0 && text.code === 0 && submit.code === 0;
+/** Non-blocking version of sendCommandToPane; submits atomically. */
+export async function sendCommandToPaneAsync(paneId: string, command: string[]): Promise<boolean> {
+	return (await herdrCliAsync(["pane", "run", paneId, ...command], { timeoutMs: 15_000 })).code === 0;
 }
 
 /** Non-blocking best-effort worker close (pane or tab, never the caller). */
