@@ -15,6 +15,8 @@ describe("file viewer boundaries", () => {
 		expect(source).toContain("Unsupported editor");
 		expect(source).toContain("MAX_FILE_VIEWER_REQUEST_BODY_BYTES = 256 * 1024");
 		expect(source).toContain("readRequestBody(req, res");
+		expect(source).toContain('pi.on("session_shutdown"');
+		expect(source).toContain("cleanupServer();");
 		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 	});
 });

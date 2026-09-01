@@ -384,6 +384,10 @@ export default function (pi: ExtensionAPI) {
 		applyExtensionDefaults(import.meta.url, ctx);
 	});
 
+	pi.on("session_shutdown", async () => {
+		cleanupServer();
+	});
+
 	pi.registerCommand("show-file-help", {
 		description: "Show help for the local file viewer tool",
 		handler: async (_args, ctx) => {
