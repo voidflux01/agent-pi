@@ -100,7 +100,9 @@ worker lifecycle boundaries.
   from the RunContext and task journal, while requiring an explicit
   `subagent_resume` call for every worker the user chooses to replay. Candidate
   task text is returned only as a bounded summary, so recovery remains
-  actionable without replaying full intermediate transcripts.
+  actionable without replaying full intermediate transcripts; resumable
+  candidates also include a bounded resumePrompt that re-checks current state
+  before continuing the original task.
 - Audited parent runs can capture a bounded before/after workspace manifest;
   the event trail records changed file paths and hashes alongside the run
   result, while excluding the runtime's `.pi` bookkeeping files.

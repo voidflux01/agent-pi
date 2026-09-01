@@ -92,8 +92,9 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain('name: "subagent_batch_recover"');
 		expect(src).toContain("inspectPersistedBatch(contextCwd(ctx), args.run_id)");
 		expect(src).toContain("never re-dispatches workers automatically");
-		expect(src).toContain("subagent_resume with an explicit prompt");
-		expect(src).toContain("task: entry.task.slice(0, 800)");
+		expect(src).toContain("bounded resumePrompt as the explicit subagent_resume prompt");
+		expect(src).toContain("const task = entry?.task?.slice(0, 800)");
+		expect(src).toContain("resumePrompt: `Resume the prior task");
 		expect(src).toContain("child.task.replace(/\\s+/g, \" \")");
 	});
 });
