@@ -426,11 +426,27 @@ function startChatServer(
 		const logoDataUri = loadLogoBase64();
 		// Single-user lock: only one authenticated session at a time
 		let activeToken: string | null = null;
-		const authFailures = new Map<string, { attempts: number; lockedUntil: number }>();
+		const authFailures = new Map<string, { attempts: number; lockedUntil: number; updatedAt: number }>();
 		const MAX_PIN_ATTEMPTS = 5;
 		const MAX_GLOBAL_PIN_ATTEMPTS = 20;
+		const MAX_AUTH_FAILURE_ENTRIES = 256;
 		const PIN_LOCKOUT_MS = 60_000;
 		let globalAuthFailure = { attempts: 0, lockedUntil: 0 };
+
+		function getAuthFailure(ip: string, now: number) {
+			for (const [key, value] of authFailures) {
+				if (now - value.updatedAt > PIN_LOCKOUT_MS) authFailures.delete(key);
+			}
+			const existing = authFailures.get(ip);
+			if (existing) return existing;
+			if (authFailures.size >= MAX_AUTH_FAILURE_ENTRIES) {
+				const oldest = authFailures.keys().next().value;
+				if (oldest) authFailures.delete(oldest);
+			}
+			const fresh = { attempts: 0, lockedUntil: 0, updatedAt: now };
+			authFailures.set(ip, fresh);
+			return fresh;
+		}
 
 		function makeToken(): string {
 			// Revoke any previous token and close old streams — only one user at a time.
@@ -497,7 +513,7 @@ function startChatServer(
 					try {
 						const ip = req.socket.remoteAddress || "unknown";
 						const now = Date.now();
-						const failure = authFailures.get(ip) || { attempts: 0, lockedUntil: 0 };
+						const failure = getAuthFailure(ip, now);
 						if (failure.lockedUntil > now || globalAuthFailure.lockedUntil > now) {
 							const retryAt = Math.max(failure.lockedUntil, globalAuthFailure.lockedUntil);
 							res.setHeader("Retry-After", String(Math.max(1, Math.ceil((retryAt - now) / 1000))));
@@ -515,6 +531,7 @@ function startChatServer(
 							res.end(JSON.stringify({ ok: true }));
 						} else {
 							failure.attempts += 1;
+							failure.updatedAt = now;
 							globalAuthFailure.attempts += 1;
 							if (failure.attempts >= MAX_PIN_ATTEMPTS) {
 								failure.lockedUntil = now + PIN_LOCKOUT_MS;

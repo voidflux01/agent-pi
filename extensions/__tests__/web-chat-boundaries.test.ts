@@ -29,6 +29,8 @@ describe("web chat boundaries", () => {
 		expect(source).toContain("MAX_TUNNEL_STDERR_CHARS");
 		expect(source).toContain("contentLength < 0");
 		expect(source).toContain("req.resume()");
+		expect(source).toContain("MAX_AUTH_FAILURE_ENTRIES = 256");
+		expect(source).toContain("getAuthFailure(ip, now)");
 		expect(source).not.toContain("stderrBuf += chunk");
 		expect(source).not.toContain("execSync(");
 	});
