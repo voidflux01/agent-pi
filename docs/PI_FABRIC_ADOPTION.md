@@ -19,8 +19,10 @@ worker lifecycle boundaries.
   capabilities can participate in `compose_exec` with schema validation; write
   operations reject traversal and symlink escapes, edit rejects ambiguous
   matches by default, and all share the existing approval/security path.
-  `bash` remains on Pi's native path until its execution boundary is equally
-  explicit.
+- The built-in `bash` capability can participate in `compose_exec` with an
+  explicit command/timeout schema. It reuses nested security and approval
+  checks, caps timeout input, and is conservatively ordered against workspace
+  operations so potentially mutating commands are not parallelized.
 - Nested arguments are validated against the registered capability schema before
   execution, and parallel batches are rejected when non-commutative effects
   share a resource.
@@ -99,9 +101,9 @@ worker lifecycle boundaries.
 
 - QuickJS guest execution: the first composition surface is host-side and only
   runs already registered extension handlers.
-- Remaining built-in Pi tool proxying: `bash` continues through Pi's native
-  path until its schema and executor can be exposed through the same registry.
-  `read`, `write`, and exact-match `edit` adapters are available.
+- Remaining built-in Pi tool proxying is limited to tools without an equivalent
+  in-process executor. `read`, `write`, exact-match `edit`, and security-checked
+  `bash` adapters are available; native tools still remain available directly.
 - Actors, councils, recursive workers, and a full cross-process topology: the
   current dashboard is a stable read model, but the underlying worker graph
   still needs every actor to emit the same `RunContext` events.

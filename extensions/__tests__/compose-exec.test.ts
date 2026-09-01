@@ -181,6 +181,45 @@ describe("compose_exec", () => {
 		expect(readFileSync(join(cwd, "input.txt"), "utf8")).toBe("alpha\ngamma\ngamma\n");
 	});
 
+	test("composes security-checked bash with a bounded timeout schema", async () => {
+		const registered: any[] = [];
+		const executions: any[] = [];
+		const fakePi: any = {
+			registerTool(definition: any) { registered.push(definition); },
+			registerCommand() {},
+			on() {},
+			async exec(binary: string, args: string[], options: any) {
+				executions.push({ binary, args, options });
+				return { code: 0, stdout: "bash-result", stderr: "" };
+			},
+		};
+		const cwd = mkdtempSync(join(tmpdir(), "compose-bash-"));
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "bash", arguments: { command: "printf bash-result", timeout: 12 } }] }, undefined, undefined, { cwd });
+		expect(result.details).toMatchObject({ completed: 1, failed: 0 });
+		expect(result.details.results[0].result.text).toBe("bash-result");
+		expect(executions[0]).toMatchObject({ binary: "bash", args: ["-c", "printf bash-result"], options: { cwd, timeout: 12000 } });
+		const invalid = await tool.execute("outer", { steps: [{ tool: "bash", arguments: { command: "true", timeout: 601 } }] }, undefined, undefined, { cwd });
+		expect(invalid.details.results[0].status).toBe("blocked");
+		expect(invalid.details.results[0].error).toContain("invalid arguments");
+	});
+
+	test("does not parallelize bash with workspace file operations", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {}, async exec() { throw new Error("must not execute"); } };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-bash-conflict-"));
+		writeFileSync(join(cwd, "input.txt"), "input", "utf8");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { parallel: true, steps: [
+			{ tool: "bash", arguments: { command: "cat input.txt" } },
+			{ tool: "read", arguments: { path: "input.txt" } },
+		] }, undefined, undefined, { cwd });
+		expect(result.details.failed).toBe(2);
+		expect(result.details.results[0].error).toContain("parallel effect conflict");
+	});
+
 	test("persists a bounded completed-step handoff for restart inspection", async () => {
 		const registered: any[] = [];
 		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };

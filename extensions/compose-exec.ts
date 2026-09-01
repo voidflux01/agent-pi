@@ -113,19 +113,26 @@ const BUILTIN_EDIT_SCHEMA = Type.Object({
 	replaceAll: Type.Optional(Type.Boolean()),
 });
 
-function registerBuiltinCapability(name: "read" | "write" | "edit") {
+const BUILTIN_BASH_SCHEMA = Type.Object({
+	command: Type.String({ minLength: 1, maxLength: 20000 }),
+	timeout: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })),
+});
+
+function registerBuiltinCapability(name: "read" | "write" | "edit" | "bash") {
 	return name === "read"
 		? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { resources: ["workspace"], ordering: "commutative" } })
 		: name === "write"
 			? registerCapability({ name, provider: "builtin", description: "Write a workspace file", inputSchema: BUILTIN_WRITE_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } })
-			: registerCapability({ name, provider: "builtin", description: "Edit a workspace file by exact text replacement", inputSchema: BUILTIN_EDIT_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } });
+			: name === "edit"
+				? registerCapability({ name, provider: "builtin", description: "Edit a workspace file by exact text replacement", inputSchema: BUILTIN_EDIT_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } })
+				: registerCapability({ name, provider: "builtin", description: "Run a security-checked workspace command", inputSchema: BUILTIN_BASH_SCHEMA, risk: "execute", effect: { resources: ["workspace", "shell"], ordering: "ordered" } });
 }
 
 export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "compose_exec",
 		label: "Compose Exec",
-	description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. Workspace-bounded built-in read and write are supported; other built-ins remain on Pi's native path.",
+		description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. Workspace-bounded read/write/edit and security-checked bash are supported; other built-ins remain on Pi's native path.",
 		parameters: ComposeParams,
 		capabilityRisk: "execute",
 		capabilityEffect: { resources: ["extension-runtime"], ordering: "unknown" },
@@ -139,7 +146,7 @@ export default function (pi: ExtensionAPI) {
 			const parallelConflict = parallel ? (() => {
 				const capabilities = steps.map((step) => {
 					const name = toolName(step.tool);
-					if (name === "read" || name === "write" || name === "edit") registerBuiltinCapability(name);
+					if (name === "read" || name === "write" || name === "edit" || name === "bash") registerBuiltinCapability(name);
 					return getCapability(`extensions.${name}`) ?? getCapabilityForTool(name);
 				});
 				for (let left = 0; left < capabilities.length; left += 1) {
@@ -165,10 +172,10 @@ export default function (pi: ExtensionAPI) {
 				if (name === "compose_exec" || name === "call_tool" || name === "tool_search") {
 					return { index, tool: name, status: "blocked", error: "meta-tool recursion is not allowed" };
 				}
-				const capability = name === "read" || name === "write" || name === "edit"
+				const capability = name === "read" || name === "write" || name === "edit" || name === "bash"
 					? registerBuiltinCapability(name)
 					: getCapability(step.tool.startsWith("extensions.") ? step.tool : `extensions.${name}`) ?? getCapabilityForTool(name);
-				const executor = executors[name] ?? (["read", "write", "edit"].includes(name)
+				const executor = executors[name] ?? (["read", "write", "edit", "bash"].includes(name)
 					? ((_: string, args: Record<string, unknown>, signal: AbortSignal | undefined, __: unknown, context: any) => executeBuiltinTool(name, args, context, signal, pi))
 					: undefined);
 				if (!capability || !executor) return { index, tool: name, status: "blocked", error: "capability is not registered for in-process execution" };
