@@ -5,10 +5,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { journalPath, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
+import { journalList, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { isResumableRunStatus, normalizeRunStatus } from "./lib/run-state.ts";
 import {
 	buildHandoffSnapshot,
@@ -48,23 +48,11 @@ function latestObjective(ctx: any): string {
 }
 
 function readChildren(workspace: string): TaskJournalEntry[] {
-	try {
-		const raw = readFileSync(journalPath(`${workspace}/.pi/agent-sessions`), "utf8");
-		const latest = new Map<string, TaskJournalEntry>();
-		for (const line of raw.split("\n")) {
-			if (!line.trim()) continue;
-			try {
-				const entry = JSON.parse(line) as TaskJournalEntry;
-				if (entry.id) {
-					if (!entry.runStatus) entry.runStatus = normalizeRunStatus(entry.status);
-					latest.set(entry.id, entry);
-				}
-			} catch {}
-		}
-		return [...latest.values()];
-	} catch {
-		return [];
+	const latest = new Map<string, TaskJournalEntry>();
+	for (const entry of journalList(`${workspace}/.pi/agent-sessions`)) {
+		if (entry.id) latest.set(entry.id, entry);
 	}
+	return [...latest.values()];
 }
 
 function resumableChildren(workspace: string): TaskJournalEntry[] {
