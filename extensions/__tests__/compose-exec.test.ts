@@ -127,6 +127,18 @@ describe("compose_exec", () => {
 		expect(result.details.results[0].error).toContain("timed out");
 	});
 
+	test("does not retry a timed-out executor that may ignore AbortSignal", async () => {
+		const registered: any[] = [];
+		let calls = 0;
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, { name: "compose_uncooperative", description: "Uncooperative", async execute() { calls += 1; await new Promise(resolve => setTimeout(resolve, 40)); return { content: [{ type: "text", text: "late" }] }; } });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "compose_uncooperative", retry: 3, timeout_ms: 5 }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(calls).toBe(1);
+		expect(result.details.results[0].error).toContain("timed out");
+	});
+
 	test("supports safe conditional skips and blocks references in parallel mode", async () => {
 		const registered: any[] = [];
 		const calls: string[] = [];

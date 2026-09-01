@@ -122,6 +122,14 @@ function compactEventResult(value: any): unknown {
 	};
 }
 
+class ComposeStepTimeoutError extends Error {
+	readonly code = "COMPOSE_STEP_TIMEOUT";
+}
+
+class ComposeStepAbortedError extends Error {
+	readonly code = "COMPOSE_STEP_ABORTED";
+}
+
 const BUILTIN_READ_SCHEMA = Type.Object({
 	path: Type.String({ minLength: 1 }),
 	offset: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -251,20 +259,27 @@ export default function (pi: ExtensionAPI) {
 						const controller = new AbortController();
 						let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 						let abortListener: (() => void) | undefined;
-						const timeoutPromise = stepTimeoutMs > 0 ? new Promise<never>((_, reject) => {
-							timeoutTimer = setTimeout(() => {
-								controller.abort();
-								reject(new Error(`step timed out after ${stepTimeoutMs}ms`));
-							}, stepTimeoutMs);
+						let rejectAbort: ((error: Error) => void) | undefined;
+						const controlPromise = stepTimeoutMs > 0 || signal ? new Promise<never>((_, reject) => {
+							rejectAbort = reject;
+							if (stepTimeoutMs > 0) {
+								timeoutTimer = setTimeout(() => {
+									controller.abort();
+									rejectAbort?.(new ComposeStepTimeoutError(`step timed out after ${stepTimeoutMs}ms`));
+								}, stepTimeoutMs);
+							}
 						}) : undefined;
 						if (signal) {
-							abortListener = () => controller.abort();
+							abortListener = () => {
+								controller.abort();
+								rejectAbort?.(new ComposeStepAbortedError("step aborted by parent"));
+							};
 							if (signal.aborted) abortListener();
 							else signal.addEventListener("abort", abortListener, { once: true });
 						}
 						try {
 							const execution = executor(`${toolCallId}-compose-${index}-attempt-${attempt}`, args, controller.signal, onUpdate, ctx);
-							const result = await (timeoutPromise ? Promise.race([execution, timeoutPromise]) : execution);
+							const result = await (controlPromise ? Promise.race([execution, controlPromise]) : execution);
 							run.record("step.completed", { index, tool: name, attempt, result: compactEventResult(result) });
 							return { index, tool: name, status: "completed", attempts: attempt, result: compactResult(result), risk: capability.risk };
 						} finally {
@@ -273,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					} catch (error) {
 						const message = error instanceof RunBudgetError ? `${error.message}; reduce steps or split the composition` : error instanceof Error ? error.message : String(error);
-						if (!(error instanceof RunBudgetError) && attempt < attempts) {
+						if (!(error instanceof RunBudgetError) && !(error instanceof ComposeStepTimeoutError) && !(error instanceof ComposeStepAbortedError) && attempt < attempts) {
 							run.record("step.retrying", { index, tool: name, attempt, nextAttempt: attempt + 1, error: message });
 							continue;
 						}

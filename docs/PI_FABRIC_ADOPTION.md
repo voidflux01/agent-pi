@@ -68,7 +68,9 @@ worker lifecycle boundaries.
 - Each composition step also supports `timeout_ms`; the default is the shared
   15-minute deadline, and the step receives an AbortSignal when its deadline
   expires. Explicit zero disables the per-step watchdog for intentional long
-  operations.
+  operations. Timeout and parent cancellation are terminal control failures
+  and are never retried, preventing duplicate side effects when an executor
+  does not stop immediately after its signal.
 - Task journal rows now carry the initiating mode when known, and
   `/agents-status` aggregates elapsed time, tokens, and cost by mode so a
   NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE baseline can be measured from
