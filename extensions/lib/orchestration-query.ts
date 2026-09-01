@@ -16,6 +16,7 @@ export interface OrchestrationRunSummary {
 	/** Safe, user-facing next action for a stale run; never an executable command. */
 	recoveryAction?: "chain-resume" | "pipeline-resume" | "subagent-resume" | "inspect";
 	recoveryDispatchId?: string;
+	failureCause?: "aborted" | "cancelled" | "timeout" | "authentication" | "process_error" | "exit_code";
 	lastEventType?: string;
 	startedAt?: string;
 	finishedAt?: string;
@@ -99,6 +100,11 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const verificationData = verification ? payloadData(verification) : {};
 	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
 	const workspaceData = workspace ? payloadData(workspace) : {};
+	const failureEvent = [...events].reverse().find((event) => event.type === "dispatch.completed" && typeof payloadData(event).failure === "string");
+	const failureData = failureEvent ? payloadData(failureEvent) : {};
+	const failureCause = ["aborted", "cancelled", "timeout", "authentication", "process_error", "exit_code"].includes(String(failureData.failure))
+		? String(failureData.failure) as OrchestrationRunSummary["failureCause"]
+		: undefined;
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
 	const usageEvent = [...events].reverse().find((event) => event.type === "usage.updated");
 	const usageData = usageEvent ? payloadData(usageEvent) : {};
@@ -114,6 +120,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		status,
 		recovery: status === "running" ? "active" : status === "stale" ? "stale" : status === "unknown" ? "unknown" : "terminal",
 		...recoveryForRun(status, startData.mode, events),
+		...(failureCause ? { failureCause } : {}),
 		lastEventType: events.at(-1)?.type,
 		startedAt: start?.timestamp,
 		finishedAt: finish?.timestamp,

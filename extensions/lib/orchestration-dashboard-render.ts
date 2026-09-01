@@ -61,7 +61,8 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 			? ` ${Math.max(0, Math.floor(run.totalTokens ?? 0)).toLocaleString()}tok/$${Math.max(0, run.costUsd ?? 0).toFixed(4)}`
 			: "";
 		const recovery = run.status === "stale" ? ` ${run.recoveryAction === "subagent-resume" ? `resume:${short(run.recoveryDispatchId || "?", 12)}` : run.recoveryAction || "inspect"}` : "";
-		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode} ${duration.padStart(4)} ${run.eventCount}e${usage}${verification}${files}${recovery} ${short(run.runId, 16)}${parent}`;
+		const failure = run.failureCause ? ` ${short(run.failureCause, 12)}` : "";
+		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode} ${duration.padStart(4)} ${run.eventCount}e${usage}${verification}${files}${failure}${recovery} ${short(run.runId, 16)}${parent}`;
 		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text", line).slice(0, usable));
 	}
 	return lines;

@@ -85,6 +85,8 @@ the authoritative fixture command is `node --test`.
   return distinct structured failure causes for audit consumers.
 - Orchestration query regression coverage confirms an interrupted run retains
   Token/cost usage from its last persisted `usage.updated` event.
+- Orchestration status/dashboard regression coverage confirms dispatch failure
+  causes are projected into the read model and remain bounded for display.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
