@@ -28,6 +28,7 @@ export interface OrchestrationRun {
 	budget: RunBudget;
 	stepsUsed: number;
 	usage: RunUsage;
+	budgetExceeded: boolean;
 	eventDir?: string;
 	events: RunEventRecord[];
 	consumeStep(): void;
@@ -116,6 +117,7 @@ export function createOrchestrationRun(options: {
 		budget,
 		stepsUsed: 0,
 		usage,
+		budgetExceeded: false,
 		...(eventDir ? { eventDir } : {}),
 		events,
 		consumeStep() {
@@ -136,12 +138,19 @@ export function createOrchestrationRun(options: {
 				budgetExceeded = true;
 				record("budget.exceeded", { usage: this.usage, budget });
 			}
+			this.budgetExceeded = budgetExceeded;
 			return within;
 		},
 		record,
 		finish(status, payload) {
 			if (finished) return;
 			finished = true;
+			const durationMs = Date.now() - startedAt;
+			if (durationMs > budget.maxDurationMs && !budgetExceeded) {
+				budgetExceeded = true;
+				this.budgetExceeded = true;
+				record("budget.exceeded", { reason: "maxDurationMs", durationMs, budget });
+			}
 			if (workspaceBefore) {
 				const workspaceAfter = workspaceSnapshot(options.workspaceCwd);
 				if (workspaceAfter) record("workspace.changed", {
@@ -150,7 +159,14 @@ export function createOrchestrationRun(options: {
 					changedFiles: changedWorkspaceFiles(workspaceBefore, workspaceAfter),
 				});
 			}
-			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, usage, ...(payload === undefined ? {} : { result: payload }) });
+			const terminalStatus = status === "succeeded" && budgetExceeded ? "failed" : status;
+			record(`run.${terminalStatus}`, {
+				stepsUsed: this.stepsUsed,
+				durationMs,
+				usage,
+				...(budgetExceeded ? { budgetExceeded: true } : {}),
+				...(payload === undefined ? {} : { result: payload }),
+			});
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
 		},
 	};

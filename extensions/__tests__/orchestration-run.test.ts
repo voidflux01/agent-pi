@@ -29,10 +29,20 @@ describe("orchestration run context", () => {
 		const run = createOrchestrationRun({ budget: { maxSteps: 2, maxTokens: 100, maxCostUsd: 1 }, actor: "test" });
 		expect(run.recordUsage({ totalTokens: 40, costUsd: 0.25 })).toBe(true);
 		expect(run.recordUsage({ totalTokens: 70, costUsd: 0.8 })).toBe(false);
-		run.finish("failed");
+		run.finish("succeeded");
+		expect(run.budgetExceeded).toBe(true);
 		expect(run.usage).toEqual({ totalTokens: 110, costUsd: 1.05 });
 		expect(run.events.map((event) => event.type)).toEqual(["run.started", "usage.updated", "usage.updated", "budget.exceeded", "run.failed"]);
 		expect(run.events.at(-1)?.payload).toMatchObject({ usage: { totalTokens: 110, costUsd: 1.05 } });
+	});
+
+	test("turns a successful finish into failed when one long step crosses the duration ceiling", async () => {
+		const run = createOrchestrationRun({ budget: { maxSteps: 1, maxDurationMs: 1_000 }, actor: "test" });
+		run.consumeStep();
+		await Bun.sleep(1_025);
+		run.finish("succeeded");
+		expect(run.events.at(-1)?.type).toBe("run.failed");
+		expect(run.events.some((event) => event.type === "budget.exceeded")).toBe(true);
 	});
 
 	test("marks a non-terminal run stale when its active process is gone", () => {

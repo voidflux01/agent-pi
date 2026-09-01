@@ -33,6 +33,9 @@ worker lifecycle boundaries.
   one durable `budget.exceeded` event when an optional per-run ceiling is
   crossed, and includes the final usage in the terminal run event. Standard
   subagent and batch dispatches feed their session usage into this parent run.
+- A run that crosses its token/cost ceiling or total-duration ceiling cannot
+  finish as `succeeded`; the runtime records the breach and forces a failed
+  terminal state, keeping status and budget evidence consistent.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and
