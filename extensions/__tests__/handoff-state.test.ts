@@ -1,7 +1,7 @@
 // ABOUTME: Tests the compact handoff snapshot format and durable round trip.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -154,6 +154,35 @@ describe("handoff state", () => {
 			expect(after.status).toBe("in_progress");
 			expect(after.updatedAt).toBe(original.updatedAt);
 		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps only canonical resumable journal rows in a generated handoff", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-journal-status-"));
+		const handlers = new Map<string, Function>();
+		const journalDir = join(workspace, ".pi", "agent-sessions");
+		mkdirSync(journalDir, { recursive: true });
+		writeFileSync(join(journalDir, "task-journal.jsonl"), [
+			{ version: 1, id: "cancelled", kind: "team", agent: "builder", task: "cancelled task", status: "error", runStatus: "cancelled", startedAt: Date.now(), updatedAt: Date.now() },
+			{ version: 1, id: "unknown", kind: "team", agent: "builder", task: "corrupt task", status: "mystery", startedAt: Date.now(), updatedAt: Date.now() },
+			{ version: 1, id: "failed", kind: "team", agent: "builder", task: "retry task", status: "error", runStatus: "failed", startedAt: Date.now(), updatedAt: Date.now() },
+		].map((row) => JSON.stringify(row)).join("\n") + "\n", "utf8");
+		const pi = {
+			registerCommand() {},
+			registerTool() {},
+			on(name: string, handler: Function) { handlers.set(name, handler); },
+		};
+		const ctx: any = { cwd: workspace, sessionManager: { getSessionId: () => "new-session" } };
+		try {
+			handoffExtension(pi as any);
+			await handlers.get("tool_result")!({ toolName: "tasks", result: { details: {} } }, ctx);
+			await new Promise((resolve) => setTimeout(resolve, 550));
+			const snapshot = JSON.parse(readFileSync(handoffPath(workspace), "utf8"));
+			expect(snapshot.children).toHaveLength(1);
+			expect(snapshot.children[0]).toMatchObject({ id: "failed", status: "failed" });
+		} finally {
+			await handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
 			rmSync(workspace, { recursive: true, force: true });
 		}
 	});
