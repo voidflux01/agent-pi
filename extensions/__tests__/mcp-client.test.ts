@@ -216,6 +216,17 @@ describe("McpClient", () => {
 		expect(client.isConnected()).toBe(true);
 	});
 
+	it("should kill the server when the handshake write fails", async () => {
+		const client = new McpClient("/path/to/server.js", {});
+		mockSpawn.mockImplementation(() => {
+			lastMockProc.stdin.write.mockImplementation(() => { throw new Error("EPIPE"); });
+		});
+
+		await expect(client.connect()).rejects.toThrow("MCP initialize write failed: EPIPE");
+		expect(lastMockProc.kill).toHaveBeenCalled();
+		expect(client.isConnected()).toBe(false);
+	});
+
 	it("should send initialize handshake on connect", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		const connectPromise = client.connect();

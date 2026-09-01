@@ -102,14 +102,8 @@ export class McpClient {
 			clientInfo: { name: "pi-mcp-client", version: "1.0.0" },
 		});
 
-		try {
-			this.proc.stdin!.write(initMsg + "\n");
-		} catch (err) {
-			throw new Error(`MCP initialize write failed: ${(err as Error).message}`);
-		}
-
 		// Wait for initialize response
-		await new Promise<void>((resolve, reject) => {
+		const handshake = new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(initId);
 				try { this.proc?.kill(); } catch {}
@@ -136,6 +130,15 @@ export class McpClient {
 				timer,
 			});
 		});
+		// Register the pending request before writing so a synchronous stream
+		// error cannot race the handshake registration.
+		try {
+			proc.stdin!.write(initMsg + "\n");
+		} catch (err) {
+			try { proc.kill(); } catch {}
+			this.onClose(proc, new Error(`MCP initialize write failed: ${(err as Error).message}`));
+		}
+		await handshake;
 	}
 
 	async callTool(name: string, args: Record<string, unknown>, timeoutMs?: number): Promise<any> {
