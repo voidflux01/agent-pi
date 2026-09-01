@@ -87,6 +87,7 @@ describe("source wiring", () => {
 		expect(src).toContain('pi.on("session_shutdown"');
 		expect(src).toContain("__piKillPipelineProc = undefined");
 		expect(src).toContain("clearInterval(agent.timer)");
+		expect(src).toContain("lifecycle.stopAll()");
 	});
 
 	it("hides chain widget outside CHAIN mode", () => {
@@ -95,6 +96,8 @@ describe("source wiring", () => {
 		expect(src).toContain("unwatchMode");
 		expect(src).toContain('pi.on("session_shutdown"');
 		expect(src).toContain("currentChainTimer");
+		expect(src).toContain("Leaving CHAIN is a cancellation boundary");
+		expect(src).toContain("lifecycle.stopAll()");
 		expect(src).toContain("__piKillChainProc = undefined");
 		expect(src).toContain("providers.splice(index, 1)");
 		expect(src).toContain("Do not implement, test, or re-verify");

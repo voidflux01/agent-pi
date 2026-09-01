@@ -1542,6 +1542,7 @@ ${agentCatalog}${commanderSection}`,
 			if (!widgetCtx) return;
 			if (mode !== "TEAM") {
 				sessionEpoch++;
+				lifecycle.stopAll();
 				for (const state of agentStates.values()) {
 					clearAgentTimer(state);
 					if (state.status === "running" && state.proc) {

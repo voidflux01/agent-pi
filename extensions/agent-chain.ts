@@ -1366,7 +1366,14 @@ ${agentCatalog}
 		unwatchMode?.();
 		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
 			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
-			if (mode !== "CHAIN") hideChainWidget(ctx);
+			if (mode !== "CHAIN") {
+				// Leaving CHAIN is a cancellation boundary: do not keep hidden
+				// workers running after the user selects another orchestration mode.
+				lifecycle.stopAll();
+				currentChainProc = null;
+				currentChainTimer = null;
+				hideChainWidget(ctx);
+			}
 			else updateWidget();
 		});
 

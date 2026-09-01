@@ -1419,6 +1419,9 @@ ${contextSummary}${planSection}${reviewSection}
 		unwatchMode = onCoordinationModeChange((mode, _previous, ctx) => {
 			if (ctx?.ui) widgetCtx = ctx as typeof widgetCtx;
 			if (mode !== "PIPELINE") {
+				// Leaving PIPELINE is a cancellation boundary; hidden workers must
+				// not continue consuming resources after a mode change.
+				lifecycle.stopAll();
 				clearPipelineUI();
 				return;
 			}
