@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
+import { budgetBlockReason } from "./orchestration-budget.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -582,6 +583,12 @@ export async function runToolkitDispatch(opts: {
 	isCancelled?: () => boolean;
 }): Promise<ToolkitDispatchResult> {
 	const cancelled = () => !!opts.isCancelled?.();
+	const budgetReason = budgetBlockReason();
+	if (budgetReason) {
+		const message = `Dispatch refused: ${budgetReason}`;
+		opts.onStderr?.(message);
+		return { exitCode: 122, raw: message, transport: "headless" };
+	}
 	const stub = { name: opts.agentName, tools: "", systemPrompt: "" };
 	const herdrAgent = toolkitHerdrAgent(opts.agentName);
 	const herdrLabel = toolkitHerdrLabel(opts.agentName, opts.paneTitle);

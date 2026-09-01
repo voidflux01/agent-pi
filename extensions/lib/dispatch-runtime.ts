@@ -25,6 +25,7 @@ import {
 	type HerdrTabRef,
 } from "./herdr-client.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
+import { budgetBlockReason } from "./orchestration-budget.ts";
 
 export {
 	explicitDispatchHandler,
@@ -378,6 +379,12 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		updateJournal(spec, { status: "error", exitCode: 126, note: message });
 		spec.onStderr?.(message);
 		return { exitCode: 126, stderr: message, transport: "headless" };
+	}
+	const budgetReason = budgetBlockReason();
+	if (budgetReason) {
+		updateJournal(spec, { status: "error", exitCode: 122, note: budgetReason });
+		spec.onStderr?.(`Dispatch refused: ${budgetReason}`);
+		return { exitCode: 122, stderr: `Dispatch refused: ${budgetReason}`, failure: "process_error", transport: "headless" };
 	}
 
 	const transport = spec.transport ?? "auto";

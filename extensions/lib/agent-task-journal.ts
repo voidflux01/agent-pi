@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { RESULT_MARKER } from "./agent-result-contract.ts";
 import { readLastAssistantText } from "./herdr-client.ts";
 import { isActiveRunStatus, isTerminalRunStatus, normalizeRunStatus, type RunStatus } from "./run-state.ts";
+import { recordBudgetUsage } from "./orchestration-budget.ts";
 
 export type TaskJournalStatus = "dispatched" | "running" | "done" | "error";
 
@@ -312,6 +313,7 @@ function journalUpdateUnlocked(sessionDir: string, id: string, patch: Partial<Ta
 
 export function journalUpdate(sessionDir: string, id: string, patch: Partial<TaskJournalEntry>): void {
 	withJournalLock(sessionDir, () => journalUpdateUnlocked(sessionDir, id, patch));
+	if (patch.usage) recordBudgetUsage(id, patch.usage);
 }
 
 /** Read all journal records, oldest first. Corrupt lines are skipped. */

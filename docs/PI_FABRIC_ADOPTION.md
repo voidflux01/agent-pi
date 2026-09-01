@@ -18,6 +18,9 @@ worker lifecycle boundaries.
 - Nested arguments are validated against the registered capability schema before
   execution, and parallel batches are rejected when non-commutative effects
   share a resource.
+- `/budget <max_tokens> <max_cost_usd>` enables an opt-in shared JSONL ledger;
+  journaled worker usage is deduplicated into it, and dispatch preflight blocks
+  new workers after the ceiling is reached.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 
@@ -33,7 +36,6 @@ worker lifecycle boundaries.
 
 ## Next validation gates
 
-1. Add a shared run id, total token/cost budget, and event stream around TEAM,
-   CHAIN, and PIPELINE dispatch.
+1. Extend RunContext events to TEAM, CHAIN, and PIPELINE dispatch.
 2. Exercise `compose_exec` with mocked extension handlers and approval/security
    rejection cases before exposing more capabilities.
