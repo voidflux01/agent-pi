@@ -22,7 +22,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 134 Bun passed; 943 Vitest passed; 13 skipped.
+- Full repository tests: 135 Bun passed; 943 Vitest passed; 13 skipped.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - PLAN, SPEC, TEAM, CHAIN, and PIPELINE each completed a real Herdr smoke.

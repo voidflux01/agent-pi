@@ -104,8 +104,8 @@ describe("journal usage rendering", () => {
 		expect(summary.byMode.CHAIN).toMatchObject({ runs: 1, failed: 1, totalTokens: 200 });
 		expect(summary.byMode.PIPELINE).toMatchObject({ runs: 1, totalTokens: 0 });
 		const rendered = formatJournalSummary(summary);
-		expect(rendered).toContain("TEAM:1runs/1ok/2s/100tok/$0.0100");
-		expect(rendered).toContain("CHAIN:1runs/0ok/3s/200tok/$0.0200");
+		expect(rendered).toContain("TEAM:1runs/1ok/0fail/2savg/100tok/$0.0100");
+		expect(rendered).toContain("CHAIN:1runs/0ok/1fail/3savg/200tok/$0.0200");
 	});
 
 	test("bounds and sanitizes mode labels in summary output", () => {
@@ -113,6 +113,14 @@ describe("journal usage rendering", () => {
 		const rendered = formatJournalSummary(summary);
 		expect(rendered).not.toContain("\n");
 		expect(rendered.length).toBeLessThan(400);
+	});
+
+	test("keeps journal aggregation safe for prototype-like mode names", () => {
+		const summary = summarizeJournal([
+			{ ...base, mode: "__proto__", status: "done", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 7, costUsd: 0.001 } },
+		]);
+		expect(summary.byMode["__proto__"]).toMatchObject({ runs: 1, succeeded: 1, totalTokens: 7 });
+		expect(formatJournalSummary(summary)).toContain("__proto__:1runs/1ok/0fail/0savg/7tok/$0.0010");
 	});
 
 	test("ignores non-finite journal metrics", () => {

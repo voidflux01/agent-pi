@@ -408,7 +408,7 @@ export interface JournalSummary {
 
 /** Aggregate lifecycle, timing, and usage metrics without changing journal rows. */
 export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
-	const byKind = {} as JournalSummary["byKind"];
+	const byKind = Object.create(null) as JournalSummary["byKind"];
 	const summary: JournalSummary = {
 		totalRuns: entries.length,
 		activeRuns: 0,
@@ -420,7 +420,7 @@ export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
 		totalTokens: 0,
 		costUsd: 0,
 		byKind,
-		byMode: {},
+		byMode: Object.create(null),
 	};
 	for (const entry of entries) {
 		const status = normalizeRunStatus(entry.runStatus || entry.status);
@@ -462,8 +462,9 @@ export function formatJournalSummary(summary: JournalSummary): string {
 		: "$0";
 	const modes = Object.entries(summary.byMode).sort(([a], [b]) => a.localeCompare(b)).map(([mode, bucket]) => {
 		const label = mode.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 24) || "UNKNOWN";
-		const modeElapsed = `${Math.round(bucket.elapsedMs / 1000)}s`;
-		return `${label}:${bucket.runs}runs/${bucket.succeeded}ok/${modeElapsed}/${bucket.totalTokens.toLocaleString()}tok/$${bucket.costUsd.toFixed(4)}`;
+		const averageElapsed = bucket.runs > 0 ? bucket.elapsedMs / bucket.runs : 0;
+		const modeElapsed = `${Math.round(averageElapsed / 1000)}savg`;
+		return `${label}:${bucket.runs}runs/${bucket.succeeded}ok/${bucket.failed}fail/${modeElapsed}/${bucket.totalTokens.toLocaleString()}tok/$${bucket.costUsd.toFixed(4)}`;
 	}).join(",");
 	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.cancelledRuns} cancelled | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}${modes ? ` | modes ${modes}` : ""}`;
 }
