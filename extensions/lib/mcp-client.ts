@@ -74,6 +74,9 @@ export class McpClient {
 	}
 
 	private async connectOnce(): Promise<void> {
+		// A partial JSON line belongs to the previous process and must never be
+		// prepended to the next server's handshake response.
+		this.buffer = "";
 		this.proc = spawn("node", [this.serverPath], {
 			stdio: ["pipe", "pipe", "pipe"],
 			env: childEnvironment(this.env),
@@ -167,6 +170,7 @@ export class McpClient {
 
 	disconnect(): void {
 		this.connected = false;
+		this.buffer = "";
 		if (this.proc) {
 			this.proc.kill();
 			this.proc = null;

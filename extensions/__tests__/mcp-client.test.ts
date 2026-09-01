@@ -201,6 +201,21 @@ describe("McpClient", () => {
 		expect(client.isConnected()).toBe(true);
 	});
 
+	it("should discard a partial response left by the previous connection", async () => {
+		const client = new McpClient("/path/to/server.js", {}, 100);
+		const firstConnect = client.connect();
+		lastMockProc.stdout.emit("data", '{"jsonrpc":"2.0","id":1,"result":');
+		await expect(firstConnect).rejects.toThrow(/timeout/i);
+
+		const reconnect = client.connect();
+		lastMockProc.stdout.emit("data", JSON.stringify({
+			jsonrpc: "2.0", id: 2,
+			result: { protocolVersion: "2024-11-05", capabilities: {} },
+		}) + "\n");
+		await expect(reconnect).resolves.toBeUndefined();
+		expect(client.isConnected()).toBe(true);
+	});
+
 	it("should send initialize handshake on connect", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		const connectPromise = client.connect();
