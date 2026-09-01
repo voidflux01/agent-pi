@@ -23,6 +23,7 @@ import {
 	cleanupAllPlayback, isSafeSoundName,
 } from "./lib/sounds-player.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { readBoundedRequestBody } from "./lib/request-body.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -36,34 +37,7 @@ interface SoundsViewerResult {
 const MAX_SOUND_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
 
 function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
-	const declared = Number(req.headers["content-length"] || 0);
-	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_SOUND_REQUEST_BODY_BYTES) {
-		res.writeHead(413, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ error: "Request body too large" }));
-		req.resume();
-		return;
-	}
-	let body = "";
-	let received = 0;
-	let rejected = false;
-	req.on("data", (chunk) => {
-		if (rejected) return;
-		received += Buffer.byteLength(chunk);
-		if (received > MAX_SOUND_REQUEST_BODY_BYTES) {
-			rejected = true;
-			res.writeHead(413, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "Request body too large" }));
-			return;
-		}
-		body += chunk;
-	});
-	req.on("end", () => { if (!rejected) onBody(body); });
-	req.on("error", () => {
-		if (!rejected && !res.headersSent) {
-			res.writeHead(400, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "Request body unreadable" }));
-		}
-	});
+	readBoundedRequestBody(req, res, onBody, MAX_SOUND_REQUEST_BODY_BYTES);
 }
 
 // ── Catalog Fetching ─────────────────────────────────────────────────

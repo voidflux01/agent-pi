@@ -13,6 +13,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
+import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { generateBoardViewerHTML } from "./lib/board-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { commanderClient } from "./lib/coordination-state.ts";
@@ -39,34 +40,7 @@ interface BoardData {
 const MAX_BOARD_REQUEST_BODY_BYTES = 256 * 1024;
 
 function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
-	const declared = Number(req.headers["content-length"] || 0);
-	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_BOARD_REQUEST_BODY_BYTES) {
-		res.writeHead(413, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
-		req.resume();
-		return;
-	}
-	let body = "";
-	let received = 0;
-	let rejected = false;
-	req.on("data", (chunk: Buffer | string) => {
-		if (rejected) return;
-		received += Buffer.byteLength(chunk);
-		if (received > MAX_BOARD_REQUEST_BODY_BYTES) {
-			rejected = true;
-			res.writeHead(413, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
-			return;
-		}
-		body += chunk;
-	});
-	req.on("end", () => { if (!rejected) onBody(body); });
-	req.on("error", () => {
-		if (!rejected && !res.headersSent) {
-			res.writeHead(400, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ ok: false, error: "Request body unreadable" }));
-		}
-	});
+	readBoundedRequestBody(req, res, onBody, MAX_BOARD_REQUEST_BODY_BYTES, { ok: false, error: "Request body too large" });
 }
 
 // ── Commander Data Helpers ───────────────────────────────────────────

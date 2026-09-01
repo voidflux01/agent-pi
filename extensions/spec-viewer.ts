@@ -21,6 +21,7 @@ import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
 import { bindSpecContract, emptyContract } from "./lib/execution-contract.ts";
 import { setExecutionContract } from "./lib/coordination-state.ts";
+import { readBoundedRequestBody } from "./lib/request-body.ts";
 // Approval is bound to the reviewed snapshot (markSpecApproved() remains the unbound API).
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -44,34 +45,7 @@ interface SpecViewerResult {
 const MAX_SPEC_REQUEST_BODY_BYTES = 256 * 1024;
 
 function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
-	const declared = Number(req.headers["content-length"] || 0);
-	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_SPEC_REQUEST_BODY_BYTES) {
-		res.writeHead(413, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ error: "Request body too large" }));
-		req.resume();
-		return;
-	}
-	let body = "";
-	let received = 0;
-	let rejected = false;
-	req.on("data", (chunk) => {
-		if (rejected) return;
-		received += Buffer.byteLength(chunk);
-		if (received > MAX_SPEC_REQUEST_BODY_BYTES) {
-			rejected = true;
-			res.writeHead(413, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "Request body too large" }));
-			return;
-		}
-		body += chunk;
-	});
-	req.on("end", () => { if (!rejected) onBody(body); });
-	req.on("error", () => {
-		if (!rejected && !res.headersSent) {
-			res.writeHead(400, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ error: "Request body unreadable" }));
-		}
-	});
+	readBoundedRequestBody(req, res, onBody, MAX_SPEC_REQUEST_BODY_BYTES);
 }
 
 // ── MIME Types ────────────────────────────────────────────────────────

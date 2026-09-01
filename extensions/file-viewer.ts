@@ -13,6 +13,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateFileViewerHTML } from "./lib/file-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, closeActiveViewer, getActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
+import { readBoundedRequestBody } from "./lib/request-body.ts";
 
 interface FileViewerResult {
 	action: "done";
@@ -23,34 +24,7 @@ interface FileViewerResult {
 const MAX_FILE_VIEWER_REQUEST_BODY_BYTES = 256 * 1024;
 
 function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
-	const declared = Number(req.headers["content-length"] || 0);
-	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_FILE_VIEWER_REQUEST_BODY_BYTES) {
-		res.writeHead(413, { "Content-Type": "application/json" });
-		res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
-		req.resume();
-		return;
-	}
-	let body = "";
-	let received = 0;
-	let rejected = false;
-	req.on("data", (chunk) => {
-		if (rejected) return;
-		received += Buffer.byteLength(chunk);
-		if (received > MAX_FILE_VIEWER_REQUEST_BODY_BYTES) {
-			rejected = true;
-			res.writeHead(413, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
-			return;
-		}
-		body += chunk;
-	});
-	req.on("end", () => { if (!rejected) onBody(body); });
-	req.on("error", () => {
-		if (!rejected && !res.headersSent) {
-			res.writeHead(400, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ ok: false, error: "Request body unreadable" }));
-		}
-	});
+	readBoundedRequestBody(req, res, onBody, MAX_FILE_VIEWER_REQUEST_BODY_BYTES, { ok: false, error: "Request body too large" }, { ok: false, error: "Request body unreadable" });
 }
 
 function openBrowser(url: string): void {
