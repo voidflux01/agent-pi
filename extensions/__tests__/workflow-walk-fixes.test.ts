@@ -98,6 +98,8 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("Promise.all(jobs.map");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resultOneLiner(result.fullOutput");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain(".slice(0, 8_000)");
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {

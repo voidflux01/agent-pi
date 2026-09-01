@@ -88,8 +88,9 @@ worker lifecycle boundaries.
   one auditable unit for independent work.
 - TEAM now exposes the same one-call parallel shape as `dispatch_team_batch` for
   its selected roster. Independent specialist jobs share one bounded TEAM
-  parent RunContext, propagate cancellation to every child, and return compact
-  per-job summaries; dependent work remains on `dispatch_agent`.
+  parent RunContext, propagate cancellation to every child, and return a hard-
+  capped parent summary with per-job one-line results and archive pointers;
+  dependent work remains on `dispatch_agent`.
 - `subagent_wait` provides an explicit bounded join for background batches:
   child results stay in the runtime until requested, then one capped summary is
   returned to the parent. This keeps parallel work useful in NORMAL, PLAN, and

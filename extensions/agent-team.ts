@@ -1001,9 +1001,9 @@ export default function (pi: ExtensionAPI) {
 		description: "Dispatch multiple independent TEAM tasks concurrently and return bounded summaries in one call. Use only when tasks have separate owners and neither depends on another result; use dispatch_agent for sequential work.",
 		parameters: Type.Object({
 			jobs: Type.Array(Type.Object({
-				agent: Type.String({ description: "Team member name (case-insensitive)" }),
-				task: Type.String({ description: "Independent task for this team member" }),
-			}), { description: "Independent jobs to run concurrently (maximum 8)" }),
+				agent: Type.String({ maxLength: 160, description: "Team member name (case-insensitive)" }),
+				task: Type.String({ maxLength: 4_000, description: "Independent task for this team member" }),
+			}), { maxItems: 8, description: "Independent jobs to run concurrently (maximum 8)" }),
 		}),
 
 		execute: explicitDispatchHandler("agent-team-batch", async (_toolCallId, params, signal, onUpdate, ctx) => {
@@ -1037,16 +1037,22 @@ export default function (pi: ExtensionAPI) {
 			const cancelled = signal?.aborted || results.some((result) => result.exitCode === 130);
 			orchestrationRun.record("team.batch.completed", { total: results.length, failed, cancelled });
 			orchestrationRun.finish(cancelled ? "cancelled" : failed > 0 ? "failed" : "succeeded", { total: results.length, failed });
-			const summary = results.map((result) => {
+			const summary = [
+				`TEAM batch ${cancelled ? "cancelled" : failed > 0 ? "finished with failures" : "succeeded"}: ${results.length - failed}/${results.length} jobs completed.`,
+				...results.map((result) => {
 				const label = `[${result.agent}] ${result.status} in ${Math.round(result.elapsed / 1000)}s`;
-				return `${label}\n${result.output}`;
-			}).join("\n\n");
+				const resultBlock = extractResultBlock(result.fullOutput).result;
+				const detail = resultOneLiner(result.fullOutput, resultBlock) || result.output.replace(/\s+/g, " ").slice(0, 240) || "no summary";
+				const archive = result.fullOutputPath ? `; archive: ${result.fullOutputPath}` : "; archive: unavailable";
+				return `${label} — ${detail}${archive}`;
+			}),
+			].join("\n").slice(0, 8_000);
 			return {
 				content: [{ type: "text", text: summary }],
 				details: {
 					runId: orchestrationRun.runId,
 					status: cancelled ? "cancelled" : failed > 0 ? "failed" : "succeeded",
-					jobs: results.map(({ agent, task, status, elapsed, exitCode, fullOutputPath, model }) => ({ agent, task, status, elapsed, exitCode, fullOutputPath, model })),
+					jobs: results.map(({ agent, task, status, elapsed, exitCode, fullOutputPath, model }) => ({ agent, task: task.slice(0, 240), status, elapsed, exitCode, fullOutputPath, model })),
 				},
 			};
 		}),
