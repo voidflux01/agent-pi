@@ -228,7 +228,8 @@ npm ci
 npm test
 ```
 
-Run the full local check, including the production dependency audit:
+Run the full local release verification (the `check` script is an alias for
+`verify:release`):
 
 ```bash
 npm run check
