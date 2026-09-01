@@ -335,6 +335,7 @@ export default function (pi: ExtensionAPI) {
 
 		removeAllAgentWidgets(widgetCtx);
 		for (const state of agentStates.values()) {
+			clearAgentTimer(state);
 			if (state.status === "running" && state.proc) {
 				try { state.proc.kill("SIGTERM"); } catch {}
 			}
