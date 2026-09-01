@@ -91,6 +91,7 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: result.runId");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
+		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Pipeline dispatch failed:");
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {

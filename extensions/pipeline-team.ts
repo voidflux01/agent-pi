@@ -1050,7 +1050,7 @@ export default function (pi: ExtensionAPI) {
 			} catch (error) {
 				orchestrationRun.record("pipeline.failed", { phase: phase.def.name, error: error instanceof Error ? error.message : String(error) });
 				orchestrationRun.finish("failed", { phase: phase.def.name });
-				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true, phase: phase.def.name } };
+				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true, phase: phase.def.name, runId: orchestrationRun.runId } };
 			}
 
 			// Merge outputs into accumulated context. Each output is already a
