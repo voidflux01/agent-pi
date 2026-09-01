@@ -112,16 +112,48 @@ function checkConfigs() {
 		return;
 	}
 	import("yaml").then(({ parse }) => {
+		const referencedAgents = new Map();
+		const toolkitAgents = new Set();
+		const recordAgent = (agent, file) => {
+			if (typeof agent === "string" && agent.trim()) referencedAgents.set(agent, file);
+		};
 		for (const file of ["agents/teams.yaml", "agents/agent-chain.yaml", "agents/pipeline-team.yaml"]) {
 			const path = join(root, file);
 			try {
 				const value = parse(readFileSync(path, "utf8"));
 				if (!value || typeof value !== "object") throw new Error("root value is not an object");
 				add(`yaml:${file}`, "pass", `${file} is valid YAML`);
+				if (file.endsWith("teams.yaml") && Array.isArray(value.toolkit)) {
+					for (const agent of value.toolkit) toolkitAgents.add(agent);
+				}
+				for (const workflow of Object.values(value)) {
+					if (Array.isArray(workflow)) {
+						for (const agent of workflow) recordAgent(agent, file);
+						continue;
+					}
+					if (!workflow || typeof workflow !== "object") continue;
+					if (Array.isArray(workflow.steps)) {
+						for (const step of workflow.steps) recordAgent(step?.agent, file);
+					}
+					if (Array.isArray(workflow.phases)) {
+						for (const phase of workflow.phases) {
+							for (const agent of phase?.agents || []) recordAgent(agent?.role || agent?.agent, file);
+						}
+					}
+				}
 			} catch (error) {
 				add(`yaml:${file}`, "fail", `${file} is invalid: ${error.message}`);
 			}
 		}
+		const missing = [...referencedAgents.entries()]
+			.filter(([agent]) => !existsSync(join(root, "agents", `${agent}.md`)) && !toolkitAgents.has(agent))
+			.map(([agent, file]) => `${agent} (referenced by ${file})`);
+		const external = [...referencedAgents.entries()]
+			.filter(([agent]) => !existsSync(join(root, "agents", `${agent}.md`)) && toolkitAgents.has(agent))
+			.map(([agent, file]) => `${agent} (external toolkit, referenced by ${file})`);
+		if (missing.length) add("agent-references", "fail", "Workflow configs reference missing agent definitions", { missing });
+		else add("agent-references", "pass", `All ${referencedAgents.size} local or external agent references are valid`);
+		if (external.length) add("external-agents", "info", "Some workflow agents are provided by external CLI toolkits", { external });
 	}).catch((error) => add("yaml", "fail", `Could not load yaml parser: ${error.message}`));
 }
 
