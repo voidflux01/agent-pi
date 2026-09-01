@@ -6,7 +6,7 @@ import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import { getToolRegistry, type ToolEntry } from "./tool-registry.ts";
+import { refreshToolRegistry, getToolRegistry, type ToolEntry } from "./tool-registry.ts";
 import { getCapabilityForTool } from "./lib/capability-registry.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
@@ -78,11 +78,8 @@ export default function (pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const { operation, query, category, tool_name } = params;
 
-			// Ensure registry is populated
-			if (registry.size === 0) {
-				const allTools = pi.getAllTools();
-				registry.buildIndex(allTools);
-			}
+			// MCP and optional extensions may load after session_start.
+			refreshToolRegistry(pi);
 
 			if (operation === "search") {
 				if (!query) {

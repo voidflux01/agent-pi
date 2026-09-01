@@ -4,7 +4,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import { getToolRegistry } from "./tool-registry.ts";
+import { refreshToolRegistry, getToolRegistry } from "./tool-registry.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { loadPolicy, scanCommand, scanFilePath, formatThreatsForBlock } from "./lib/security-engine.ts";
 import { approvalStateForMode, decideApprovalGate } from "./lib/approval-gate.ts";
@@ -86,6 +86,8 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const { tool_name, arguments: toolArgs, reason } = params;
+			// Keep dynamic MCP/extension loads visible without weakening execution gates.
+			refreshToolRegistry(pi);
 
 			// Prevent self-referential calls
 			if (BLOCKED_TOOLS.has(tool_name)) {

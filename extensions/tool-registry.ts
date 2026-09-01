@@ -233,12 +233,17 @@ export function getToolRegistry(): ToolRegistry {
 	return g.__piToolRegistry;
 }
 
+/** Refresh the shared index so tools loaded after session_start are discoverable. */
+export function refreshToolRegistry(pi: { getAllTools: () => { name: string; description?: string }[] }): ToolRegistry {
+	const registry = getToolRegistry();
+	registry.buildIndex(pi.getAllTools());
+	return registry;
+}
+
 export default function (pi: ExtensionAPI) {
 	const registry = getToolRegistry();
 
 	pi.on("session_start", async (_event, _ctx) => {
-		// Build index from all registered tools
-		const allTools = pi.getAllTools();
-		registry.buildIndex(allTools);
+		refreshToolRegistry(pi);
 	});
 }

@@ -161,6 +161,10 @@ worker lifecycle boundaries.
   while discovered MCP/native tools are `native_only`. Search can therefore
   explain the boundary and composition rejects native-only tools explicitly
   instead of failing later with an ambiguous missing-executor error.
+- The shared tool registry now refreshes immediately before `tool_search` and
+  `call_tool`, so MCP or optional extension tools loaded during a session are
+  discoverable without restarting Pi; refresh does not bypass nested security,
+  approval, or executor checks.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.
