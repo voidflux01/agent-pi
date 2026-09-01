@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discoverResearchTools, researchRoutingDecision, researcherPrompt } from "../lib/research-protocol.ts";
+import { RESEARCH_ROUTING_PROMPT } from "../lib/mode-prompts.ts";
 
 describe("research routing", () => {
 	it("detects unstable external-fact requests", () => {
@@ -26,5 +27,22 @@ describe("research routing", () => {
 		expect(prompt).toContain("do not retry the same URL repeatedly");
 		expect(prompt).toContain("canonical equivalent host or an official mirror");
 		expect(prompt).toContain("never invent proxy values");
+	});
+
+	it("defines a cross-mode scout-to-researcher handoff", () => {
+		expect(RESEARCH_ROUTING_PROMPT).toContain("applies in every mode");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("external_research_needed: true");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("queries:");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("reason:");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("SCOUT investigates local repository");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("researcher investigates external facts");
+	});
+
+	it("describes mode-specific research reuse", () => {
+		expect(RESEARCH_ROUTING_PROMPT).toContain("NORMAL: start with local work");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("PLAN/SPEC");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("TEAM: dispatch one shared researcher result");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("PIPELINE: dispatch researcher in the earliest");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("CHAIN: use researcher only when");
 	});
 });

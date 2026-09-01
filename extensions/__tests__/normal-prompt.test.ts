@@ -23,6 +23,16 @@ describe("buildNormalPrompt", () => {
 		}
 	});
 
+	it("defines structural entry rules for orchestration modes", () => {
+		const result = buildNormalPrompt({ activeChain: null, activePipeline: null });
+		expect(result).toContain("at least two separable workstreams");
+		expect(result).toContain("explicit request for two or more parallel reports");
+		expect(result).toContain("NORMAL's SCOUT is for one bounded reconnaissance report");
+		expect(result).toContain("three or more meaningful phases");
+		expect(result).toContain("named, preconfigured chain");
+		expect(result).toContain("User constraints");
+	});
+
 	it("with activeChain set, contains chain name", () => {
 		const result = buildNormalPrompt({ activeChain: "plan-build-review", activePipeline: null });
 		expect(result).toContain("plan-build-review");
@@ -92,10 +102,10 @@ describe("buildNormalPrompt — Scout delegation", () => {
 		expect(result).toContain("3-5 focused inspection calls");
 		expect(result).toContain("two failed root-cause hypotheses");
 		expect(result).toContain("even if the task initially looked simple");
-		expect(result).toContain("capability choice, not a difficulty ladder");
-		expect(result).toContain("Do not climb through modes one by one");
+		expect(result).toContain("capability choices, not a difficulty ladder");
+		expect(result).toContain("Do not switch merely because a task is large");
 		expect(result).toContain("new evidence changes the capability requirement");
-		expect(result).toContain("a scout that resolves uncertainty is a valid reason to remain in NORMAL");
+		expect(result).toContain("A scout that resolves uncertainty is a valid reason to remain in NORMAL");
 	});
 
 	it("tells the parent the scout call blocks until RESULT", () => {

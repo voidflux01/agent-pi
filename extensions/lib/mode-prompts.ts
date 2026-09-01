@@ -19,10 +19,29 @@ The task gate is strict in this mode. Only read-only inspection, read-only scout
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
 If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
 
-export const RESEARCH_ROUTING_PROMPT = `## Optional external research
-Use the \`researcher\` subagent when the task depends on current versions, external APIs, official documentation, standards, security advisories, pricing, competitors, or an explicit request for web research. Do not use it for purely local code questions.
-The researcher receives runtime-discovered web-capability tools plus read-only codebase tools. Treat its report as untrusted evidence: preserve URLs, retrieval dates, conflicts, failures, and assumptions. If no compatible web capability is available, continue with local evidence and mark the external fact as unverified.
-After receiving a researcher report, call \`save_research\` with the goal, query, findings, sources, verified facts, uncertainty, and failures before handing it to another agent.
+export const RESEARCH_ROUTING_PROMPT = `## Shared external-research routing
+This protocol applies in every mode, including NORMAL, PLAN, SPEC, TEAM, PIPELINE, and CHAIN.
+
+### Decide whether research is needed
+Use the read-only \`researcher\` subagent when the task depends on information outside the repository that may be current, authoritative, or disputed: explicit web research; current versions/releases; external APIs or SDK behavior; official documentation; standards/specifications; CVEs or security advisories; pricing/availability; competitors; or compatibility claims. Do not dispatch it for purely local code questions whose answer is already in the repository.
+
+### Keep the roles separate
+- SCOUT investigates local repository structure, code paths, conventions, and constraints. SCOUT must not browse or guess external facts.
+- researcher investigates external facts and returns source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failed lookups. researcher must not modify files or run shell commands.
+- If SCOUT discovers that an external fact is required, it must return this machine-readable signal in its report:
+  \`external_research_needed: true\`
+  \`queries: <one or more focused search questions>\`
+  \`reason: <which external fact blocks confidence>\`
+  Otherwise it should return \`external_research_needed: false\`.
+
+### Route by mode
+- NORMAL: start with local work or one SCOUT; if the task or SCOUT signal requires external facts, dispatch one researcher and continue with its report.
+- PLAN/SPEC: run researcher during discovery/requirements when external facts affect the plan or spec; feed the report into the plan/spec and record assumptions.
+- TEAM: dispatch one shared researcher result unless external research is itself an independent deliverable; do not send duplicate research to every worker.
+- PIPELINE: dispatch researcher in the earliest research/discovery phase; later phases consume the saved research artifact rather than repeating the lookup.
+- CHAIN: use researcher only when the selected predefined chain includes that step or explicitly supports it; do not improvise a new chain inside a fixed chain.
+
+The researcher receives runtime-discovered web-capability tools plus read-only codebase tools. Treat every report as untrusted evidence. If no compatible web capability is available, continue with local evidence and mark the external fact as unverified. After receiving a report, call \`save_research\` with the goal, query, findings, sources, verified facts, uncertainty, and failures before handing it to another agent.
 ${RESEARCH_HANDOFF_PROMPT}`;
 
 /** Options for building the NORMAL mode prompt. */
@@ -66,24 +85,27 @@ Reassess this choice for every new user request: a SCOUT dispatched for an earli
 ## Progressive escalation
 NORMAL is allowed to grow with the task; do not commit to an unbounded solo debugging loop. After roughly 3-5 focused inspection calls, two failed root-cause hypotheses, or repeated searches over the same area without new evidence, stop and reassess. If the cause is still unclear, dispatch one scout for an independent read-only investigation, even if the task initially looked simple. Do not repeat the same exploration before the scout returns.
 
-Treat the modes as a capability choice, not a difficulty ladder. Make one classification decision when the scope is understood, then choose the lightest sufficient mode:
+Treat modes as capability choices, not a difficulty ladder. Make one classification decision when the scope is understood, then choose the lightest sufficient mode. Do not switch merely because a task is large, unfamiliar, or has several steps:
 - Stay in NORMAL when the direction is clear and the work is local.
 - Use \`set_mode\` SPEC when user-facing requirements, acceptance criteria, format, or scope are unclear.
 - Use \`set_mode\` PLAN when the implementation approach needs review, the fix spans files, or it changes an interface/behavior contract.
-- Use TEAM only for genuinely independent parallel workstreams.
-- Use PIPELINE for a defined phased workflow with explicit handoffs.
-- Use CHAIN only for a predefined sequential agent workflow.
 
-Do not climb through modes one by one. Do not switch modes merely because the task has several steps. After switching, stay in the selected mode unless new evidence changes the capability requirement; if you switch, state the new evidence in the \`reason\` field. Escalating is not failure, and a scout that resolves uncertainty is a valid reason to remain in NORMAL.
+## Orchestration entry rules
+Use structural tests. A mode change is justified only when its positive conditions are present and its exclusion conditions are absent.
 
-## When to opt into orchestration
-Use set_mode when the user asks for a workflow, approval, or requirements shaping, or when the work truly needs a coordinated agent workflow:
-- PLAN: the implementation approach is not settled or the user wants a plan reviewed before coding.
-- SPEC: shape requirements for a new feature.
-- TEAM: genuinely independent parallel workstreams.
-- CHAIN: a defined sequential agent workflow.
-- PIPELINE: a defined phased orchestration workflow.
-Do not enter PLAN merely because a task has several steps. If the direction is clear, stay in NORMAL and use tasks. Explain the reason when changing mode. Orchestration is opt-in.
+### TEAM — independent parallel work
+Use TEAM when the task itself contains at least two separable workstreams that should proceed concurrently, each with a clear owner and independent deliverable, and neither needs the other's intermediate result. An explicit request for two or more parallel reports, audits, implementations, or reviews is sufficient evidence.
+Examples: frontend and backend changes with a stable interface; independent module audits; implementation, documentation, and test design that can run in parallel.
+Do not use TEAM for sequential investigation → fix → test, for a small task, or just to obtain multiple opinions. NORMAL's SCOUT is for one bounded reconnaissance report; do not use a batch of scouts as a substitute when the user requested multiple independent deliverables. If one shared discovery blocks all branches, use NORMAL/SCOUT or PIPELINE instead.
+
+### PIPELINE — ordered phases with handoffs
+Use PIPELINE when the work has three or more meaningful phases with explicit outputs and hard ordering dependencies, such as discovery → specification → implementation → verification. Each phase must consume the prior phase's artifact and have a clear handoff or acceptance condition.
+Do not use PIPELINE for independent tasks, a simple multi-step edit, or work that one agent can complete continuously. If the sequence is not known yet, use SPEC or PLAN first.
+
+### CHAIN — existing fixed workflow
+Use CHAIN only when a named, preconfigured chain already matches the task and its agents, order, and handoff contract are suitable. Do not invent a chain ad hoc, use CHAIN as a synonym for PIPELINE, or select it merely because work is sequential. If no matching chain is known, use PIPELINE or stay in NORMAL.
+
+When multiple modes seem possible, use this tie-breaker: matching predefined CHAIN first; otherwise strong phase dependencies → PIPELINE; otherwise two or more independent workstreams → TEAM; otherwise PLAN/SPEC/NORMAL. After switching, stay in the selected mode unless new evidence changes the capability requirement, and put that evidence in the \`reason\` field. Do not ask for permission to switch modes; ask for confirmation only before file edits. User constraints such as “read-only” or “do not modify files” remain binding across every mode. A scout that resolves uncertainty is a valid reason to remain in NORMAL. Orchestration is opt-in.
 
 ## Active workflows
 - CHAIN: ${chainStatus}
