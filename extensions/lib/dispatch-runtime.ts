@@ -93,6 +93,7 @@ export interface DispatchRuntimeResult {
 /** Default worker wait. Pass pollTimeoutMs: 0 to disable. */
 export const DEFAULT_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 export const DEFAULT_ABORT_POLL_INTERVAL_MS = 50;
+const FORCE_KILL_DELAY_MS = 3_000;
 const DEFAULT_HERDR_POLL_INTERVAL_MS = 3_000;
 
 function updateJournal(spec: DispatchRuntimeSpec, patch: Record<string, unknown>): void {
@@ -175,11 +176,19 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		const timeoutMs = spec.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
 		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 		let abortTimer: ReturnType<typeof setInterval> | undefined;
+		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+		const terminateChild = () => {
+			try { child.kill("SIGTERM"); } catch {}
+			forceKillTimer = setTimeout(() => {
+				try { child.kill("SIGKILL"); } catch {}
+			}, FORCE_KILL_DELAY_MS);
+		};
 		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
 			settled = true;
 			if (timeoutTimer) clearTimeout(timeoutTimer);
 			if (abortTimer) clearInterval(abortTimer);
+			if (forceKillTimer) clearTimeout(forceKillTimer);
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
 			updateJournal(spec, {
 				status: exitCode === 0 ? "done" : "error",
@@ -200,17 +209,20 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 				stderr = stderr ? `${stderr}\n${message}` : message;
 				spec.onStderr?.(message);
 				finish(1, "timeout");
-				try { child.kill("SIGTERM"); } catch {}
+				terminateChild();
 			}, timeoutMs)
 			: undefined;
 		if (spec.isAborted) {
 			abortTimer = setInterval(() => {
 				if (!isAborted(spec)) return;
 				finish(130, "aborted");
-				try { child.kill("SIGTERM"); } catch {}
+				terminateChild();
 			}, DEFAULT_ABORT_POLL_INTERVAL_MS);
 		}
-		child.once("close", (code) => finish(code ?? 1));
+		child.once("close", (code) => {
+			if (forceKillTimer) clearTimeout(forceKillTimer);
+			finish(code ?? 1);
+		});
 		child.once("error", (error) => {
 			const message = error instanceof Error ? error.message : String(error);
 			stderr += message;
