@@ -6,6 +6,7 @@ describe("research viewer boundaries", () => {
 		const source = readFileSync(new URL("../research-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("authorizeLocalServerRequest");
 		expect(source).toContain("Invalid session id");
+		expect(source).toContain("server.on(\"close\", () => clearInterval(heartbeatCheck))");
 		expect(source).toContain('execFileSync("open", [url]');
 		expect(source).toContain('session.status = "complete"');
 		expect(source).not.toContain("Access-Control-Allow-Origin");
