@@ -14,7 +14,7 @@ const testFiles = readdirSync(testDir)
   .sort()
   .map((name) => resolve(testDir, name));
 
-const bunFiles = testFiles.filter((file) => readFileSync(file, "utf8").includes('from "bun:test"'));
+const bunFiles = testFiles.filter((file) => /\bfrom\s+["']bun:test["']/.test(readFileSync(file, "utf8")));
 const vitestFiles = testFiles.filter((file) => !bunFiles.includes(file));
 
 function run(command, args) {
