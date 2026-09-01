@@ -23,7 +23,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 145 Bun passed; 943 Vitest passed; 13 skipped.
+- Full repository tests: 146 Bun passed; 943 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -43,6 +43,8 @@ the authoritative fixture command is `node --test`.
   into the owning run.
 - Successful terminal status is forced to `failed` when measured token/cost or
   total-duration ceilings are exceeded, including a long single-step run.
+- Shared budget check-and-append is protected by a cross-process lock, with a
+  stale-lock recovery regression test.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

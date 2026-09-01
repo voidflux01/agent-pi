@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { activeOrchestrationBudget, budgetBlockReason, clearOrchestrationBudget, initOrchestrationBudget, readBudgetTotals, recordBudgetUsage } from "../lib/orchestration-budget.ts";
@@ -31,5 +31,16 @@ describe("orchestration budget", () => {
 		expect(budgetBlockReason()).toBeUndefined();
 		expect(recordBudgetUsage("run-limit", { totalTokens: 100, costUsd: 0.5 })).toBe(true);
 		expect(budgetBlockReason()).toContain("token budget exhausted");
+	});
+
+	test("recovers a stale cross-process lock before recording usage", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-"));
+		const budget = initOrchestrationBudget(dir, 1000, 1);
+		const lock = `${budget.file}.lock`;
+		mkdirSync(lock);
+		const old = new Date(Date.now() - 20_000);
+		utimesSync(lock, old, old);
+		expect(recordBudgetUsage("run-after-stale-lock", { totalTokens: 10, costUsd: 0.01 })).toBe(true);
+		expect(readBudgetTotals(budget.file)).toEqual({ totalTokens: 10, costUsd: 0.01 });
 	});
 });

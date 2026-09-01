@@ -36,6 +36,9 @@ worker lifecycle boundaries.
 - A run that crosses its token/cost ceiling or total-duration ceiling cannot
   finish as `succeeded`; the runtime records the breach and forces a failed
   terminal state, keeping status and budget evidence consistent.
+- The shared token/cost ledger serializes check-and-append across processes
+  with a short-lived lock and stale-lock recovery, so parallel workers cannot
+  pass the same preflight based on an outdated total.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and

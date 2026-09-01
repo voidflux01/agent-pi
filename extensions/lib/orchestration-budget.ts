@@ -3,7 +3,7 @@
 // updated from authoritative task-journal usage, so TEAM/CHAIN/PIPELINE share it.
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const FILE_ENV = "PI_AGENT_PI_BUDGET_FILE";
@@ -21,6 +21,29 @@ export interface OrchestrationBudget {
 }
 
 interface BudgetEntry { sourceRunId: string; tokens: number; costUsd: number; recordedAt: number; }
+
+const LOCK_WAIT_MS = 5;
+const LOCK_TIMEOUT_MS = 2_000;
+const STALE_LOCK_MS = 10_000;
+
+/** Serialize read/check/append across independent worker processes. */
+function withBudgetLock<T>(file: string, action: () => T): T | undefined {
+	const lock = `${file}.lock`;
+	const started = Date.now();
+	while (true) {
+		try {
+			mkdirSync(lock, { recursive: false, mode: 0o700 });
+			break;
+		} catch {
+			try {
+				if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) rmSync(lock, { recursive: true, force: true });
+			} catch {}
+			if (Date.now() - started >= LOCK_TIMEOUT_MS) return undefined;
+			try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_WAIT_MS); } catch {}
+		}
+	}
+	try { return action(); } finally { try { rmSync(lock, { recursive: true, force: true }); } catch {} }
+}
 
 const finitePositive = (value: unknown): number | undefined => {
 	const parsed = Number(value);
@@ -80,6 +103,7 @@ export function recordBudgetUsage(sourceRunId: string, usage: { totalTokens?: nu
 	const costUsd = Number(usage.costUsd ?? 0);
 	if (!Number.isFinite(tokens) || !Number.isFinite(costUsd) || tokens < 0 || costUsd < 0) return false;
 	try {
+		const result = withBudgetLock(budget.file, () => {
 		const existing = readFileSync(budget.file, "utf8").split("\n").some((line) => {
 			try { return (JSON.parse(line) as Partial<BudgetEntry>).sourceRunId === sourceRunId; } catch { return false; }
 		});
@@ -89,6 +113,8 @@ export function recordBudgetUsage(sourceRunId: string, usage: { totalTokens?: nu
 		// ledger understates spend and a later preflight could incorrectly pass.
 		appendFileSync(budget.file, JSON.stringify({ sourceRunId, tokens, costUsd, recordedAt: Date.now() }) + "\n", "utf8");
 		return withinBudget;
+		});
+		return result ?? false;
 	} catch { return false; }
 }
 
