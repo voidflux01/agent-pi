@@ -7,6 +7,9 @@ describe("cleanup viewer boundaries", () => {
 		const source = readFileSync(new URL("../cleanup-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("MAX_DEPTH = 20");
 		expect(source).toContain("MAX_FILES = 10_000");
+		expect(source).toContain("MAX_DELETION_LOG_BYTES = 256 * 1024");
+		expect(source).toContain("deletionLogWriteChain");
+		expect(source).toContain("flatMap((line)");
 		expect(source).toContain("Refusing to delete symbolic links");
 		expect(source).toContain("sizedEntryCount");
 	});

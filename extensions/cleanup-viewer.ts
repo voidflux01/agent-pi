@@ -190,16 +190,34 @@ async function scanDirectory(rootDir: string, enabledCategories: string[]) {
 // ── Deletion Log ─────────────────────────────────────────────────────
 
 const DELETION_LOG = path.join(os.homedir(), ".cleanup-deletion-log.json");
+const MAX_DELETION_LOG_BYTES = 256 * 1024;
+const MAX_DELETION_HISTORY = 100;
+let deletionLogWriteChain = Promise.resolve();
 
 async function appendDeletionLog(entry: Record<string, unknown>) {
-	try { await fsp.appendFile(DELETION_LOG, JSON.stringify(entry) + "\n"); }
-	catch { /* non-critical */ }
+	const write = deletionLogWriteChain.then(async () => {
+		await fsp.appendFile(DELETION_LOG, JSON.stringify(entry) + "\n");
+		try {
+			if ((await fsp.stat(DELETION_LOG)).size < MAX_DELETION_LOG_BYTES) return;
+			const lines = (await fsp.readFile(DELETION_LOG, "utf-8")).split("\n").filter(Boolean);
+			const entries = lines.flatMap((line) => {
+				try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
+			});
+			const tmp = `${DELETION_LOG}.tmp-${process.pid}-${Date.now()}`;
+			await fsp.writeFile(tmp, entries.slice(-MAX_DELETION_HISTORY).map((value) => JSON.stringify(value)).join("\n") + "\n");
+			await fsp.rename(tmp, DELETION_LOG);
+		} catch { /* rotation is best-effort; the append already succeeded */ }
+	});
+	deletionLogWriteChain = write.catch(() => {});
+	try { await write; } catch { /* non-critical */ }
 }
 
 async function readDeletionLog(): Promise<Record<string, unknown>[]> {
 	try {
 		const data = await fsp.readFile(DELETION_LOG, "utf-8");
-		return data.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)).reverse().slice(0, 100);
+		return data.trim().split("\n").filter(Boolean).flatMap((line) => {
+			try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
+		}).slice(-MAX_DELETION_HISTORY).reverse();
 	} catch { return []; }
 }
 
