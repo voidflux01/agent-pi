@@ -25,7 +25,20 @@ try {
 	run("npm", ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", tarball], installDir);
 	const packageDir = join(installDir, "node_modules", manifest.name);
 
-	for (const path of ["package.json", "extensions", "agents", "skills", "themes", "prompts"]) {
+	const registeredPaths = Object.values(manifest.pi || {})
+		.flatMap((paths) => Array.isArray(paths) ? paths : [])
+		.map((path) => String(path).replace(/^\.\//, ""));
+	const requiredPaths = [
+		"package.json",
+		...registeredPaths,
+		// Shared runtime modules are easy to omit accidentally when package
+		// inclusion rules change; verify the release contains the dispatch core.
+		"extensions/lib/agent-task-journal.ts",
+		"extensions/lib/dispatch-runtime.ts",
+		"extensions/lib/run-state.ts",
+		"scripts/doctor.mjs",
+	];
+	for (const path of requiredPaths) {
 		if (!existsSync(join(packageDir, path))) throw new Error(`Packed package is missing ${path}`);
 	}
 	for (const dependency of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies })) {
