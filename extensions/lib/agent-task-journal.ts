@@ -9,7 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdi
 import { dirname, join } from "node:path";
 import { RESULT_MARKER } from "./agent-result-contract.ts";
 import { readLastAssistantText } from "./herdr-client.ts";
-import { isActiveRunStatus, normalizeRunStatus, type RunStatus } from "./run-state.ts";
+import { isActiveRunStatus, isTerminalRunStatus, normalizeRunStatus, type RunStatus } from "./run-state.ts";
 
 export type TaskJournalStatus = "dispatched" | "running" | "done" | "error";
 
@@ -311,6 +311,66 @@ export function sumJournalUsage(entries: TaskJournalEntry[]): { totalTokens: num
 	return acc;
 }
 
+export interface JournalSummary {
+	totalRuns: number;
+	activeRuns: number;
+	succeededRuns: number;
+	failedRuns: number;
+	cancelledRuns: number;
+	resumedRuns: number;
+	totalElapsedMs: number;
+	totalTokens: number;
+	costUsd: number;
+	byKind: Record<TaskJournalEntry["kind"], { runs: number; succeeded: number; failed: number; elapsedMs: number; totalTokens: number; costUsd: number }>;
+}
+
+/** Aggregate lifecycle, timing, and usage metrics without changing journal rows. */
+export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
+	const byKind = {} as JournalSummary["byKind"];
+	const summary: JournalSummary = {
+		totalRuns: entries.length,
+		activeRuns: 0,
+		succeededRuns: 0,
+		failedRuns: 0,
+		cancelledRuns: 0,
+		resumedRuns: entries.filter((entry) => entry.resumed === true).length,
+		totalElapsedMs: 0,
+		totalTokens: 0,
+		costUsd: 0,
+		byKind,
+	};
+	for (const entry of entries) {
+		const status = normalizeRunStatus(entry.runStatus || entry.status);
+		if (isActiveRunStatus(status)) summary.activeRuns += 1;
+		if (status === "succeeded") summary.succeededRuns += 1;
+		if (status === "failed") summary.failedRuns += 1;
+		if (status === "cancelled") summary.cancelledRuns += 1;
+		const elapsedMs = typeof entry.elapsedMs === "number" && entry.elapsedMs > 0 ? entry.elapsedMs : 0;
+		const totalTokens = entry.usage?.totalTokens || 0;
+		const costUsd = entry.usage?.costUsd || 0;
+		summary.totalElapsedMs += elapsedMs;
+		summary.totalTokens += totalTokens;
+		summary.costUsd += costUsd;
+		const kind = entry.kind;
+		const bucket = byKind[kind] || (byKind[kind] = { runs: 0, succeeded: 0, failed: 0, elapsedMs: 0, totalTokens: 0, costUsd: 0 });
+		bucket.runs += 1;
+		if (status === "succeeded") bucket.succeeded += 1;
+		if (status === "failed") bucket.failed += 1;
+		bucket.elapsedMs += elapsedMs;
+		bucket.totalTokens += totalTokens;
+		bucket.costUsd += costUsd;
+	}
+	return summary;
+}
+
+export function formatJournalSummary(summary: JournalSummary): string {
+	const elapsed = `${Math.round(summary.totalElapsedMs / 1000)}s`;
+	const cost = summary.costUsd > 0
+		? `$${summary.costUsd < 0.01 ? summary.costUsd.toFixed(4) : summary.costUsd.toFixed(2)}`
+		: "$0";
+	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}`;
+}
+
 /**
  * Register the shared /agents-status command. Safe to call from every
  * orchestration extension: only the first registration wins.
@@ -330,7 +390,7 @@ export function registerTaskStatusCommand(pi: any, sessionDir: () => string): vo
 			}
 			const active = journalActive(dir);
 			const all = journalList(dir);
-			const recent = all.filter((e) => e.status === "done" || e.status === "error").slice(-10);
+			const recent = all.filter((e) => isTerminalRunStatus(e.runStatus || e.status)).slice(-10);
 			const lines: string[] = [];
 			if (active.length > 0) {
 				lines.push("IN-FLIGHT:");
@@ -338,6 +398,7 @@ export function registerTaskStatusCommand(pi: any, sessionDir: () => string): vo
 			} else {
 				lines.push("IN-FLIGHT: none");
 			}
+			lines.push(formatJournalSummary(summarizeJournal(all)));
 			if (recent.length > 0) {
 				lines.push("RECENT:");
 				for (const e of recent) lines.push("  " + formatJournalEntry(e));

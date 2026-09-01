@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readLastAssistantText, sessionUsage } from "../lib/herdr-client.ts";
-import { formatJournalEntry, sumJournalUsage, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
+import { formatJournalEntry, sumJournalUsage, summarizeJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,5 +84,21 @@ describe("journal usage rendering", () => {
 		expect(sums.runs).toBe(2);
 		expect(sums.totalTokens).toBe(350);
 		expect(Math.abs(sums.costUsd - 0.03) < 1e-9).toBe(true);
+	});
+
+	test("summarizeJournal aggregates lifecycle, timing, usage, and resumed runs", () => {
+		const summary = summarizeJournal([
+			{ ...base, status: "done", kind: "team", elapsedMs: 1500, resumed: true, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 100, costUsd: 0.01 } },
+			{ ...base, id: "chain-1", status: "error", kind: "chain", elapsedMs: 2500, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 200, costUsd: 0.02 } },
+			{ ...base, id: "pipeline-1", status: "running", kind: "pipeline", elapsedMs: 500 },
+		]);
+		expect(summary.totalRuns).toBe(3);
+		expect(summary.succeededRuns).toBe(1);
+		expect(summary.failedRuns).toBe(1);
+		expect(summary.activeRuns).toBe(1);
+		expect(summary.resumedRuns).toBe(1);
+		expect(summary.totalElapsedMs).toBe(4500);
+		expect(summary.totalTokens).toBe(300);
+		expect(summary.byKind.chain.failed).toBe(1);
 	});
 });
