@@ -43,7 +43,7 @@ import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
@@ -635,6 +635,45 @@ export default function (pi: ExtensionAPI) {
 				persistState(i);
 				orchestrationRun.finish("failed", { step: i + 1 });
 				return failed;
+			}
+
+			// A parent can die after the worker journal is closed but before the
+			// chain snapshot advances. On explicit resume, reuse only a strong,
+			// bounded journal-backed completion from this exact recovery window.
+			if (resume && saved?.updatedAt) {
+				const snapshotUpdatedAt = Date.parse(saved.updatedAt);
+				const reusable = journalList(sessionDir)
+					.filter((entry: TaskJournalEntry) => entry.kind === "chain" && entry.agent === agentDef.name && entry.status === "done"
+						&& entry.startedAt >= snapshotUpdatedAt && entry.task === resolvedPrompt.slice(0, 4_000) && typeof entry.outputFile === "string")
+					.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+				const outputPath = reusable?.outputFile ? resolve(reusable.outputFile) : "";
+				const sessionRoot = resolve(sessionDir) + "/";
+				if (reusable && outputPath.startsWith(sessionRoot)) {
+					try {
+						const recoveredOutput = readFileSync(outputPath, "utf8");
+						const recovered = composeAgentResult({
+							agent: agentDef.name,
+							status: "done",
+							exitCode: reusable.exitCode ?? 0,
+							elapsedMs: reusable.elapsedMs ?? 0,
+							model: reusable.model,
+							outputText: recoveredOutput,
+							fullOutputPath: outputPath,
+							maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
+						}).content;
+						orchestrationRun.consumeStep();
+						orchestrationRun.record("chain.step.reused", { step: i + 1, agent: step.agent, dispatchId: reusable.id });
+						stepStates[i].status = "done";
+						stepStates[i].elapsed = reusable.elapsedMs ?? 0;
+						stepStates[i].lastWork = resultOneLiner(recoveredOutput, extractResultBlock(recoveredOutput).result) || "recovered from journal";
+						stepOutputs.push(recovered);
+						input = recovered;
+						lastFullOutput = recoveredOutput;
+						lastFullOutputPath = outputPath;
+						persistState(i + 1);
+						continue;
+					} catch {}
+				}
 			}
 
 			orchestrationRun.consumeStep();

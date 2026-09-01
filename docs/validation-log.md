@@ -164,3 +164,5 @@ the authoritative fixture command is `node --test`.
 - Full repository tests after cross-entry cancellation propagation: 174 Bun passed; 951 Vitest passed; 13 skipped.
 - PIPELINE recovery now persists the completed phase handoff before returning and refuses a duplicate dispatch after restart; verifier-directed retry explicitly clears that guard so corrective re-execution remains possible.
 - Full repository tests after pipeline duplicate-dispatch protection: 174 Bun passed; 951 Vitest passed; 13 skipped.
+- CHAIN recovery now prefers a strong journal-backed completed step when the parent snapshot is one step behind, reusing only an exact task, post-snapshot completion, in-session archive, and successful terminal status; otherwise it safely re-runs the interrupted step.
+- Full repository tests after journal-first chain recovery: 174 Bun passed; 951 Vitest passed; 13 skipped.

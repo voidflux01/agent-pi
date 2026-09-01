@@ -94,6 +94,8 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Pipeline dispatch failed:");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain('reason: "already_dispatched"');
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("recovery can ask it to advance instead of repeating side effects");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {
