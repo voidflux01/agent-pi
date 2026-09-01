@@ -41,6 +41,7 @@ import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker 
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -290,6 +291,7 @@ export default function (pi: ExtensionAPI) {
 		const orchestrationRun = options.orchestrationRun ?? createOrchestrationRun({
 			context: ctx,
 			actor: `subagent:${state.name.toLowerCase()}`,
+			mode: coordinationState().mode,
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
 			workspaceCwd: spawnCwd,
 		});
@@ -725,6 +727,7 @@ export default function (pi: ExtensionAPI) {
 			const batchRun = createOrchestrationRun({
 				context: ctx,
 				actor: "subagent_batch",
+				mode: coordinationState().mode,
 				budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },
 				workspaceCwd: contextCwd(ctx),
 			});

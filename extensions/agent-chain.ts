@@ -547,6 +547,7 @@ export default function (pi: ExtensionAPI) {
 			context: ctx,
 			parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 			actor: `chain:${activeChain.name}`,
+			mode: "CHAIN",
 			budget: { maxSteps: activeChain.steps.length },
 			workspaceCwd: ctx?.cwd,
 		});

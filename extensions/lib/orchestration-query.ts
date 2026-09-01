@@ -9,6 +9,7 @@ import { activeRunMarkerPath } from "./orchestration-run.ts";
 export interface OrchestrationRunSummary {
 	runId: string;
 	parentRunId?: string;
+	mode?: string;
 	actor: string;
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	startedAt?: string;
@@ -74,6 +75,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
 		...(typeof startData.parentRunId === "string" ? { parentRunId: startData.parentRunId } : {}),
+		...(typeof startData.mode === "string" ? { mode: startData.mode } : {}),
 		actor: start?.actor || events[0]?.actor || "unknown",
 		status: statusFromEvents(events, eventDir),
 		startedAt: start?.timestamp,

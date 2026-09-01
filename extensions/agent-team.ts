@@ -894,7 +894,7 @@ export default function (pi: ExtensionAPI) {
 		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, _signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
-			const orchestrationRun = createOrchestrationRun({ context: ctx, actor: "agent-team", budget: { maxSteps: 1 }, workspaceCwd: ctx?.cwd });
+			const orchestrationRun = createOrchestrationRun({ context: ctx, actor: "agent-team", mode: "TEAM", budget: { maxSteps: 1 }, workspaceCwd: ctx?.cwd });
 			orchestrationRun.record("team.started", { agent, task });
 
 			try {

@@ -1030,6 +1030,7 @@ export default function (pi: ExtensionAPI) {
 			const orchestrationRun = createOrchestrationRun({
 				context: ctx,
 				actor: `pipeline:${activeConfig.name}:phase:${phase.def.name}`,
+				mode: "PIPELINE",
 				budget: { maxSteps: Math.max(1, resolved.length) },
 				workspaceCwd: ctx?.cwd,
 			});

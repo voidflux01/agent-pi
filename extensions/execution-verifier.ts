@@ -17,6 +17,7 @@ import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
 
 const Params = Type.Object({});
 
@@ -57,6 +58,7 @@ export default function (pi: ExtensionAPI) {
 				context: ctx,
 				parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 				actor: "verify_execution",
+				mode: coordinationState().mode,
 				budget: { maxSteps: 1 },
 				workspaceCwd: cwd,
 			});

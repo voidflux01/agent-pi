@@ -18,9 +18,10 @@ const Params = Type.Object({
 function renderSummary(run: any): string {
 	const duration = run.durationMs === undefined ? "running" : `${Math.round(run.durationMs / 1000)}s`;
 	const parent = run.parentRunId ? ` parent=${run.parentRunId}` : "";
+	const mode = run.mode ? ` mode=${run.mode}` : "";
 	const verification = run.verificationStatus ? ` verify=${run.verificationStatus}` : "";
 	const files = Array.isArray(run.changedFiles) && run.changedFiles.length > 0 ? ` files=${run.changedFiles.length}` : "";
-	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${verification}${files}  ${run.runId}${parent}`;
+	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${verification}${files}  ${run.runId}${parent}`;
 }
 
 function renderTree(topology: OrchestrationTopology, limit: number): string {

@@ -18,6 +18,7 @@ export interface RunBudget {
 export interface OrchestrationRun {
 	runId: string;
 	parentRunId?: string;
+	mode?: string;
 	startedAt: number;
 	budget: RunBudget;
 	stepsUsed: number;
@@ -73,6 +74,8 @@ export function createOrchestrationRun(options: {
 	parentRunId?: string;
 	budget?: Partial<RunBudget>;
 	actor?: string;
+	/** Operational mode that initiated this run, when known. */
+	mode?: string;
 	/** Capture a bounded before/after workspace delta in the run event trail. */
 	workspaceCwd?: string;
 } = {}): OrchestrationRun {
@@ -98,6 +101,7 @@ export function createOrchestrationRun(options: {
 	const run: OrchestrationRun = {
 		runId,
 		...(options.parentRunId ? { parentRunId: options.parentRunId } : {}),
+		...(options.mode ? { mode: options.mode } : {}),
 		startedAt,
 		budget,
 		stepsUsed: 0,
@@ -130,6 +134,6 @@ export function createOrchestrationRun(options: {
 			writeFileSync(activeMarker, JSON.stringify({ pid: process.pid, startedAt, runId }), { mode: 0o600 });
 		} catch {}
 	}
-	record("run.started", { parentRunId: options.parentRunId, budget });
+	record("run.started", { parentRunId: options.parentRunId, mode: options.mode, budget });
 	return run;
 }

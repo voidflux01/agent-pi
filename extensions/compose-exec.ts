@@ -10,6 +10,7 @@ import { capabilityConflict, getCapability, listCapabilities, validateCapability
 import { nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
 
 const Step = Type.Object({
 	tool: Type.String({ description: "Capability name, e.g. tasks or dispatch_agent" }),
@@ -89,7 +90,7 @@ export default function (pi: ExtensionAPI) {
 			const stopOnError = params.stop_on_error !== false;
 			const executors = getRegisteredToolExecutors();
 			const cwd = ctx?.cwd || process.cwd();
-			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", workspaceCwd: cwd });
+			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", mode: coordinationState().mode, workspaceCwd: cwd });
 			const parallelConflict = parallel ? (() => {
 				const capabilities = steps.map((step) => getCapability(`extensions.${toolName(step.tool)}`));
 				for (let left = 0; left < capabilities.length; left += 1) {
