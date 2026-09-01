@@ -924,6 +924,7 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
 					details: {
+						runId: orchestrationRun.runId,
 						agent,
 						task,
 						status,
@@ -939,7 +940,7 @@ export default function (pi: ExtensionAPI) {
 				orchestrationRun.finish("failed", { agent });
 				return {
 					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
-					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, outputPreview: "", fullOutputPath: "", model: defModel },
+					details: { runId: orchestrationRun.runId, agent, task, status: "error", elapsed: 0, exitCode: 1, outputPreview: "", fullOutputPath: "", model: defModel },
 				};
 			}
 		}),

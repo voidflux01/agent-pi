@@ -1085,8 +1085,9 @@ export default function (pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: `[${phase.def.name}] ${status} — ${agents.length} agent(s)${blockedNotice}\n\n${truncated}` }],
-				details: {
-					phase: phase.def.name,
+					details: {
+						 runId: orchestrationRun.runId,
+						phase: phase.def.name,
 					agents: agents.map(a => a.role),
 					status,
 					outputPreview: boundedOutputPreview(mergedFull),

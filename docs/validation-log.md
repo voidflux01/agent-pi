@@ -154,3 +154,5 @@ the authoritative fixture command is `node --test`.
 - Detached subagent lifecycle coverage now returns the persisted RunContext id from `subagent_create` and `subagent_wait`, keeping later audit and recovery queries linked to the original worker or batch.
 - Team, Chain, and Pipeline structured results now retain only a bounded `outputPreview`; full worker transcripts remain on disk behind `fullOutputPath`, preventing large `details` payloads from re-entering the parent context.
 - Full repository tests after structured-output bounding: 174 Bun passed; 948 Vitest passed; 13 skipped.
+- TEAM, CHAIN, and PIPELINE entry-point results now return their parent RunContext id, so status, recovery, and audit tools can follow a direct structured link instead of parsing logs or result text.
+- Full repository tests after entry-point run linking: 174 Bun passed; 949 Vitest passed; 13 skipped.

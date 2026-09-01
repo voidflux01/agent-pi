@@ -85,6 +85,13 @@ describe("source wiring", () => {
 			expect(source).not.toContain("details.fullOutput");
 		}
 	});
+
+	it("returns the parent RunContext id from team, chain, and pipeline entry points", () => {
+		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: result.runId");
+		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
+	});
 	it("gates advance_phase on dispatchCount", () => {
 		const src = readFileSync(join(__dirname, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("phaseRequiresAgentDispatch");

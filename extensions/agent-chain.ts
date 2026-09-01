@@ -542,7 +542,7 @@ export default function (pi: ExtensionAPI) {
 		task: string,
 		ctx: any,
 		resume = false,
-	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number }> {
+	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number; runId?: string }> {
 		if (!isExplicitDispatchActive()) {
 			return { output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
 		}
@@ -563,7 +563,7 @@ export default function (pi: ExtensionAPI) {
 
 		const saved = resume ? resumeAvailable : undefined;
 		if (saved && (saved.chain !== activeChain.name || saved.steps.length !== activeChain.steps.length)) {
-			return { output: "Saved chain state does not match the active chain", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
+			return { output: "Saved chain state does not match the active chain", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0, runId: orchestrationRun.runId };
 		}
 		if (!resume) clearChainSnapshot(sessionDir);
 
@@ -626,6 +626,7 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath: "",
 					success: false,
 					elapsed: Date.now() - chainStart,
+					runId: orchestrationRun.runId,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, reason: "agent_not_found" });
 				persistState(i);
@@ -645,6 +646,7 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath: result.fullOutputPath || "",
 					success: false,
 					elapsed: Date.now() - chainStart,
+					runId: orchestrationRun.runId,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, exitCode: result.exitCode });
 				persistState(i);
@@ -662,7 +664,7 @@ export default function (pi: ExtensionAPI) {
 			persistState(i + 1);
 		}
 
-		const completed = { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart };
+		const completed = { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart, runId: orchestrationRun.runId };
 		orchestrationRun.record("chain.completed", { steps: activeChain.steps.length });
 		orchestrationRun.finish("succeeded", { steps: activeChain.steps.length });
 		clearChainSnapshot(sessionDir);
@@ -711,6 +713,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
 				details: {
+					runId: result.runId,
 					chain: activeChain?.name,
 					task,
 					status,
