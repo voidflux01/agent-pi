@@ -293,6 +293,7 @@ export default function (pi: ExtensionAPI) {
 			id: saBase,
 			kind: "sa",
 			agent: state.name.toLowerCase(),
+			mode: coordinationState().mode,
 			runtime: toolkitRuntimeName(state.name),
 			task: prompt,
 			model: isToolkitCliAgent(state.name) ? undefined : (state.model || undefined),

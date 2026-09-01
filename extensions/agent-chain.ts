@@ -357,6 +357,7 @@ export default function (pi: ExtensionAPI) {
 			id: journalId,
 			kind: "chain",
 			agent: agentDef.name,
+			mode: "CHAIN",
 			task,
 			model,
 			cwd: ctx.cwd,

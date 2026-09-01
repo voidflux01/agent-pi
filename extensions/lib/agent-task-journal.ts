@@ -20,6 +20,8 @@ export interface TaskJournalEntry {
 	id: string;
 	kind: "team" | "chain" | "pipeline" | "sa";
 	agent: string;
+	/** Initiating coordination mode; optional for backward-compatible old rows. */
+	mode?: string;
 	/** External runtime label (e.g. "omp", "prime"); unset means pi. */
 	runtime?: string;
 	/** The dispatched task prompt (bounded for disk hygiene; never shown in context). */
@@ -401,6 +403,7 @@ export interface JournalSummary {
 	totalTokens: number;
 	costUsd: number;
 	byKind: Record<TaskJournalEntry["kind"], { runs: number; succeeded: number; failed: number; elapsedMs: number; totalTokens: number; costUsd: number }>;
+	byMode: Record<string, { runs: number; succeeded: number; failed: number; elapsedMs: number; totalTokens: number; costUsd: number }>;
 }
 
 /** Aggregate lifecycle, timing, and usage metrics without changing journal rows. */
@@ -417,6 +420,7 @@ export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
 		totalTokens: 0,
 		costUsd: 0,
 		byKind,
+		byMode: {},
 	};
 	for (const entry of entries) {
 		const status = normalizeRunStatus(entry.runStatus || entry.status);
@@ -438,6 +442,15 @@ export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
 		bucket.elapsedMs += elapsedMs;
 		bucket.totalTokens += totalTokens;
 		bucket.costUsd += costUsd;
+		if (entry.mode) {
+			const modeBucket = summary.byMode[entry.mode] || (summary.byMode[entry.mode] = { runs: 0, succeeded: 0, failed: 0, elapsedMs: 0, totalTokens: 0, costUsd: 0 });
+			modeBucket.runs += 1;
+			if (status === "succeeded") modeBucket.succeeded += 1;
+			if (status === "failed") modeBucket.failed += 1;
+			modeBucket.elapsedMs += elapsedMs;
+			modeBucket.totalTokens += totalTokens;
+			modeBucket.costUsd += costUsd;
+		}
 	}
 	return summary;
 }
@@ -447,7 +460,8 @@ export function formatJournalSummary(summary: JournalSummary): string {
 	const cost = summary.costUsd > 0
 		? `$${summary.costUsd < 0.01 ? summary.costUsd.toFixed(4) : summary.costUsd.toFixed(2)}`
 		: "$0";
-	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.cancelledRuns} cancelled | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}`;
+	const modes = Object.entries(summary.byMode).sort(([a], [b]) => a.localeCompare(b)).map(([mode, bucket]) => `${mode}:${bucket.totalTokens.toLocaleString()}tok/$${bucket.costUsd.toFixed(4)}`).join(",");
+	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.cancelledRuns} cancelled | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}${modes ? ` | modes ${modes}` : ""}`;
 }
 
 /**

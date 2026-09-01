@@ -613,6 +613,7 @@ export default function (pi: ExtensionAPI) {
 			id: journalId,
 			kind: "team",
 			agent: canonicalName,
+			mode: coordinationState().mode,
 			runtime: isToolkitCliAgent(canonicalName) ? toolkitRuntimeName(canonicalName) : undefined,
 			task,
 			model: isToolkitCliAgent(canonicalName) ? undefined : model,

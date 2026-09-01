@@ -478,6 +478,7 @@ export default function (pi: ExtensionAPI) {
 			id: journalId,
 			kind: "pipeline",
 			agent: agentDef.name,
+			mode: "PIPELINE",
 			task,
 			model,
 			cwd: ctx.cwd,

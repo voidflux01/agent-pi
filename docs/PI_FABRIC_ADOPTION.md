@@ -23,6 +23,10 @@ worker lifecycle boundaries.
   new workers after the ceiling is reached.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
+- Task journal rows now carry the initiating mode when known, and
+  `/agents-status` aggregates elapsed time, tokens, and cost by mode so a
+  NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE baseline can be measured from
+  the same durable evidence.
 - `subagent_create` and its standard background dispatch path now create a
   parent orchestration run, so NORMAL, PLAN, and SPEC scouts/builders appear in
   the same parent/child topology as TEAM, CHAIN, and PIPELINE workers.

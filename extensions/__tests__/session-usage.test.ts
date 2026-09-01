@@ -88,9 +88,9 @@ describe("journal usage rendering", () => {
 
 	test("summarizeJournal aggregates lifecycle, timing, usage, and resumed runs", () => {
 		const summary = summarizeJournal([
-			{ ...base, status: "done", kind: "team", elapsedMs: 1500, resumed: true, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 100, costUsd: 0.01 } },
-			{ ...base, id: "chain-1", status: "error", kind: "chain", elapsedMs: 2500, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 200, costUsd: 0.02 } },
-			{ ...base, id: "pipeline-1", status: "running", kind: "pipeline", elapsedMs: 500 },
+			{ ...base, status: "done", kind: "team", mode: "TEAM", elapsedMs: 1500, resumed: true, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 100, costUsd: 0.01 } },
+			{ ...base, id: "chain-1", status: "error", kind: "chain", mode: "CHAIN", elapsedMs: 2500, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 200, costUsd: 0.02 } },
+			{ ...base, id: "pipeline-1", status: "running", kind: "pipeline", mode: "PIPELINE", elapsedMs: 500 },
 		]);
 		expect(summary.totalRuns).toBe(3);
 		expect(summary.succeededRuns).toBe(1);
@@ -100,6 +100,9 @@ describe("journal usage rendering", () => {
 		expect(summary.totalElapsedMs).toBe(4500);
 		expect(summary.totalTokens).toBe(300);
 		expect(summary.byKind.chain.failed).toBe(1);
+		expect(summary.byMode.TEAM).toMatchObject({ runs: 1, succeeded: 1, totalTokens: 100 });
+		expect(summary.byMode.CHAIN).toMatchObject({ runs: 1, failed: 1, totalTokens: 200 });
+		expect(summary.byMode.PIPELINE).toMatchObject({ runs: 1, totalTokens: 0 });
 	});
 
 	test("ignores non-finite journal metrics", () => {
