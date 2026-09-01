@@ -9,7 +9,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalPath, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
-import { isResumableRunStatus, isTerminalRunStatus, normalizeRunStatus } from "./lib/run-state.ts";
+import { isResumableRunStatus, normalizeRunStatus } from "./lib/run-state.ts";
 import {
 	buildHandoffSnapshot,
 	handoffPath,
@@ -68,7 +68,7 @@ function readChildren(workspace: string): TaskJournalEntry[] {
 }
 
 function resumableChildren(workspace: string): TaskJournalEntry[] {
-	return readChildren(workspace).filter((child) => !isTerminalRunStatus(child.runStatus || child.status));
+	return readChildren(workspace).filter((child) => isResumableRunStatus(child.runStatus || child.status));
 }
 
 function currentTasks(): Array<{ id: number; text: string; status: string }> {
