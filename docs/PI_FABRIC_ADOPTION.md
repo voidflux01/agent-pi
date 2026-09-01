@@ -180,7 +180,10 @@ worker lifecycle boundaries.
   payloads, giving NORMAL/PLAN/SPEC dynamic calls the same audit navigation as
   worker dispatches. An aborted call is recorded as `cancelled` even if a
   cooperative boundary returns a late result, preserving the distinction
-  between user cancellation and tool failure.
+  between user cancellation and tool failure. Self-reference, security,
+  approval, registry, and registration rejects also persist bounded
+  `tool.blocked` events and return a run id, so denied work is auditable
+  without ever invoking the target tool.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

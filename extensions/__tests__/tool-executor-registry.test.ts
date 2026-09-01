@@ -107,4 +107,41 @@ describe("extension tool executor registry", () => {
 		expect(completed?.payload).toMatchObject({ data: { status: "cancelled" } });
 		rmSync(eventDir, { recursive: true, force: true });
 	});
+
+	test("audits blocked calls without invoking the target", async () => {
+		let callTool: any;
+		let targetCalls = 0;
+		const handlers = new Map<string, Function[]>();
+		registerToolWithExecutor({ registerTool: () => {} }, {
+			name: "registry_blocked_target",
+			execute: async () => {
+				targetCalls += 1;
+				return { content: [{ type: "text" as const, text: "must not execute" }] };
+			},
+		});
+		const pi: any = {
+			registerTool(definition: any) { if (definition.name === "call_tool") callTool = definition; },
+			getAllTools: () => [{ name: "call_tool", description: "proxy" }],
+			on(event: string, handler: Function) { handlers.set(event, [...(handlers.get(event) || []), handler]); },
+		};
+		toolCaller(pi);
+		for (const handler of handlers.get("session_start") || []) await handler({}, {});
+
+		const result = await callTool.execute("outer", {
+			tool_name: "call_tool",
+			arguments: {},
+			reason: "boundary audit",
+		}, undefined, undefined, { cwd: process.cwd() });
+
+		expect(result.details).toMatchObject({ error: "blocked_self_reference", reason: "boundary audit" });
+		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
+		const eventDir = join(process.cwd(), ".pi", "agent-sessions", "compositions", result.details.runId);
+		const events = readOrchestrationEvents(eventDir);
+		expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["tool.blocked", "run.failed"]));
+		expect(events.find((event) => event.type === "tool.blocked")?.payload).toMatchObject({
+			data: { toolName: "call_tool", error: "blocked_self_reference", reason: "boundary audit" },
+		});
+		expect(targetCalls).toBe(0);
+		rmSync(eventDir, { recursive: true, force: true });
+	});
 });

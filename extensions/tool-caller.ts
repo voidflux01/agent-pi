@@ -87,37 +87,44 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const { tool_name, arguments: toolArgs, reason } = params;
+			const cwd = ctx?.cwd || process.cwd();
 			// Keep dynamic MCP/extension loads visible without weakening execution gates.
 			refreshToolRegistry(pi);
 			// The executor registry can also change after session_start. Rebuild this
 			// local cache per call so discovery and invocation never diverge.
 			toolExecutors.clear();
 			for (const [name, executor] of Object.entries(getRegisteredToolExecutors())) toolExecutors.set(name, executor);
+			const recordBlocked = (error: string, text: string) => {
+				const run = createOrchestrationRun({
+					context: ctx,
+					actor: "call_tool",
+					mode: coordinationState().mode,
+					budget: { maxSteps: 1 },
+					workspaceCwd: cwd,
+				});
+				run.consumeStep();
+				run.record("tool.blocked", { toolName: tool_name, error, reason });
+				run.finish("failed", { toolName: tool_name, error, reason });
+				return {
+					content: [{ type: "text" as const, text }],
+					details: { tool_name, runId: run.runId, error, reason },
+				};
+			};
 
 			// Prevent self-referential calls
 			if (BLOCKED_TOOLS.has(tool_name)) {
-				return {
-					content: [{ type: "text" as const, text: `Error: Cannot call '${tool_name}' through call_tool — use it directly.` }],
-					details: { tool_name, error: "blocked_self_reference", reason },
-				};
+				return recordBlocked("blocked_self_reference", `Error: Cannot call '${tool_name}' through call_tool — use it directly.`);
 			}
 
 			// Meta-tool execution does not re-enter Pi's tool_call hook. Re-run the
 			// security policy for nested shell and file operations before invoking it.
-			const cwd = ctx?.cwd || process.cwd();
 			const nestedBlock = nestedSecurityBlock(tool_name, toolArgs, cwd);
 			if (nestedBlock) {
-				return {
-					content: [{ type: "text" as const, text: `Blocked by security policy: ${nestedBlock}` }],
-					details: { tool_name, error: "security_blocked", reason },
-				};
+				return recordBlocked("security_blocked", `Blocked by security policy: ${nestedBlock}`);
 			}
 			const approvalBlock = nestedApprovalBlock(tool_name, toolArgs, cwd);
 			if (approvalBlock) {
-				return {
-					content: [{ type: "text" as const, text: `Blocked by approval gate: ${approvalBlock}` }],
-					details: { tool_name, error: "approval_blocked", reason },
-				};
+				return recordBlocked("approval_blocked", `Blocked by approval gate: ${approvalBlock}`);
 			}
 
 			// Verify tool exists in registry
@@ -127,20 +134,14 @@ export default function (pi: ExtensionAPI) {
 				const suggestion = similar.length > 0
 					? ` Did you mean: ${similar.map((s) => s.name).join(", ")}?`
 					: "";
-				return {
-					content: [{ type: "text" as const, text: `Error: Tool "${tool_name}" not found.${suggestion}` }],
-					details: { tool_name, error: "not_found", reason },
-				};
+				return recordBlocked("not_found", `Error: Tool "${tool_name}" not found.${suggestion}`);
 			}
 
 			// Verify tool is in the full tools list (getAllTools returns registered tools)
 			const allTools = pi.getAllTools();
 			const toolDef = allTools.find((t: any) => t.name === tool_name);
 			if (!toolDef) {
-				return {
-					content: [{ type: "text" as const, text: `Error: Tool "${tool_name}" is indexed but not currently registered. It may have been unloaded.` }],
-					details: { tool_name, error: "not_registered", reason },
-				};
+				return recordBlocked("not_registered", `Error: Tool "${tool_name}" is indexed but not currently registered. It may have been unloaded.`);
 			}
 
 			const orchestrationRun = createOrchestrationRun({
