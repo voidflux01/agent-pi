@@ -25,6 +25,39 @@ interface CleanupResult {
 	deletedCount?: number;
 }
 
+const MAX_CLEANUP_REQUEST_BODY_BYTES = 256 * 1024;
+
+function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
+	const declared = Number(req.headers["content-length"] || 0);
+	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_CLEANUP_REQUEST_BODY_BYTES) {
+		res.writeHead(413, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ error: "Request body too large" }));
+		req.resume();
+		return;
+	}
+	let body = "";
+	let received = 0;
+	let rejected = false;
+	req.on("data", (chunk) => {
+		if (rejected) return;
+		received += Buffer.byteLength(chunk);
+		if (received > MAX_CLEANUP_REQUEST_BODY_BYTES) {
+			rejected = true;
+			res.writeHead(413, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Request body too large" }));
+			return;
+		}
+		body += chunk;
+	});
+	req.on("end", () => { if (!rejected) onBody(body); });
+	req.on("error", () => {
+		if (!rejected && !res.headersSent) {
+			res.writeHead(400, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Request body unreadable" }));
+		}
+	});
+}
+
 // ── Config ───────────────────────────────────────────────────────────
 
 const PROTECTED_DIRS = new Set([
@@ -320,9 +353,7 @@ function startCleanupServer(defaultDir: string): Promise<{
 
 			// Scan
 			if (req.method === "POST" && url.pathname === "/scan") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", async () => {
+				readRequestBody(req, res, async (body) => {
 					try {
 						const data = JSON.parse(body);
 						const dir = typeof data.directory === "string" && data.directory.trim() ? data.directory : "/Users/";
@@ -380,9 +411,7 @@ function startCleanupServer(defaultDir: string): Promise<{
 
 			// Delete
 			if (req.method === "POST" && url.pathname === "/delete") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", async () => {
+				readRequestBody(req, res, async (body) => {
 					try {
 						const data = JSON.parse(body);
 						const files: string[] = Array.isArray(data.files)
@@ -455,9 +484,7 @@ function startCleanupServer(defaultDir: string): Promise<{
 
 			// AI Analyze
 			if (req.method === "POST" && url.pathname === "/analyze") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", async () => {
+				readRequestBody(req, res, async (body) => {
 					res.setHeader("Content-Type", "text/event-stream");
 					res.setHeader("Cache-Control", "no-cache");
 					res.setHeader("Connection", "keep-alive");
@@ -485,9 +512,7 @@ function startCleanupServer(defaultDir: string): Promise<{
 
 			// Result (done/close)
 			if (req.method === "POST" && url.pathname === "/result") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body);
 						res.writeHead(200, { "Content-Type": "application/json" });
