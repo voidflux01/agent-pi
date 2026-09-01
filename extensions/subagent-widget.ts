@@ -197,7 +197,7 @@ export default function (pi: ExtensionAPI) {
 		runId: string;
 		status: string;
 		mode?: string;
-		children: Array<{ dispatchId: string; status: string; canResume: boolean; sessionFile?: string }>;
+		children: Array<{ dispatchId: string; status: string; canResume: boolean; task?: string; sessionFile?: string }>;
 	} | undefined {
 		const run = listOrchestrationRuns(cwd, { runId, limit: 1 })[0];
 		if (!run || run.actor !== "subagent_batch") return undefined;
@@ -218,6 +218,7 @@ export default function (pi: ExtensionAPI) {
 				dispatchId,
 				status,
 				canResume: !completed.has(dispatchId) && !!resumableJournalEntry(cwd, dispatchId),
+				...(entry?.task ? { task: entry.task.slice(0, 800) } : {}),
 				...(entry?.sessionFile ? { sessionFile: entry.sessionFile } : {}),
 			};
 		});
@@ -690,7 +691,7 @@ export default function (pi: ExtensionAPI) {
 			const resumable = recovery.children.filter((child) => child.canResume).map((child) => child.dispatchId);
 			const text = [
 				`Batch ${recovery.runId} status=${recovery.status}${recovery.mode ? ` mode=${recovery.mode}` : ""}`,
-				...recovery.children.map((child) => `${child.status.padEnd(9)} ${child.dispatchId}${child.canResume ? " resumable" : ""}`),
+				...recovery.children.map((child) => `${child.status.padEnd(9)} ${child.dispatchId}${child.canResume ? " resumable" : ""}${child.task ? ` task=${child.task.replace(/\s+/g, " ").slice(0, 240)}` : ""}`),
 				resumable.length > 0 ? `Resume candidates: ${resumable.join(", ")}. Call subagent_resume with an explicit prompt for each selected worker.` : "No unfinished worker has a safe persisted session to resume.",
 			].join("\n");
 			return { content: [{ type: "text", text }], details: { found: true, ...recovery, resumableDispatchIds: resumable } };

@@ -93,6 +93,8 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("inspectPersistedBatch(contextCwd(ctx), args.run_id)");
 		expect(src).toContain("never re-dispatches workers automatically");
 		expect(src).toContain("subagent_resume with an explicit prompt");
+		expect(src).toContain("task: entry.task.slice(0, 800)");
+		expect(src).toContain("child.task.replace(/\\s+/g, \" \")");
 	});
 });
 

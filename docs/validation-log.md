@@ -88,7 +88,8 @@ the authoritative fixture command is `node --test`.
   joins retain their workers for later collection.
 - Subagent lifecycle regression coverage confirms persisted batch recovery is
   read-only and returns explicit resume candidates instead of auto-replaying
-  workers after restart.
+  workers after restart; each candidate also carries bounded task context for
+  an informed resume decision.
 - Orchestration query regression coverage confirms an interrupted run retains
   Token/cost usage from its last persisted `usage.updated` event.
 - `compose_exec` regression coverage confirms transient step errors retry at
