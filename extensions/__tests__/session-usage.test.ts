@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readLastAssistantText, sessionUsage } from "../lib/herdr-client.ts";
-import { formatJournalEntry, formatJournalSummary, sumJournalUsage, summarizeJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
+import { filterJournalByMode, formatJournalEntry, formatJournalSummary, sumJournalUsage, summarizeJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +63,17 @@ describe("journal usage rendering", () => {
 		version: 1, id: "tester-1", kind: "team", agent: "tester", task: "x",
 		status: "done", startedAt: 0, updatedAt: 0,
 	};
+
+	test("filters journal entries by mode without changing the stored rows", () => {
+		const entries = [
+			{ ...base, mode: "PLAN" },
+			{ ...base, id: "spec-1", mode: "SPEC" },
+			{ ...base, id: "legacy" },
+		];
+		expect(filterJournalByMode(entries, "plan").map(entry => entry.id)).toEqual(["tester-1"]);
+		expect(filterJournalByMode(entries, "")).toHaveLength(3);
+		expect(entries).toHaveLength(3);
+	});
 
 	test("entry with usage renders tokens + cache% + cost", () => {
 		const line = formatJournalEntry({ ...base, usage: { input: 300, output: 100, cacheRead: 600, cacheWrite: 0, totalTokens: 12000, costUsd: 0.0042 } });

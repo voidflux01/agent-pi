@@ -392,6 +392,13 @@ export function sumJournalUsage(entries: TaskJournalEntry[]): { totalTokens: num
 	return acc;
 }
 
+/** Apply the same case-insensitive mode filter used by orchestration status. */
+export function filterJournalByMode(entries: TaskJournalEntry[], mode?: string): TaskJournalEntry[] {
+	const normalized = mode?.trim().toUpperCase();
+	if (!normalized) return entries;
+	return entries.filter((entry) => entry.mode?.trim().toUpperCase() === normalized);
+}
+
 export interface JournalSummary {
 	totalRuns: number;
 	activeRuns: number;
@@ -479,17 +486,20 @@ export function registerTaskStatusCommand(pi: any, sessionDir: () => string): vo
 	g.__piTaskStatusRegistered = true;
 
 	pi.registerCommand("agents-status", {
-		description: "Show the durable task journal — in-flight and recent sub-agent dispatches (survives restarts)",
-		handler: async (_args: string, ctx: any) => {
+		description: "Show the durable task journal — optionally filter by mode: /agents-status mode PLAN",
+		handler: async (args: string, ctx: any) => {
 			const dir = sessionDir();
 			if (!dir) {
 				ctx?.ui?.notify?.("No session directory yet", "info");
 				return;
 			}
-			const active = journalActive(dir);
-			const all = journalList(dir);
+			const modeMatch = (args || "").trim().match(/^(?:mode\s+)?(NORMAL|PLAN|SPEC|TEAM|CHAIN|PIPELINE)$/i);
+			const mode = modeMatch?.[1]?.toUpperCase();
+			const active = filterJournalByMode(journalActive(dir), mode);
+			const all = filterJournalByMode(journalList(dir), mode);
 			const recent = all.filter((e) => isTerminalRunStatus(e.runStatus || e.status)).slice(-10);
 			const lines: string[] = [];
+			if (mode) lines.push(`MODE: ${mode}`);
 			if (active.length > 0) {
 				lines.push("IN-FLIGHT:");
 				for (const e of active) lines.push("  " + formatJournalEntry(e));
