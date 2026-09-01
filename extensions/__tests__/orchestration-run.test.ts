@@ -1,5 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createOrchestrationRun, RunBudgetError } from "../lib/orchestration-run.ts";
+import { activeRunMarkerPath } from "../lib/orchestration-run.ts";
+import { summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 
 describe("orchestration run context", () => {
 	test("assigns an id and records a bounded event trail", () => {
@@ -17,5 +22,13 @@ describe("orchestration run context", () => {
 		run.consumeStep();
 		expect(() => run.consumeStep()).toThrow(RunBudgetError);
 		expect(run.stepsUsed).toBe(1);
+	});
+
+	test("marks a non-terminal run stale when its active process is gone", () => {
+		const eventDir = join(mkdtempSync(join(tmpdir(), "agent-pi-run-")), "run");
+		const run = createOrchestrationRun({ eventDir, actor: "test" });
+		writeFileSync(activeRunMarkerPath(eventDir), JSON.stringify({ pid: 2147483647, startedAt: Date.now(), runId: run.runId }));
+		expect(summarizeOrchestrationRun(eventDir)?.status).toBe("stale");
+		run.finish("cancelled");
 	});
 });

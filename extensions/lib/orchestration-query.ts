@@ -1,15 +1,16 @@
 // ABOUTME: Read-only query layer for persisted orchestration RunContext events.
 // ABOUTME: Provides one stable data source for status commands, tools, and a future dashboard.
 
-import { lstatSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listRunEvents, type RunEvent } from "./evidence-store.ts";
+import { activeRunMarkerPath } from "./orchestration-run.ts";
 
 export interface OrchestrationRunSummary {
 	runId: string;
 	parentRunId?: string;
 	actor: string;
-	status: "running" | "succeeded" | "failed" | "cancelled" | "unknown";
+	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	startedAt?: string;
 	finishedAt?: string;
 	durationMs?: number;
@@ -25,13 +26,23 @@ export interface OrchestrationTopology {
 	cycleRunIds: string[];
 }
 
-function statusFromEvents(events: RunEvent[]): OrchestrationRunSummary["status"] {
+function activeProcessExists(eventDir: string): boolean {
+	try {
+		if (!existsSync(activeRunMarkerPath(eventDir))) return false;
+		const marker = JSON.parse(readFileSync(activeRunMarkerPath(eventDir), "utf8")) as { pid?: unknown };
+		if (!Number.isInteger(marker.pid) || Number(marker.pid) <= 0) return false;
+		process.kill(Number(marker.pid), 0);
+		return true;
+	} catch { return false; }
+}
+
+function statusFromEvents(events: RunEvent[], eventDir: string): OrchestrationRunSummary["status"] {
 	const last = [...events].reverse().find((event) => event.type.startsWith("run."));
 	if (!last) return "unknown";
 	if (last.type === "run.succeeded") return "succeeded";
 	if (last.type === "run.failed") return "failed";
 	if (last.type === "run.cancelled") return "cancelled";
-	return "running";
+	return activeProcessExists(eventDir) ? "running" : "stale";
 }
 
 function payloadData(event: RunEvent): Record<string, unknown> {
@@ -56,7 +67,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
 		...(typeof startData.parentRunId === "string" ? { parentRunId: startData.parentRunId } : {}),
 		actor: start?.actor || events[0]?.actor || "unknown",
-		status: statusFromEvents(events),
+		status: statusFromEvents(events, eventDir),
 		startedAt: start?.timestamp,
 		finishedAt: finish?.timestamp,
 		...(durationMs === undefined ? {} : { durationMs }),

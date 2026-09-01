@@ -31,6 +31,10 @@ worker lifecycle boundaries.
 - The query layer exposes a bounded topology read model with explicit edges and
   orphan/cycle diagnostics; `/orchestration-status tree` renders it without
   recursively trusting persisted data.
+- Non-terminal runs carry a PID-backed `active.json` lease. The status view
+  reports `running` only while that process is alive and otherwise reports
+  `stale`, making crashed runs visible without silently rewriting their event
+  history.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.

@@ -4,6 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { recordRunEvent } from "./evidence-store.ts";
 
 export interface RunBudget {
@@ -35,6 +36,8 @@ export interface RunEventRecord {
 	payload?: unknown;
 }
 
+export function activeRunMarkerPath(eventDir: string): string { return join(eventDir, "active.json"); }
+
 export class RunBudgetError extends Error {
 	readonly code = "RUN_BUDGET_EXCEEDED";
 }
@@ -63,6 +66,7 @@ export function createOrchestrationRun(options: {
 		...(options.budget?.maxCostUsd === undefined ? {} : { maxCostUsd: Math.max(0, options.budget.maxCostUsd) }),
 	};
 	const eventDir = eventDirFromContext(options.context, runId, options.sessionFile, options.eventDir);
+	const activeMarker = eventDir ? activeRunMarkerPath(eventDir) : undefined;
 	const events: RunEventRecord[] = [];
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
@@ -84,8 +88,17 @@ export function createOrchestrationRun(options: {
 			this.stepsUsed += 1;
 		},
 		record,
-		finish(status, payload) { record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, ...(payload === undefined ? {} : { result: payload }) }); },
+		finish(status, payload) {
+			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, ...(payload === undefined ? {} : { result: payload }) });
+			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
+		},
 	};
+	if (activeMarker) {
+		try {
+			mkdirSync(eventDir!, { recursive: true });
+			writeFileSync(activeMarker, JSON.stringify({ pid: process.pid, startedAt, runId }), { mode: 0o600 });
+		} catch {}
+	}
 	record("run.started", { parentRunId: options.parentRunId, budget });
 	return run;
 }

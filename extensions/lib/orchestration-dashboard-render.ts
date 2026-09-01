@@ -43,11 +43,11 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 	}
 	lines.push(theme.fg("muted", `Recent ${Math.min(input.runs.length, input.limit)} · refresh 2s`));
 	for (const run of input.runs.slice(0, input.limit)) {
-		const status = run.status === "succeeded" ? "✓" : run.status === "failed" ? "✗" : run.status === "running" ? "●" : run.status === "cancelled" ? "–" : "?";
+		const status = run.status === "succeeded" ? "✓" : run.status === "failed" ? "✗" : run.status === "running" ? "●" : run.status === "stale" ? "!" : run.status === "cancelled" ? "–" : "?";
 		const duration = run.durationMs === undefined ? age(run.startedAt) : `${Math.round(run.durationMs / 1000)}s`;
 		const parent = run.parentRunId ? ` ←${short(run.parentRunId, 8)}` : "";
 		const line = `${status} ${short(run.actor, 18).padEnd(18)} ${duration.padStart(4)} ${run.eventCount}e ${short(run.runId, 16)}${parent}`;
-		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : "text", line).slice(0, usable));
+		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text", line).slice(0, usable));
 	}
 	return lines;
 }
