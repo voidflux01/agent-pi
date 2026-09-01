@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
 import { resetCapabilitiesForTests } from "../lib/capability-registry.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -107,6 +107,9 @@ describe("compose_exec", () => {
 		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
 		const cwd = mkdtempSync(join(tmpdir(), "compose-read-"));
 		writeFileSync(join(cwd, "input.txt"), "first\nsecond\nthird\n", "utf8");
+		const outside = mkdtempSync(join(tmpdir(), "compose-read-outside-"));
+		writeFileSync(join(outside, "secret.txt"), "outside-secret", "utf8");
+		symlinkSync(join(outside, "secret.txt"), join(cwd, "link.txt"));
 		composeExec(fakePi);
 		const tool = registered.find((entry) => entry.name === "compose_exec");
 		const read = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt", offset: 2, limit: 1 } }] }, undefined, undefined, { cwd });
@@ -115,5 +118,7 @@ describe("compose_exec", () => {
 		const blocked = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "../outside.txt" } }] }, undefined, undefined, { cwd });
 		expect(blocked.details.results[0].status).toBe("completed");
 		expect(blocked.details.results[0].result.text).toContain("Read blocked");
+		const symlink = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "link.txt" } }] }, undefined, undefined, { cwd });
+		expect(symlink.details.results[0].result.text).toContain("symlink target");
 	});
 });

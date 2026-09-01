@@ -308,7 +308,7 @@ export async function executeBuiltinTool(
 		}
 
 		case "read": {
-			const { readFileSync } = await import("node:fs");
+			const { readFileSync, realpathSync } = await import("node:fs");
 			const { resolve } = await import("node:path");
 			const path = (args.path as string) || "";
 			if (!path) return { content: [{ type: "text", text: "Error: 'path' parameter required" }] };
@@ -316,6 +316,11 @@ export async function executeBuiltinTool(
 				const fullPath = resolve(cwd, path);
 				if (!isWithinDirectory(cwd, fullPath)) {
 					return { content: [{ type: "text", text: "Read blocked: path must stay inside the current workspace." }], details: { error: true, path } };
+				}
+				const realCwd = realpathSync(cwd);
+				const realPath = realpathSync(fullPath);
+				if (!isWithinDirectory(realCwd, realPath)) {
+					return { content: [{ type: "text", text: "Read blocked: symlink target must stay inside the current workspace." }], details: { error: true, path } };
 				}
 				const content = readFileSync(fullPath, "utf-8");
 				const offset = (args.offset as number) || 1;

@@ -25,7 +25,8 @@ the authoritative fixture command is `node --test`.
 
 - Full repository tests: 136 Bun passed; 943 Vitest passed; 13 skipped.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
-  validation; traversal attempts are rejected by the shared path boundary.
+  validation; traversal and symlink-escape attempts are rejected by the shared
+  path boundary.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - PLAN, SPEC, TEAM, CHAIN, and PIPELINE each completed a real Herdr smoke.

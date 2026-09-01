@@ -19,6 +19,8 @@ The task gate is strict in this mode. Only read-only inspection, read-only scout
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
 If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
 
+const PARALLEL_JOIN_PROMPT = `For independent background work, use \`subagent_create_batch\` and then one \`subagent_wait\` join with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
+
 export const RESEARCH_ROUTING_PROMPT = `## Shared external-research routing
 This protocol applies in every mode, including NORMAL, PLAN, SPEC, TEAM, PIPELINE, and CHAIN.
 
@@ -72,6 +74,8 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 ${GRILL_ME_SECTION}
 
 ${RESEARCH_ROUTING_PROMPT}
+
+${PARALLEL_JOIN_PROMPT}
 
 ## Optional scout
 Start with direct work and reassess as evidence accumulates. For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
