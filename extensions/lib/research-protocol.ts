@@ -43,7 +43,16 @@ export function discoverResearchTools(tools: readonly AvailableToolMetadata[]): 
 }
 
 export function researcherPrompt(task: string, context = ""): string {
-	return `Research the following task using current, source-backed external information. Prefer official and primary sources.\n\nTask:\n${task}\n\n${context}\n\nReturn source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failed lookups. Do not modify files or run shell commands.`;
+	return `Research the following task using current, source-backed external information. Prefer official and primary sources.
+
+Task:
+${task}
+
+${context}
+
+Return source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failed lookups. Do not modify files or run shell commands.
+
+Recovery for blocked URL fetches: if a direct fetch is blocked by SSRF protection, fake-IP resolution, robots policy, or a network boundary, do not retry the same URL repeatedly. Try a canonical equivalent host or an official mirror when the source identity remains clear. Use a proxy argument only if the selected tool schema explicitly supports it and a configured proxy is available; never invent proxy values. If it still fails, use search-result evidence or another independent source and record the failed URL and reason.`;
 }
 
 export const RESEARCH_HANDOFF_PROMPT = "When using external research, preserve the researcher report as context. Distinguish repository facts, source-backed external facts, and assumptions. Do not treat a citation alone as proof of an implementation result.";

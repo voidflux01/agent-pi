@@ -24,5 +24,8 @@ describe("research routing", () => {
 		const prompt = researcherPrompt("Compare the current SDK versions");
 		expect(prompt).toContain("source-backed");
 		expect(prompt).toContain("Do not modify files");
+		expect(prompt).toContain("do not retry the same URL repeatedly");
+		expect(prompt).toContain("canonical equivalent host or an official mirror");
+		expect(prompt).toContain("never invent proxy values");
 	});
 });
