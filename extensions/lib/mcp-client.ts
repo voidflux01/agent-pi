@@ -52,6 +52,7 @@ export class McpClient {
 	private pending = new Map<number, PendingCall>();
 	private buffer = "";
 	private connected = false;
+	private connecting: Promise<void> | null = null;
 	private static readonly MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 	constructor(serverPath: string, env: Record<string, string>, timeoutMs = 60_000) {
@@ -61,6 +62,18 @@ export class McpClient {
 	}
 
 	async connect(): Promise<void> {
+		if (this.connected) return;
+		if (this.connecting) return this.connecting;
+		const attempt = this.connectOnce();
+		this.connecting = attempt;
+		try {
+			await attempt;
+		} finally {
+			if (this.connecting === attempt) this.connecting = null;
+		}
+	}
+
+	private async connectOnce(): Promise<void> {
 		this.proc = spawn("node", [this.serverPath], {
 			stdio: ["pipe", "pipe", "pipe"],
 			env: childEnvironment(this.env),

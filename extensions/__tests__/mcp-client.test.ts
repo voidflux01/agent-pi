@@ -161,6 +161,21 @@ describe("McpClient", () => {
 		);
 	});
 
+	it("should share one in-flight connection across concurrent callers", async () => {
+		const client = new McpClient("/path/to/server.js", {});
+		const first = client.connect();
+		const second = client.connect();
+
+		expect(mockSpawn).toHaveBeenCalledTimes(1);
+		lastMockProc.stdout.emit("data", JSON.stringify({
+			jsonrpc: "2.0", id: 1,
+			result: { protocolVersion: "2024-11-05", capabilities: {} },
+		}) + "\n");
+
+		await Promise.all([first, second]);
+		expect(client.isConnected()).toBe(true);
+	});
+
 	it("should send initialize handshake on connect", async () => {
 		const client = new McpClient("/path/to/server.js", {});
 		const connectPromise = client.connect();
