@@ -2,6 +2,7 @@
 // ABOUTME: Gates which extension's before_agent_start fires and injects PLAN/SPEC prompts.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
@@ -148,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── set_mode tool (autonomous mode switching) ──
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "set_mode",
 		label: "Set Mode",
 		description: "Switch the operational mode. Call this from NORMAL mode to activate PLAN, SPEC, TEAM, CHAIN, or PIPELINE based on task classification.",
@@ -232,6 +233,16 @@ export default function (pi: ExtensionAPI) {
 			args: event.arguments || event.params || event.input,
 			cwd: ctx?.cwd,
 		});
+	});
+
+	// A follow-up user request starts a fresh reconnaissance decision. Without
+	// this boundary, inspection calls from the previous request can either make
+	// the next escalation happen too early or leave the model believing its old
+	// scout already covered the new request.
+	pi.on("input", (event) => {
+		if (event.source === "interactive" || event.source === "rpc" || event.source === "extension") {
+			resetNormalEscalation(normalEscalationState);
+		}
 	});
 
 	pi.on("before_agent_start", async (_event, _ctx) => {

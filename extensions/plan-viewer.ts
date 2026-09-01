@@ -2,6 +2,7 @@
 // ABOUTME: Supports plan mode (approve/edit/reorder) and questions mode (inline answers). Markdown-driven UI.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
@@ -27,11 +28,31 @@ import { setExecutionContract } from "./lib/coordination-state.ts";
 type ViewerPurpose = "plan" | "questions";
 
 interface ViewerResult {
-	action: "approved" | "declined" | "submitted";
+	action: "approved" | "changes_requested" | "declined" | "submitted";
 	markdown: string;
 	modified: boolean;
+	comments: PlanComment[];
 	answers?: string;
 	answerMap?: Record<string, string>;
+}
+
+interface PlanComment {
+	id: string;
+	sectionId: string;
+	sectionText: string;
+	text: string;
+	timestamp: string;
+}
+
+function planCommentsPath(filePath: string): string {
+	return /\.md$/i.test(filePath)
+		? filePath.replace(/\.md$/i, "-comments.json")
+		: `${filePath}.comments.json`;
+}
+
+function formatPlanComments(comments: PlanComment[]): string {
+	if (comments.length === 0) return "(no comments)";
+	return comments.map((comment) => `- ${comment.sectionText || "(task)"}: ${comment.text}`).join("\n");
 }
 
 // ── HTTP Server for GUI Window ───────────────────────────────────────
@@ -40,6 +61,8 @@ function startViewerServer(
 	markdown: string,
 	title: string,
 	purpose: ViewerPurpose,
+	filePath: string,
+	existingComments: PlanComment[] = [],
 ): Promise<{ port: number; server: Server; waitForResult: () => Promise<ViewerResult>; auth: LocalServerAuth }> {
 	return new Promise((resolveSetup) => {
 		let resolveResult: (result: ViewerResult) => void;
@@ -55,7 +78,7 @@ function startViewerServer(
 			// Serve the main HTML page
 			if (req.method === "GET" && url.pathname === "/") {
 				const port = (server.address() as any)?.port || 0;
-				const html = generatePlanViewerHTML({ markdown, title, mode: purpose, port });
+				const html = generatePlanViewerHTML({ markdown, title, mode: purpose, port, comments: existingComments });
 				res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
 				res.end(html);
 				return;
@@ -88,12 +111,31 @@ function startViewerServer(
 							action: data.action || "declined",
 							markdown: data.markdown || markdown,
 							modified: data.modified || false,
+							comments: Array.isArray(data.comments) ? data.comments : [],
 							answers: data.answers,
 							answerMap: data.answerMap,
 						});
 					} catch {
 						res.writeHead(400, { "Content-Type": "application/json" });
 						res.end(JSON.stringify({ error: "Invalid JSON" }));
+					}
+				});
+				return;
+			}
+
+			// Persist comments independently from the plan markdown.
+			if (req.method === "POST" && url.pathname === "/save-comments") {
+				let body = "";
+				req.on("data", (chunk) => { body += chunk; });
+				req.on("end", () => {
+					try {
+						const data = JSON.parse(body || "{}");
+						writeFileSync(planCommentsPath(filePath), JSON.stringify({ comments: Array.isArray(data.comments) ? data.comments : [] }, null, 2), "utf-8");
+						res.writeHead(200, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ ok: true }));
+					} catch (err: any) {
+						res.writeHead(500, { "Content-Type": "application/json" });
+						res.end(JSON.stringify({ error: err.message }));
 					}
 				});
 				return;
@@ -224,7 +266,15 @@ export default function (pi: ExtensionAPI) {
 		cleanupServer();
 
 		// Start HTTP server
-		const { port, server, waitForResult, auth } = await startViewerServer(markdown, title, purpose);
+		let existingComments: PlanComment[] = [];
+		const commentsPath = planCommentsPath(filePath);
+		if (purpose === "plan" && existsSync(commentsPath)) {
+			try {
+				const data = JSON.parse(readFileSync(commentsPath, "utf-8"));
+				existingComments = Array.isArray(data.comments) ? data.comments : [];
+			} catch {}
+		}
+		const { port, server, waitForResult, auth } = await startViewerServer(markdown, title, purpose, filePath, existingComments);
 		activeServer = server;
 
 		const url = `http://127.0.0.1:${port}`;
@@ -274,6 +324,11 @@ export default function (pi: ExtensionAPI) {
 					// Silently fail
 				}
 			}
+			if (purpose === "plan") {
+				try {
+					writeFileSync(commentsPath, JSON.stringify({ comments: result.comments }, null, 2), "utf-8");
+				} catch {}
+			}
 
 			try {
 				upsertPersistedReport({
@@ -296,7 +351,7 @@ export default function (pi: ExtensionAPI) {
 			return result;
 		} catch (err: any) {
 			if (String(err?.message || err).includes("Aborted")) {
-				return { action: "declined", markdown, modified: false };
+				return { action: "declined", markdown, modified: false, comments: existingComments };
 			}
 			throw err;
 		} finally {
@@ -312,7 +367,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_plan tool ───────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_plan",
 		label: "Show Plan",
 		description:
@@ -394,11 +449,14 @@ export default function (pi: ExtensionAPI) {
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
+				const commentNote = result.comments.length > 0
+					? `\n\nUser comments (the plan file itself was not changed by these comments):\n${formatPlanComments(result.comments)}`
+					: "";
 
 				return {
 					content: [{
 						type: "text" as const,
-						text: `Plan approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${modifiedNote}\n\nThe updated plan has been saved to ${file_path}.`,
+						text: `Plan approved! First refresh the task list with concrete implementation steps and mark the first one inprogress. Proceed with implementation.${modifiedNote}\n\nThe updated plan has been saved to ${file_path}.${commentNote}`,
 					}],
 					details: {
 						action: "approved" as const,
@@ -409,13 +467,21 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
+			if (result.action === "changes_requested") {
+				return {
+					content: [{ type: "text" as const, text: `User requested changes to the plan. Comments:\n\n${formatPlanComments(result.comments)}` }],
+					details: { action: "changes_requested" as const, comments: result.comments, modified: result.modified, filePath: file_path },
+				};
+			}
+
 			return {
 				content: [{
 					type: "text" as const,
 					text: "User closed the plan viewer without approving. Ask if they want changes or have feedback.",
 				}],
-				details: {
-					action: "declined" as const,
+					details: {
+						action: "declined" as const,
+						comments: result.comments,
 					purpose: "plan",
 					modified: result.modified,
 					filePath: file_path,

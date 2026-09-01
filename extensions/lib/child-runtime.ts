@@ -4,7 +4,8 @@
 const SAFE_ENV_NAMES = new Set([
 	"HOME", "PATH", "SHELL", "TERM", "COLORTERM", "LANG", "TMPDIR", "TMP", "TEMP",
 	"PWD", "USER", "LOGNAME", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
-	"COMMANDER_MCP_SERVER_PATH", "HERDR_DONE_PATH", "HERDR_ENV", "HERDR_SESSION", "HERDR_WORKSPACE_ID",
+	"COMMANDER_MCP_SERVER_PATH", "HERDR_BIN_PATH", "HERDR_DONE_PATH", "HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET_PATH",
+	"HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID",
 ]);
 
 /** Parent Pi home/package paths. omp/prime honor these and would load ~/.pi/agent. */
@@ -27,4 +28,10 @@ export function childEnvironment(overrides: Record<string, string | undefined> =
 	// Overrides are explicit per-child configuration (for example a narrowly scoped
 	// JIRA token for the Commander MCP server), so do not silently discard them.
 	return { ...inherited, ...overrides };
+}
+
+/** Add a parent-communication extension tool without disturbing agent tool policy. */
+export function ensurePiTool(tools: string, toolName: string): string {
+	const names = tools.split(",").map((name) => name.trim()).filter(Boolean);
+	return names.includes(toolName) ? names.join(",") : [...names, toolName].join(",");
 }

@@ -2,9 +2,11 @@
 // ABOUTME: Registers a send_email tool that proxies to commander_agentmail for reports, briefings, and custom emails.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { commanderAvailable } from "./lib/coordination-state.ts";
+import { beginEmailDelivery, finishEmailDelivery, listEmailDeliveries } from "./lib/email-delivery.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -21,7 +23,18 @@ interface SendEmailParams {
 // ── Tool Registration ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
+		name: "email_delivery_status",
+		label: "Email Delivery Status",
+		description: "Show recent local delivery receipts for send_email. A submitted receipt confirms the provider call returned, not final inbox delivery.",
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _update, ctx) {
+			const receipts = listEmailDeliveries(ctx?.cwd || process.cwd());
+			return { content: [{ type: "text" as const, text: receipts.length ? receipts.map((r) => `${r.id} [${r.status}] ${r.type}${r.to ? ` → ${r.to}` : ""}${r.error ? ` — ${r.error}` : ""}`).join("\n") : "No email delivery receipts." }], details: { receipts } };
+		},
+	});
+
+	registerToolWithExecutor(pi, {
 		name: "send_email",
 		label: "Send Email",
 		description: [
@@ -70,7 +83,7 @@ export default function (pi: ExtensionAPI) {
 			let agentmailParams: Record<string, string | undefined>;
 
 			if (emailType === "report") {
-				if (!p.body && !p.html) {
+			if (!p.body && !p.html) {
 					return {
 						content: [{ type: "text" as const, text: "Email sending failed: 'body' content is required for report emails." }],
 						details: { success: false, error: "missing_content" },
@@ -118,28 +131,41 @@ export default function (pi: ExtensionAPI) {
 				if (p.to) agentmailParams.to = p.to;
 			}
 
+			const delivery = beginEmailDelivery(ctx?.cwd || process.cwd(), {
+				type: emailType,
+				...(p.to ? { to: p.to } : {}),
+				...(p.subject ? { subject: p.subject } : {}),
+			});
+			const recordResult = (result: any) => {
+				const failed = result?.isError === true || result?.details?.success === false || Boolean(result?.details?.error);
+				const status = failed ? "failed" : "submitted" as const;
+				finishEmailDelivery(ctx?.cwd || process.cwd(), delivery.id, status, failed ? String(result?.details?.error || "provider returned an error") : undefined);
+				return { ...result, details: { ...(result?.details || {}), deliveryId: delivery.id, deliveryStatus: status } };
+			};
+
 			// Call commander_agentmail through the tool system
 			try {
 				// Use ctx.callTool if available, otherwise fall back to finding the tool
 				if (ctx && typeof (ctx as any).callTool === "function") {
 					const result = await (ctx as any).callTool("commander_agentmail", agentmailParams);
-					return result;
+					return recordResult(result);
 				}
 
 				// Fallback: call via the registered Pi tool directly
 				const piGlobal = g.__piInstance || g.__pi;
 				if (piGlobal && typeof piGlobal.callTool === "function") {
 					const result = await piGlobal.callTool("commander_agentmail", agentmailParams);
-					return result;
+					return recordResult(result);
 				}
 
 				// Last resort: use the MCP client directly
 				const { resolveCommanderServerPath, COMMANDER_SERVER_PATH_ENV } = await import("./lib/commander-server-path.ts");
 				const serverPath = resolveCommanderServerPath();
 				if (!serverPath) {
+					finishEmailDelivery(ctx.cwd || process.cwd(), delivery.id, "failed", "commander_mcp_not_configured");
 					return {
-						content: [{ type: "text" as const, text: `Email sending failed: Commander MCP not configured — set ${COMMANDER_SERVER_PATH_ENV} to the path of commander-mcp's server.js` }],
-						details: { success: false, error: "commander_mcp_not_configured" },
+						content: [{ type: "text" as const, text: `Email sending failed: Commander MCP not configured — set ${COMMANDER_SERVER_PATH_ENV} to the path of commander-mcp's server.js (delivery: ${delivery.id})` }],
+						details: { success: false, error: "commander_mcp_not_configured", deliveryId: delivery.id, deliveryStatus: "failed" },
 					};
 				}
 				const McpClientModule = await import("./lib/mcp-client.ts");
@@ -151,14 +177,15 @@ export default function (pi: ExtensionAPI) {
 				try {
 					await client.connect();
 					const result = await client.callTool("commander_agentmail", agentmailParams);
-					return result;
+					return recordResult(result);
 				} finally {
 					try { client.disconnect(); } catch {}
 				}
 			} catch (err: any) {
+				finishEmailDelivery(ctx?.cwd || process.cwd(), delivery.id, "failed", err.message);
 				return {
-					content: [{ type: "text" as const, text: `Email sending failed: ${err.message}` }],
-					details: { success: false, error: err.message },
+					content: [{ type: "text" as const, text: `Email sending failed: ${err.message} (delivery: ${delivery.id})` }],
+					details: { success: false, error: err.message, deliveryId: delivery.id, deliveryStatus: "failed" },
 				};
 			}
 		},
@@ -183,4 +210,5 @@ export default function (pi: ExtensionAPI) {
 			return new Text(theme.fg("success", `send_email ✓ ${textStr || "sent"}`), 0, 0);
 		},
 	});
+
 }

@@ -15,6 +15,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,6 +113,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("system", {
 		description: "Select a system prompt from discovered agents",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = [{ value: "default", label: "default", description: "Reset to Default" }, ...allAgents.map((agent) => ({ value: agent.name, label: agent.name, description: agent.description }))];
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (_args, ctx) => {
 			if (allAgents.length === 0) {
 				ctx.ui.notify("No agents found in .*/agents/*.md", "warning");

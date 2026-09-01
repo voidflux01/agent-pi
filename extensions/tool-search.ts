@@ -2,6 +2,7 @@
 // ABOUTME: Provides search, list, and inspect operations against the tool registry.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
@@ -51,7 +52,7 @@ function formatCategoryList(categories: { name: string; count: number }[]): stri
 export default function (pi: ExtensionAPI) {
 	const registry = getToolRegistry();
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "tool_search",
 		label: "Tool Search",
 		description:

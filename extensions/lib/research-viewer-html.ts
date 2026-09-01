@@ -640,6 +640,20 @@ function renderDetail(s) {
   if (s.findings) {
     html += '<div class="detail-section"><h3>Findings</h3><pre>' + escapeHtmlJS(s.findings) + '</pre></div>';
   }
+  if (s.webResearch) {
+    const wr = s.webResearch;
+    html += '<div class="detail-section"><h3>Web Research</h3>';
+    html += '<p><strong>Query:</strong> ' + escapeHtmlJS(wr.query || '') + '</p>';
+    if (wr.sources && wr.sources.length) {
+      html += '<p><strong>Sources</strong></p><ul>' + wr.sources.map(function(source) {
+        return '<li><a href="' + (String(source.url || '').match(/^https?:\\/\\//i) ? escapeHtmlJS(source.url) : '#') + '" target="_blank" rel="noreferrer">' + escapeHtmlJS(source.title || source.url) + '</a> <span class="muted">(' + escapeHtmlJS(source.retrievedAt || '') + ')</span></li>';
+      }).join('') + '</ul>';
+    }
+    if (wr.verifiedFacts) html += '<p><strong>Verified facts</strong></p><pre>' + escapeHtmlJS(wr.verifiedFacts) + '</pre>';
+    if (wr.uncertainty) html += '<p><strong>Uncertainty</strong></p><pre>' + escapeHtmlJS(wr.uncertainty) + '</pre>';
+    if (wr.failures) html += '<p><strong>Failures</strong></p><pre>' + escapeHtmlJS(wr.failures) + '</pre>';
+    html += '</div>';
+  }
 
   // Next Steps
   if (s.nextSteps && s.nextSteps.length > 0) {

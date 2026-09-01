@@ -27,6 +27,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
 import { execFileSync, spawn } from "child_process";
@@ -504,7 +505,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── debug_capture tool ───────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "debug_capture",
 		label: "Debug Capture",
 		description: [

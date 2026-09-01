@@ -25,7 +25,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Box, Text } from "@mariozechner/pi-tui";
+import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -699,6 +699,11 @@ export default function securityGuard(pi: ExtensionAPI) {
 
 	pi.registerCommand("security", {
 		description: "Security Guard — status, log, policy, reload",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = ["status", "log", "policy", "reload"].map((value) => ({ value, label: value }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			const subcommand = (args || "status").trim().toLowerCase();
 

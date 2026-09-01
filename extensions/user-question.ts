@@ -3,6 +3,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import {
 	Text,
 } from "@mariozechner/pi-tui";
@@ -27,7 +28,7 @@ const AskUserParams = Type.Object({
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "ask_user",
 		label: "Ask User",
 		description:

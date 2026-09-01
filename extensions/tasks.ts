@@ -23,6 +23,7 @@
 
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
 import { Container, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
@@ -484,7 +485,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Register tasks tool ────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "tasks",
 		label: "Tasks",
 		description:

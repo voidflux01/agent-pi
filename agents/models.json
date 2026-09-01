@@ -32,6 +32,10 @@
       "provider": "openai-codex",
       "model": "gpt-5.4"
     },
+    "researcher": {
+      "provider": "openai-codex",
+      "model": "gpt-5.4"
+    },
     "tester": {
       "provider": "openai-codex",
       "model": "gpt-5.4"

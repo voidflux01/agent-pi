@@ -2,6 +2,7 @@
 // ABOUTME: Wizard-style navigation between spec docs, inline comment threads, visual asset gallery, markdown editing.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync, lstatSync } from "node:fs";
@@ -497,7 +498,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_spec tool ───────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_spec",
 		label: "Show Spec",
 		description:

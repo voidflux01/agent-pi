@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { childEnvironment } from "../lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "../lib/child-runtime.ts";
 
 describe("child process environment boundary", () => {
+	it("adds ask_parent once without disturbing the tool allowlist", () => {
+		expect(ensurePiTool("read,bash", "ask_parent")).toBe("read,bash,ask_parent");
+		expect(ensurePiTool("read,ask_parent,bash", "ask_parent")).toBe("read,ask_parent,bash");
+	});
+
 	it("does not inherit the parent's Pi home directory", () => {
 		const oldDir = process.env.PI_CODING_AGENT_DIR;
 		const oldPkg = process.env.PI_PACKAGE_DIR;

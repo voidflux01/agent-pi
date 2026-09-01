@@ -43,3 +43,38 @@ plan-build:
       agents:
         - role: builder
           task_template: "Implement this plan:\n\n$INPUT"
+
+research-plan-build-review:
+  description: "Research current external facts, then plan, build, and review"
+  review_max_loops: 3
+  phases:
+    - name: research
+      description: "Gather source-backed external information when the task requires it"
+      mode: interactive
+      agents:
+        - role: researcher
+          task_template: "Research the current external information needed for this task. Include source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failures:\n\n$INPUT"
+    - name: understand
+      description: "Inspect the local codebase using the research report"
+      mode: interactive
+      agents:
+        - role: scout
+          task_template: "Explore the local codebase for this task. Use the external research below as context and identify reusable patterns and constraints:\n\n$INPUT"
+    - name: plan
+      description: "Create an implementation plan"
+      mode: interactive
+      agents:
+        - role: planner
+          task_template: "Create a plan using the external research and local analysis below. Distinguish source-backed facts from repository facts and assumptions:\n\n$INPUT"
+    - name: build
+      description: "Implement the plan"
+      mode: interactive
+      agents:
+        - role: builder
+          task_template: "Implement the following approved plan:\n\n$INPUT"
+    - name: review
+      description: "Review for quality and correctness"
+      mode: interactive
+      agents:
+        - role: reviewer
+          task_template: "Review this implementation for bugs, correctness, and whether it honored the external research constraints:\n\n$INPUT"

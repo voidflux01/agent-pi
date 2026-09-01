@@ -16,6 +16,18 @@ plan-build:
     - agent: builder
       prompt: "Based on this plan, implement:\n\n$INPUT"
 
+research-plan-build:
+  description: "Research externally, inspect locally, then plan and build"
+  steps:
+    - agent: researcher
+      prompt: "Research current external information needed for this task. Include source URLs, retrieval dates, verified facts, uncertainty, and failures:\n\n$ORIGINAL"
+    - agent: scout
+      prompt: "Explore the local codebase for this task and identify reusable patterns and constraints. Include the external research below as context:\n\n$INPUT\n\nOriginal request:\n$ORIGINAL"
+    - agent: planner
+      prompt: "Create an implementation plan using the external research and local codebase analysis below. Distinguish source-backed facts from repository facts and assumptions:\n\n$INPUT"
+    - agent: builder
+      prompt: "Implement the following approved plan:\n\n$INPUT"
+
 full-pipeline:
   description: "End-to-end pipeline — scout, plan, build, review, test"
   steps:

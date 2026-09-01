@@ -2,6 +2,7 @@
 // ABOUTME: Spawns commander-mcp as a subprocess and proxies JSON-RPC calls over stdio.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { McpClient } from "./lib/mcp-client.ts";
 import { createReadyGate } from "./lib/commander-ready.ts";
@@ -451,7 +452,7 @@ export default function (pi: ExtensionAPI) {
 
 	// Register all 8 tools
 	for (const tool of TOOLS) {
-		pi.registerTool({
+		registerToolWithExecutor(pi, {
 			name: tool.name,
 			label: tool.label,
 			description: tool.description,

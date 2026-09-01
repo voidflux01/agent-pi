@@ -2,6 +2,7 @@
 // ABOUTME: Gathers git diff data, renders interactive report with per-file rollback capability.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
@@ -490,7 +491,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_report tool ─────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_report",
 		label: "Show Report",
 		description:

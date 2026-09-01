@@ -38,6 +38,22 @@ export interface ResearchNextStep {
 	status: "pending" | "implementing" | "done" | "skipped";
 }
 
+export interface WebResearchSource {
+	url: string;
+	title?: string;
+	retrievedAt: string;
+	type?: string;
+}
+
+export interface WebResearchRecord {
+	query: string;
+	sources: WebResearchSource[];
+	verifiedFacts: string;
+	uncertainty: string;
+	failures: string;
+	responseIds?: string[];
+}
+
 export interface ResearchImplementation {
 	startedAt?: string;
 	completedAt?: string;
@@ -56,6 +72,7 @@ export interface ResearchSession {
 	clarifyingQA: Array<{ question: string; answer: string }>;
 	iterations: ResearchIteration[];
 	findings: string;
+	webResearch?: WebResearchRecord;
 	nextSteps: ResearchNextStep[];
 	implementation: ResearchImplementation;
 	createdAt: string;

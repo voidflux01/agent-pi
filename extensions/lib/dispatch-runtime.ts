@@ -16,7 +16,6 @@ import {
 	cleanupLaunchFiles,
 	registerHerdrPane,
 	sendCommandToPaneAsync,
-	shellQuote,
 	updateHerdrPaneStatus,
 	visiblePiTuiCommand,
 	waitForLaunchStart,
@@ -239,7 +238,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 
 		spec.onProcess?.(paneProcess);
 		updateJournal(spec, { status: "running" });
-		const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${shellQuote(refs.scriptPath)}`);
+		const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
 		if (!sent) {
 			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 			return null;

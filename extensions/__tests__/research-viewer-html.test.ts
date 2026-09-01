@@ -13,4 +13,10 @@ describe("research viewer rendering", () => {
 		expect(html).not.toContain("numberTextnumberText");
 		expect(html).toContain("function numberValue(value)");
 	});
+
+	it("only permits http(s) protocols for external research links", () => {
+		const html = generateResearchViewerHTML({ title: "Research", port: 1234, sessions: [] });
+
+		expect(html).toContain("String(source.url || '').match(/^https?:\\/\\//i)");
+	});
 });

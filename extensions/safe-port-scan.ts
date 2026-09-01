@@ -2,6 +2,7 @@
 // ABOUTME: Refuses public targets, arbitrary flags, and aggressive scanning behavior.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import net from "node:net";
@@ -79,7 +80,7 @@ function parseGNmap(stdout: string): Array<{ host: string; openPorts: string[] }
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  registerToolWithExecutor(pi, {
     name: "safe_port_scan",
     label: "Safe Port Scan",
     description: "Safe, low-impact local port analysis using a guarded nmap wrapper. Only loopback and private IP targets are allowed. Aggressive flags, public targets, hostnames, and arbitrary options are refused.",

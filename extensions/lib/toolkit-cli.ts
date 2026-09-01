@@ -14,7 +14,6 @@ import {
 	createHerdrTaskTabAsync,
 	sendCommandToPaneAsync,
 	closeHerdrTabAsync,
-	shellQuote as herdrShellQuote,
 	writeLaunchScript,
 	pollDoneFileAsync,
 	waitForLaunchStart,
@@ -563,7 +562,7 @@ export async function runToolkitDispatch(opts: {
 							__piNoExitEvent: true,
 						});
 						await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
-						const sent = await sendCommandToPaneAsync(tab.paneId, `bash ${herdrShellQuote(refs.scriptPath)}`);
+						const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
 						const started = sent && await waitForLaunchStart(
 							refs.startedPath,
 							5_000,

@@ -15,11 +15,13 @@ export function generatePlanViewerHTML(opts: {
 	title: string;
 	mode: "plan" | "questions";
 	port: number;
+	comments?: Array<{ id: string; sectionId: string; sectionText: string; text: string; timestamp: string }>;
 }): string {
-	const { markdown, title, mode, port } = opts;
+	const { markdown, title, mode, port, comments = [] } = opts;
 	// Escape </ sequences to prevent </script> in content from breaking the script block
 	const escapedMarkdown = JSON.stringify(markdown).replace(/<\//g, '<\\/');
 	const escapedTitle = JSON.stringify(title).replace(/<\//g, '<\\/');
+	const escapedComments = JSON.stringify(comments).replace(/<\//g, '<\\/');
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -485,6 +487,20 @@ export function generatePlanViewerHTML(opts: {
     border-bottom: 1px dashed var(--accent);
     padding-bottom: 2px;
   }
+  .plan-comment-btn { opacity: 0; margin-left: 8px; border: 0; border-radius: 4px; padding: 3px 6px; color: var(--accent); background: var(--surface2); cursor: pointer; }
+  .plan-item:hover .plan-comment-btn, .plan-comment-btn.has-comments { opacity: 1; }
+  .plan-section-comment-btn { opacity: 0; margin-left: 8px; border: 0; border-radius: 4px; padding: 2px 5px; color: var(--accent); background: var(--surface2); cursor: pointer; font-size: 11px; vertical-align: middle; }
+  .markdown-body h1:hover .plan-section-comment-btn, .markdown-body h2:hover .plan-section-comment-btn, .markdown-body h3:hover .plan-section-comment-btn, .markdown-body p:hover .plan-section-comment-btn, .markdown-body blockquote:hover .plan-section-comment-btn, .markdown-body pre:hover .plan-section-comment-btn, .plan-section-comment-btn.has-comments { opacity: 1; }
+  .plan-comment-sidebar { position: fixed; z-index: 5; top: 100px; right: 18px; width: 300px; max-height: calc(100vh - 190px); overflow-y: auto; display: none; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+  .plan-comment-sidebar.visible { display: block; }
+  .plan-comment-card { position: relative; padding: 10px 28px 10px 10px; margin-bottom: 8px; border-left: 3px solid var(--accent); background: var(--surface2); border-radius: 0 5px 5px 0; }
+  .plan-comment-ref { color: var(--accent); font-size: 11px; margin-bottom: 5px; }
+  .plan-comment-text { white-space: pre-wrap; font-size: 13px; }
+  .plan-comment-time { color: var(--text-dim); font-size: 10px; margin-top: 6px; }
+  .plan-comment-delete { position: absolute; top: 5px; right: 5px; border: 0; background: transparent; color: var(--text-dim); cursor: pointer; }
+  .plan-comment-popup { position: fixed; z-index: 10; display: none; width: 310px; padding: 10px; background: var(--surface); border: 1px solid var(--accent); border-radius: 7px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  .plan-comment-popup textarea { width: 100%; box-sizing: border-box; resize: vertical; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 7px; }
+  .plan-comment-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
   .plan-item .drag-handle {
     cursor: grab;
     color: var(--text-dim);
@@ -820,6 +836,7 @@ export function generatePlanViewerHTML(opts: {
   body.approved-state .plan-item .drag-handle { display: none; }
   body.approved-state .plan-item .delete-btn { display: none; }
   body.approved-state .plan-item-text { cursor: default; }
+  body.approved-state .plan-comment-btn { display: none; }
   body.approved-state .footer-wrapper { display: none; }
   body.approved-state .toggle-bar { display: none; }
   body.approved-state .edit-hint { display: none; }
@@ -864,6 +881,14 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
     <textarea id="rawEditor" spellcheck="false"></textarea>
   </div>
 </div>
+${mode === "plan" ? `<div class="plan-comment-sidebar" id="commentSidebar"></div>
+<div class="plan-comment-popup" id="commentPopup">
+  <textarea id="commentInput" placeholder="Add a comment..." rows="3"></textarea>
+  <div class="plan-comment-actions">
+    <button class="btn btn-ghost" onclick="closeCommentPopup()">Cancel</button>
+    <button class="btn btn-primary" onclick="submitComment()">Add Comment</button>
+  </div>
+</div>` : ''}
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
@@ -873,9 +898,11 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
   <div class="footer">
     <button class="btn btn-ghost" onclick="copyToClipboard()" title="Copy markdown"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
     <button class="btn btn-ghost" onclick="saveToDesktop()" title="Save to desktop"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Save</button>
+    ${mode === "plan" ? `<button class="btn btn-ghost" onclick="toggleComments()" title="Toggle comments" id="btnToggleComments">Comments</button>` : ''}
     <button class="btn btn-ghost" onclick="downloadStandalone()" title="Download standalone read-only HTML"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Standalone</button>
     <div class="spacer"></div>
     <button class="btn" onclick="decline()" id="btnDecline">Close</button>
+    ${mode === "plan" ? `<button class="btn btn-warning" onclick="requestChanges()" id="btnChanges">Request Changes</button>` : ''}
     <button class="btn btn-primary" onclick="approve()" id="btnApprove">
       ${mode === "questions" ? "Submit Answers" : "Approve Plan"}
     </button>
@@ -892,6 +919,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
   const PORT = ${port};
   const MODE = ${JSON.stringify(mode).replace(/<\//g, '<\\/')};
   let markdown = ${escapedMarkdown};
+  let comments = ${escapedComments};
   let originalMarkdown = markdown;
   let modified = false;
   let currentView = 'rendered';
@@ -961,6 +989,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
           '<span class="drag-handle"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="3" cy="2" r="1"/><circle cx="7" cy="2" r="1"/><circle cx="3" cy="5" r="1"/><circle cx="7" cy="5" r="1"/><circle cx="3" cy="8" r="1"/><circle cx="7" cy="8" r="1"/></svg></span>' +
           '<input type="checkbox" ' + isChecked + ' onchange="toggleCheckbox(this)">' +
           '<span class="plan-item-text" ondblclick="startEdit(this)">' + text + '</span>' +
+          '<button class="plan-comment-btn" type="button" title="Add comment">💬</button>' +
           '<button class="delete-btn" onclick="deleteItem(this)" title="Delete item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
           '</li>';
       }
@@ -977,6 +1006,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
           '<span class="drag-handle"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="3" cy="2" r="1"/><circle cx="7" cy="2" r="1"/><circle cx="3" cy="5" r="1"/><circle cx="7" cy="5" r="1"/><circle cx="3" cy="8" r="1"/><circle cx="7" cy="8" r="1"/></svg></span>' +
           '<input type="checkbox" ' + isChecked + ' onchange="toggleCheckbox(this)">' +
           '<span class="plan-item-text" ondblclick="startEdit(this)">' + text + '</span>' +
+          '<button class="plan-comment-btn" type="button" title="Add comment">💬</button>' +
           '<button class="delete-btn" onclick="deleteItem(this)" title="Delete item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
           '</li>';
       }
@@ -1397,6 +1427,19 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
   function setupDragAndDrop() {
     const items = document.querySelectorAll('.plan-item[draggable="true"]');
     items.forEach(item => {
+      const commentButton = item.querySelector('.plan-comment-btn');
+      if (commentButton) {
+        const text = item.querySelector('.plan-item-text').textContent.trim();
+        const sectionId = commentKey(text);
+        const count = comments.filter(c => c.sectionId === sectionId).length;
+        commentButton.classList.toggle('has-comments', count > 0);
+        commentButton.textContent = count > 0 ? '💬 ' + count : '💬';
+        commentButton.addEventListener('click', function(e) {
+          e.stopPropagation();
+          const rect = item.getBoundingClientRect();
+          openCommentPopup(sectionId, text, rect);
+        });
+      }
       item.addEventListener('dragstart', function(e) {
         this.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
@@ -1430,7 +1473,91 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
         }
       });
     });
+
+    document.querySelectorAll('#renderedView h1, #renderedView h2, #renderedView h3, #renderedView p, #renderedView blockquote, #renderedView pre').forEach(function(section) {
+      if (section.closest('.plan-item') || section.querySelector('.plan-section-comment-btn')) return;
+      const text = section.textContent.trim();
+      if (!text) return;
+      const button = document.createElement('button');
+      const sectionId = commentKey(text);
+      const count = comments.filter(c => c.sectionId === sectionId).length;
+      button.className = 'plan-section-comment-btn' + (count > 0 ? ' has-comments' : '');
+      button.type = 'button';
+      button.title = 'Add comment';
+      button.textContent = count > 0 ? '💬 ' + count : '💬';
+      button.addEventListener('click', function(e) {
+        e.stopPropagation();
+        openCommentPopup(sectionId, text.slice(0, 120), section.getBoundingClientRect());
+      });
+      section.appendChild(button);
+    });
   }
+
+  // ── Plan comments ─────────────────────────────
+  function commentKey(text) {
+    var hash = 0;
+    for (var i = 0; i < text.length; i++) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    return 'task-' + Math.abs(hash);
+  }
+
+  function openCommentPopup(sectionId, sectionText, rect) {
+    const popup = document.getElementById('commentPopup');
+    const input = document.getElementById('commentInput');
+    if (!popup || !input) return;
+    popup.dataset.sectionId = sectionId;
+    popup.dataset.sectionText = sectionText;
+    popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 170) + 'px';
+    popup.style.left = Math.max(20, Math.min(rect.right - 310, window.innerWidth - 330)) + 'px';
+    popup.style.display = 'block';
+    input.value = '';
+    input.focus();
+  }
+
+  window.closeCommentPopup = function() {
+    const popup = document.getElementById('commentPopup');
+    if (popup) popup.style.display = 'none';
+  };
+
+  window.submitComment = function() {
+    const popup = document.getElementById('commentPopup');
+    const input = document.getElementById('commentInput');
+    const text = input && input.value.trim();
+    if (!popup || !text) return;
+    comments.push({ id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6), sectionId: popup.dataset.sectionId, sectionText: popup.dataset.sectionText, text: text, timestamp: new Date().toISOString() });
+    closeCommentPopup();
+    render();
+    saveComments();
+    showToast('Comment added');
+  };
+
+  window.deleteComment = function(id) {
+    comments = comments.filter(c => c.id !== id);
+    renderCommentSidebar();
+    render();
+    saveComments();
+    showToast('Comment removed');
+  };
+
+  function saveComments() {
+    fetch('http://127.0.0.1:' + PORT + '/save-comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comments: comments }) }).catch(function() {});
+  }
+
+  function renderCommentSidebar() {
+    const sidebar = document.getElementById('commentSidebar');
+    if (!sidebar) return;
+    if (comments.length === 0) {
+      sidebar.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-dim);font-size:12px;">Click a task 💬 button to add a comment</div>';
+      return;
+    }
+    sidebar.innerHTML = comments.map(c => '<div class="plan-comment-card"><button class="plan-comment-delete" onclick="deleteComment(' + JSON.stringify(c.id) + ')">×</button><div class="plan-comment-ref">' + escapeHtml(c.sectionText || '(task)') + '</div><div class="plan-comment-text">' + escapeHtml(c.text) + '</div><div class="plan-comment-time">' + new Date(c.timestamp).toLocaleString() + '</div></div>').join('');
+  }
+
+  window.toggleComments = function() {
+    const sidebar = document.getElementById('commentSidebar');
+    if (!sidebar) return;
+    sidebar.classList.toggle('visible');
+    renderCommentSidebar();
+  };
 
   // ── View toggle ───────────────────────────────
   window.setView = function(view) {
@@ -1480,6 +1607,14 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
     sendResult('declined');
   };
 
+  window.requestChanges = function() {
+    if (comments.length === 0) {
+      showToast('Add comments before requesting changes');
+      return;
+    }
+    sendResult('changes_requested');
+  };
+
   window.copyToClipboard = function() {
     if (currentView === 'raw') {
       markdown = document.getElementById('rawEditor').value;
@@ -1527,6 +1662,7 @@ ${mode === "questions" ? '' : `<div class="edit-hint" id="editHint">💡 Double-
       action: action,
       markdown: markdown,
       modified: modified,
+      comments: MODE === 'plan' ? comments : [],
     };
 
     if (MODE === 'questions') {

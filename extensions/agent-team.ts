@@ -22,6 +22,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
@@ -30,9 +31,9 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
 import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
 import { statusButton } from "./lib/pipeline-render.ts";
@@ -49,6 +50,7 @@ import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdr
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -604,9 +606,12 @@ export default function (pi: ExtensionAPI) {
 		const taskId = commanderAvailable ? g.__piCurrentTask?.commanderTaskId as number | undefined : undefined;
 
 		let tools = state.def.tools;
-		// Commander tools are extension-registered (not built-in), so they must NOT
-		// go in --tools (which only accepts built-in names and warns on unknowns).
-		// Package discovery loads commander-mcp; pi auto-activates extension tools.
+		if (canonicalName.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
+		}
+		if (!isToolkitCliAgent(canonicalName)) tools = ensurePiTool(tools, "ask_parent");
+		// Commander tools are intentionally omitted from the worker allowlist; package
+		// discovery loads commander-mcp and Pi auto-activates its extension tools.
 
 		// Build system prompt — append Commander discipline when available
 		let systemPrompt = state.def.systemPrompt;
@@ -923,7 +928,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── dispatch_agent Tool (registered at top level) ──
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "dispatch_agent",
 		label: "Dispatch Agent",
 		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names. When reporting the outcome to the user: lead with the result and the next decision; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
@@ -1028,6 +1033,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("agents-team", {
 		description: "Select a team: /agents-team or /agents-team <name>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Object.keys(teams).map((name) => ({ value: name, label: name }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const teamNames = Object.keys(teams);
@@ -1408,6 +1418,8 @@ No scout is active. Use dispatch_agent with the listed specialist whose tools fi
 			systemPrompt: `You are the coordinator for TEAM mode.
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+${RESEARCH_ROUTING_PROMPT}
 
 ## Tool boundary
 You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through dispatch_agent. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.

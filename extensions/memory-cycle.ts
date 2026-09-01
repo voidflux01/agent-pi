@@ -16,6 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 // convertToLlm and serializeConversation available if needed for custom summary generation
 import { Type } from "@sinclair/typebox";
 import { Box, Text } from "@mariozechner/pi-tui";
@@ -489,7 +490,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── cycle_memory tool (LLM-callable) ─────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "cycle_memory",
 		label: "Cycle Memory",
 		description: "Compact current session, start fresh, and restore memory. Use when context is getting large or you want a clean slate while keeping all progress.",

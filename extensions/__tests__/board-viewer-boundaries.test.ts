@@ -15,4 +15,12 @@ describe("board viewer boundaries", () => {
 		expect(source).toContain("authorizeLocalServerRequest");
 		expect(source).not.toContain('Access-Control-Allow-Origin\": \"*');
 	});
+
+	it("provides an explicit stop path for the persistent server", () => {
+		const source = readFileSync(new URL("../board-viewer.ts", import.meta.url), "utf8");
+		expect(source).toContain("/board stop");
+		expect(source).toContain('args.trim().toLowerCase() === "stop"');
+		expect(source).toContain("cleanupServer();");
+		expect(source).toContain("getArgumentCompletions");
+	});
 });

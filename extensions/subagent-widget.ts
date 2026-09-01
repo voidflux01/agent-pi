@@ -15,7 +15,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Box, Text } from "@mariozechner/pi-tui";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
+import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as fs from "fs";
 import * as os from "os";
@@ -23,7 +24,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { formatDuration } from "./lib/duration-format.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
@@ -34,13 +35,14 @@ import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -302,6 +304,10 @@ export default function (pi: ExtensionAPI) {
 
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
+		if (state.name.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
+		}
+		if (!isToolkitCliAgent(state.name)) tools = ensurePiTool(tools, "ask_parent");
 		// Loaded only by the visible herdr transport: writes the pane's done marker
 		// on the child's first agent_end, since an interactive worker stays alive
 		// after finishing its task.
@@ -382,7 +388,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let finished = false;
-			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }) => {
+			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
 				if (finished) return;
 				finished = true;
 				clearInterval(timer);
@@ -398,7 +404,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
-				state.status = code === 0 ? "done" : "error";
+				state.status = code === 0 && !failure ? "done" : "error";
 				state.proc = undefined;
 				if (state.toolCount === 0 && state.sessionFile) {
 					state.toolCount = countSessionToolCalls(state.sessionFile);
@@ -406,7 +412,7 @@ export default function (pi: ExtensionAPI) {
 				updateHerdrPaneStatus(
 					spawnCwd,
 					`sa-${state.id}`,
-					code === 0 ? "done" : "error",
+					code === 0 && !failure ? "done" : "error",
 				);
 				invalidateWidget(state.id);
 
@@ -449,12 +455,12 @@ export default function (pi: ExtensionAPI) {
 				try {
 					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
-						status: code === 0 ? "done" : "error",
+						status: code === 0 && !failure ? "done" : "error",
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						model: state.model || undefined,
 						outputFile: fullOutputPath || undefined,
-						note: contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : undefined,
+						note: [failure ? `dispatch: ${failure}` : "", contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : ""].filter(Boolean).join("; ") || undefined,
 						usage: (externalUsage ?? saUsage).totalTokens > 0 ? {
 							input: saUsage.input,
 							output: saUsage.output,
@@ -592,14 +598,14 @@ export default function (pi: ExtensionAPI) {
 					} catch {}
 				},
 			}).then((result) => {
-				finish(result.exitCode, result.outputText);
+				finish(result.exitCode, result.outputText, undefined, result.failure);
 			}).catch(() => finish(1));
 		});
 	}
 
 		// ── Tools for the Main Agent ──────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_create",
 		description: "Spawn a subagent to perform a task. When `name` is scout, this call blocks until that scout finishes and returns its RESULT — treat that ## RESULT as the report, do not read the archived transcript unless a path is missing, and do not start overlapping reconnaissance in the same turn. Toolkit CLIs (omp-agent, prime-agent, and other named harnesses) also block until the CLI exits; do not poll with subagent_list or sleep. Other roles return the subagent ID immediately and deliver results as a follow-up message when finished.\n\nWhen `name` matches a known agent definition (scout, builder, reviewer, planner, tester, red-team, omp-agent, prime-agent), that agent's configured model, tools, and system prompt are automatically applied. Only set `model` to override the agent's default.",
 		parameters: Type.Object({
@@ -654,7 +660,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
 		description: "Spawn multiple subagents at once with optional Commander task group. Pre-creates Commander tasks to avoid race conditions where multiple agents try to claim the same task.\n\nWhen an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
@@ -774,7 +780,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_continue",
 		description: "Continue an existing subagent's conversation. Use this to give further instructions to a finished subagent. Returns immediately while it runs in the background.",
 		parameters: Type.Object({
@@ -812,7 +818,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_remove",
 		description: "Remove a specific subagent. Kills it if it's currently running.",
 		parameters: Type.Object({
@@ -842,7 +848,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_list",
 		description: "List all active and finished subagents, showing their IDs, tasks, and status.",
 		parameters: Type.Object({}),
@@ -861,7 +867,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "subagent_cleanup",
 		description: "Clean up finished and stale subagents. Removes done/error agents and kills agents running longer than max_age_seconds. Use before spawning new batches or when the screen is cluttered.",
 		parameters: Type.Object({
@@ -950,6 +956,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("subcont", {
 		description: "Continue an existing subagent's conversation: /subcont <number> <prompt>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Array.from(agents.keys()).map((id) => ({ value: String(id), label: String(id) }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 
@@ -1003,6 +1014,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("subrm", {
 		description: "Remove a specific subagent widget: /subrm <number>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = Array.from(agents.keys()).map((id) => ({ value: String(id), label: String(id) }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			const commandEpoch = sessionEpoch;

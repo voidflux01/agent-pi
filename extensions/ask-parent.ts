@@ -9,6 +9,8 @@
 import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { deliverMail, listMail, readMail, settleMail, sendSteer, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
 
@@ -170,7 +172,7 @@ export function listAsks(statusFilter?: AskRecord["status"], cwd = process.cwd()
 export default function (pi: ExtensionAPI) {
 	// Child-facing tool. The orchestrator passes our agent identity via env so
 	// the record knows who is asking even inside --mode json runs.
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "ask_parent",
 		description: `Ask the parent/captain a blocking question when genuinely stuck on a decision only they can make (scope changes, irreversible actions, missing credentials). Do NOT use it for discoverable answers - first inspect context and try a reversible default. The call BLOCKS until the parent answers or the timeout (${DEFAULT_TIMEOUT_S}s) elapses.`,
 		parameters: Type.Object({
@@ -213,6 +215,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("ask-answer", {
 		description: "Answer a pending ask_parent question: /ask-answer <id> <text>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = listAsks("open").map((ask) => ({ value: ask.id, label: ask.id, description: ask.question }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args: string, ctx: any) => {
 			const m = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
 			if (!m) {

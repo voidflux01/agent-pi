@@ -204,6 +204,24 @@ describe("mode-aware gate integration", () => {
 		}
 	});
 
+	it("allows researcher reconnaissance before a task exists", async () => {
+		const previous = coordinationState().mode;
+		try {
+			const handlers = new Map<string, Function>();
+			const pi = {
+				registerTool() {}, registerCommand() {},
+				on(name: string, handler: Function) { handlers.set(name, handler); },
+				sendMessage() {},
+			};
+			setCoordinationMode("PLAN");
+			tasksExtension(pi as any);
+			const researcher = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "researcher", task: "check current API docs" } }, {});
+			expect(researcher.block).toBe(false);
+		} finally {
+			setCoordinationMode(previous);
+		}
+	});
+
 	it("keeps an empty NORMAL list advisory", async () => {
 		const previous = coordinationState().mode;
 		try {

@@ -25,8 +25,9 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
-import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key } from "@mariozechner/pi-tui";
+import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
@@ -34,9 +35,9 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { childEnvironment } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
@@ -48,6 +49,7 @@ import { providerModelString, resolveInheritedModel } from "./lib/model-inherita
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
@@ -356,11 +358,16 @@ export default function (pi: ExtensionAPI) {
 			updatedAt: Date.now(),
 		});
 
+		let workerTools = ensurePiTool(agentDef.tools, "ask_parent");
+		if (agentDef.name.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
+		}
+
 		const args = [
 			"--mode", "json",
 			"-p",
 			"--model", model,
-			"--tools", agentDef.tools,
+			"--tools", workerTools,
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
@@ -590,7 +597,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── run_chain Tool ──────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "run_chain",
 		label: "Run Chain",
 		description: "Execute the active agent chain pipeline. Each step runs sequentially — output from one step feeds into the next. Agents maintain session context across runs.",
@@ -691,6 +698,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("chain", {
 		description: "Switch active chain: /chain or /chain <name>",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = chains.map((chain) => ({ value: chain.name, label: chain.name, description: chain.description }));
+			const filtered = items.filter((item) => item.value.startsWith(prefix.trim()));
+			return filtered.length > 0 ? filtered : null;
+		},
 		handler: async (args, ctx) => {
 			widgetCtx = ctx;
 			if (chains.length === 0) {
@@ -1107,6 +1119,8 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 			systemPrompt: `You are the coordinator for a sequential pipeline called "${activeChain.name}".${desc}
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+${RESEARCH_ROUTING_PROMPT}
 
 You orchestrate via \`run_chain\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After run_chain returns, quote the step summaries from ## RESULT.
 

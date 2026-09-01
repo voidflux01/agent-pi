@@ -2,7 +2,8 @@
 // ABOUTME: Polls Commander MCP tools for tasks, agents, messages, and groups. Auto-refreshes every 3 seconds.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
+import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -278,7 +279,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── show_board tool ──────────────────────────────────────────────
 
-	pi.registerTool({
+	registerToolWithExecutor(pi, {
 		name: "show_board",
 		label: "Show Board",
 		description:
@@ -323,8 +324,24 @@ export default function (pi: ExtensionAPI) {
 	// ── /board command ───────────────────────────────────────────────
 
 	pi.registerCommand("board", {
-		description: "Open the live task board in the browser",
+		description: "Open the live task board in the browser; use '/board stop' to shut down",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const items = [{ value: "stop", label: "stop — shut down the board server" }];
+			const normalized = prefix.trim().toLowerCase();
+			const matches = items.filter((item) => item.value.startsWith(normalized));
+			return matches.length > 0 ? matches : null;
+		},
 		handler: async (args, ctx) => {
+			if (args.trim().toLowerCase() === "stop") {
+				if (activeServer) {
+					cleanupServer();
+					ctx.ui.notify("Task board server stopped.", "info");
+				} else {
+					ctx.ui.notify("No task board server is running.", "warning");
+				}
+				return;
+			}
+
 			if (!ctx.hasUI) {
 				ctx.ui.notify("/board requires interactive mode", "error");
 				return;
