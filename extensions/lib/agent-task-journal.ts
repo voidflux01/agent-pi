@@ -123,7 +123,7 @@ function reconcileJournalUnlocked(sessionDir: string, activeWindowMs: number = R
 			let touchedLine = line;
 			try {
 				const e = JSON.parse(line) as TaskJournalEntry;
-				if ((e.status === "dispatched" || e.status === "running") && typeof e.id === "string") {
+				if (isActiveRunStatus(e.runStatus || e.status) && typeof e.id === "string") {
 					const done = classifyCrashedRun(sessionDir, e, activeWindowMs);
 					if (done !== undefined) {
 						e.status = done ? "done" : "error";

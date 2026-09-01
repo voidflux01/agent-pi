@@ -118,6 +118,15 @@ describe("reconcileJournal", () => {
 		const lines = text.trim().split("\n");
 		expect(JSON.parse(lines[0]).status).toBe("done");
 	});
+
+	it("does not reopen a row with a canonical terminal status", () => {
+		const cancelledRow = baseRow({ id: "canonical-cancelled-1", status: "running", runStatus: "cancelled" });
+		writeJournal([cancelledRow]);
+		reconcileJournal(dir);
+		const updated = JSON.parse(readJournal().trim());
+		expect(updated.status).toBe("running");
+		expect(updated.runStatus).toBe("cancelled");
+	});
 });
 
 describe("journalUpdate", () => {
