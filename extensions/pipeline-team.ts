@@ -939,9 +939,10 @@ export default function (pi: ExtensionAPI) {
 					if (action === "retry") {
 						const executeIndex = phaseStates.findIndex(p => /^(execute|build)$/i.test(p.def.name));
 						if (executeIndex >= 0) {
-							phaseStates[currentPhaseIndex].status = "pending";
-							phaseStates[executeIndex].status = "active";
-							phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.results.map(r => `${r.raw}: ${r.status}`).join("; ") || gate.reason}`;
+								phaseStates[currentPhaseIndex].status = "pending";
+								phaseStates[executeIndex].status = "active";
+								phaseStates[executeIndex].lastDispatchSuccess = false;
+								phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.results.map(r => `${r.raw}: ${r.status}`).join("; ") || gate.reason}`;
 							currentPhaseIndex = executeIndex;
 							persistPipelineState();
 							updateWidget();
@@ -1010,6 +1011,12 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (phase.def.name.toLowerCase() === "review" && reviewLoopCount >= activeConfig.review_max_loops) {
 				return { content: [{ type: "text", text: `Review loop limit reached (${activeConfig.review_max_loops}). Advance the pipeline or revise the configuration.` }], details: { error: true, phase: phase.def.name, reviewLoop: reviewLoopCount } };
+			}
+			if (phase.status === "active" && phase.lastDispatchSuccess) {
+				return {
+					content: [{ type: "text", text: `${phase.def.name.toUpperCase()} already has a successful dispatch. Call advance_phase with its bounded summary before dispatching it again.` }],
+					details: { error: true, phase: phase.def.name, reason: "already_dispatched" },
+				};
 			}
 
 			if (onUpdate) {
@@ -1084,6 +1091,10 @@ export default function (pi: ExtensionAPI) {
 
 			const status = result.success ? "done" : "error";
 			phase.lastDispatchSuccess = result.success;
+			// Persist the completed dispatch and accumulated handoff before
+			// returning to the parent. If the parent restarts before advance_phase,
+			// recovery can ask it to advance instead of repeating side effects.
+			persistPipelineState();
 			const blockedNotice = result.blockedReason ? `\n\n${result.blockedReason}` : "";
 
 			return {

@@ -162,3 +162,5 @@ the authoritative fixture command is `node --test`.
 - Full repository tests after RunContext budget enforcement: 174 Bun passed; 950 Vitest passed; 13 skipped.
 - TEAM, CHAIN, and PIPELINE now propagate the parent tool AbortSignal into their worker transports; cancelling the primary orchestration call reaches standard Pi workers instead of only ending the parent wait.
 - Full repository tests after cross-entry cancellation propagation: 174 Bun passed; 951 Vitest passed; 13 skipped.
+- PIPELINE recovery now persists the completed phase handoff before returning and refuses a duplicate dispatch after restart; verifier-directed retry explicitly clears that guard so corrective re-execution remains possible.
+- Full repository tests after pipeline duplicate-dispatch protection: 174 Bun passed; 951 Vitest passed; 13 skipped.
