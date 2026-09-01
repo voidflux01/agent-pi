@@ -46,9 +46,9 @@ export function showBanner(ctx: ExtensionContext) {
 		"agent-banner",
 		(_tui, theme) => ({
 			invalidate() {},
-			render(width: number): string[] {
-				const rendered = lines.map((line) => theme.fg("accent", line));
-				rendered.push("");
+				render(width: number): string[] {
+					const rendered = lines.map((line) => theme.fg("accent", line));
+					rendered.push("");
 				return rendered;
 			},
 		}),

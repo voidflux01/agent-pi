@@ -48,36 +48,31 @@ const STATUS_ICONS: Record<AgentStatus | PhaseStatus, string> = {
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/**
- * Generates a status button label with solid background color and bold white text.
- * Shows the agent/phase name inside the pill. For running/active status, includes animated braille spinner.
- */
+/** Generates a compact status label without heavy background pills. */
 export function statusButton(
 	status: AgentStatus | PhaseStatus,
 	label: string,
 	theme: RenderTheme,
 	showAnimation: boolean = true,
 ): string {
-	const inv = theme.inverse ? (t: string) => theme.inverse!(t) : (t: string) => t;
-	
 	switch (status) {
 		case "running":
 		case "active": {
 			if (showAnimation) {
 				const frame = BRAILLE_FRAMES[Math.floor(Date.now() / 80) % BRAILLE_FRAMES.length];
-				return inv(theme.fg("accent", theme.bold(` ${frame} ${label} `)));
+				return theme.fg("accent", theme.bold(`${frame} ${label}`));
 			} else {
-				return inv(theme.fg("accent", theme.bold(` ${label} `)));
+				return theme.fg("accent", theme.bold(`● ${label}`));
 			}
 		}
 		case "done":
-			return inv(theme.fg("success", theme.bold(` ${label} `)));
+			return theme.fg("success", theme.bold(`✓ ${label}`));
 		case "error":
-			return inv(theme.fg("error", theme.bold(` ${label} `)));
+			return theme.fg("error", theme.bold(`✗ ${label}`));
 		case "idle":
 		case "pending":
 		default:
-			return inv(theme.fg("dim", theme.bold(` ${label} `)));
+			return theme.fg("dim", `· ${label}`);
 	}
 }
 

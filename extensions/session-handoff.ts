@@ -108,6 +108,7 @@ export default function (pi: ExtensionAPI) {
 	let dirty = false;
 	let pendingStatus: HandoffSnapshot["status"] | undefined;
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let clearedThisSession = false;
 
 	const persist = (ctx: any, status?: HandoffSnapshot["status"]) => {
 		const snapshot = snapshotFrom(ctx, { status });
@@ -117,6 +118,9 @@ export default function (pi: ExtensionAPI) {
 		pendingStatus = undefined;
 	};
 	const schedule = (ctx: any, status?: HandoffSnapshot["status"]) => {
+		// A later meaningful action starts a fresh handoff lifecycle. This lets a
+		// user clear stale work and then begin a genuinely new task in this session.
+		clearedThisSession = false;
 		dirty = true;
 		if (status) pendingStatus = status;
 		if (timer) return;
@@ -147,6 +151,7 @@ export default function (pi: ExtensionAPI) {
 				pendingPrompt = undefined;
 				dirty = false;
 				pendingStatus = undefined;
+				clearedThisSession = true;
 				ctx.ui.notify("Task handoff cleared.", "success");
 				return;
 			}
@@ -210,9 +215,10 @@ export default function (pi: ExtensionAPI) {
 				try { ctx.ui?.notify?.(`Unfinished handoff found: ${label}. It will be available to the next turn.`, "warning"); } catch {}
 			}
 		}
-		// A new session is a boundary: preserve the previous session as interrupted.
-		if (event?.reason === "new" && saved && saved.status === "in_progress") {
-			try { writeHandoff(cwdOf(ctx), { ...saved, status: "interrupted", parentSessionId: event.previousSessionFile || saved.sessionId, updatedAt: new Date().toISOString() }); } catch {}
+		// Any cross-session discovery is a boundary, including cold startup. Mark
+		// it interrupted immediately so the same stale snapshot cannot warn again.
+		if (saved && saved.status === "in_progress" && saved.sessionId !== sessionIdOf(ctx)) {
+			try { writeHandoff(cwdOf(ctx), { ...saved, status: "interrupted", parentSessionId: event?.previousSessionFile || saved.sessionId, updatedAt: new Date().toISOString() }); } catch {}
 		}
 	});
 
@@ -233,6 +239,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		if (timer) clearTimeout(timer);
 		unsubscribeMode();
+		if (clearedThisSession) return;
 		const saved = readHandoff(cwdOf(ctx));
 		if (saved?.status === "completed" && !dirty) return;
 		if (dirty || changedFiles(cwdOf(ctx)) || currentTasks().length > 0) persist(ctx, pendingStatus || "in_progress");

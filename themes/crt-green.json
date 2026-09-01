@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "name": "crt-green",
+  "vars": {
+    "bg": "#050A06", "bgDark": "#030603", "bgDeep": "#010201", "surface": "#0B180D", "selection": "#14361A",
+    "bgRed": "#2A1013", "bgOrange": "#241B08", "bgSky": "#0A2020", "bgCyan": "#0A281D", "bgWarm": "#211D08", "bgPink": "#241127",
+    "fg": "#C9FFD0", "fgSoft": "#91C99A", "comment": "#4D8958", "green": "#B5FF75", "cyan": "#57E6B0", "yellow": "#E6E87A", "orange": "#F0B35E", "red": "#FF7373", "blue": "#76D6FF", "purple": "#C6A0FF", "magenta": "#F78CFF"
+  },
+  "colors": {
+    "accent": "green", "border": "green", "borderAccent": "yellow", "borderMuted": "surface", "success": "green", "error": "red", "warning": "orange", "muted": "comment", "dim": "comment", "text": "fg", "thinkingText": "green", "selectedBg": "selection", "userMessageBg": "bgWarm", "userMessageText": "fg", "customMessageBg": "bgCyan", "customMessageText": "fg", "customMessageLabel": "green", "toolPendingBg": "bgOrange", "toolSuccessBg": "bgSky", "toolErrorBg": "bgRed", "toolTitle": "yellow", "toolOutput": "fgSoft", "mdHeading": "green", "mdLink": "cyan", "mdLinkUrl": "comment", "mdCode": "yellow", "mdCodeBlock": "fgSoft", "mdCodeBlockBorder": "surface", "mdQuote": "green", "mdQuoteBorder": "surface", "mdHr": "surface", "mdListBullet": "green", "toolDiffAdded": "green", "toolDiffRemoved": "red", "toolDiffContext": "comment", "syntaxComment": "comment", "syntaxKeyword": "magenta", "syntaxFunction": "cyan", "syntaxVariable": "yellow", "syntaxString": "green", "syntaxNumber": "orange", "syntaxType": "blue", "syntaxOperator": "magenta", "syntaxPunctuation": "fgSoft", "thinkingOff": "surface", "thinkingMinimal": "comment", "thinkingLow": "blue", "thinkingMedium": "cyan", "thinkingHigh": "green", "thinkingXhigh": "yellow", "bashMode": "green"
+  }
+}

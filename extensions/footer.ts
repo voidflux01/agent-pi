@@ -82,10 +82,12 @@ function setupFooter(pi: ExtensionAPI, ctx: any, onUnsub: (unsub: () => void) =>
 
 				const dir = shortDir(ctx.cwd);
 				const thinking = thinkingIndicator(pi.getThinkingLevel?.(), theme);
-				const sep = theme.fg("dim", " | ");
-				const modelStr = theme.fg("accent", theme.bold(model));
-				const leftContent = ` ` + modelStr + sep + theme.fg("dim", usageStr) + sep + theme.fg("dim", dir);
-				const rightContent = thinking + ` `;
+				const sep = theme.fg("dim", "  ·  ");
+				const modelStr = theme.fg("accent", theme.bold(`[ ${model} ]`));
+				const contextStr = theme.fg("muted", `ctx ${usageStr}`);
+				const dirStr = theme.fg("dim", `@ ${dir}`);
+				const leftContent = ` ` + modelStr + sep + contextStr + sep + dirStr;
+				const rightContent = theme.fg("dim", "[ ") + thinking + theme.fg("dim", " ] ");
 
 				const leftWidth = visibleWidth(leftContent);
 				const rightWidth = visibleWidth(rightContent);

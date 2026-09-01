@@ -82,14 +82,15 @@ export function renderSubagentWidget(
 		}
 	}
 
-	// Line 1: spinner + title + stats + model (summary shown on line 2)
+	const statusColor = state.status === "running" ? "accent" : state.status === "done" ? "success" : "error";
+	const statusLine = theme.fg(statusColor, theme.bold(spinner + title));
+	const stats = theme.fg("dim", `  ${Math.round(state.elapsed / 1000)}s · Tools: ${state.toolCount}`);
+
+	// Line 1: status + compact stats + model (summary shown on line 2)
 	lines.push(
-		theme.bold(spinner + title) +
-		turnLabel +
-		` | (${Math.round(state.elapsed / 1000)}s)` +
-		` | Tools: ${state.toolCount}` +
-		modelSuffix +
-		timeoutLabel
+		statusLine + stats +
+		theme.fg("dim", turnLabel) +
+		theme.fg("muted", modelSuffix + timeoutLabel)
 	);
 
 	// Line 2: summary (current activity) or task preview as fallback
@@ -97,7 +98,7 @@ export function renderSubagentWidget(
 	const detailPreview = detail.length > 40
 		? detail.slice(0, 37) + "..."
 		: detail;
-	lines.push(`  ${detailPreview}`);
+	lines.push(theme.fg("muted", `  └─ ${detailPreview}`));
 
 	return { lines, borderCount: 1 };
 }

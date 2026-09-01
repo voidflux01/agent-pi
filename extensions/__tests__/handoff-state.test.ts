@@ -79,6 +79,7 @@ describe("handoff state", () => {
 		expect(command.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["resume", "complete", "clear"]);
 			await handlers.get("session_start")!({ reason: "startup" }, ctx);
 			expect(notifications.join("\n")).toContain("Unfinished handoff found");
+			expect(readHandoff(workspace)?.status).toBe("interrupted");
 			const resumed = await handlers.get("before_agent_start")!({}, ctx);
 			expect(resumed.systemPrompt).toContain("Resume this");
 			(globalThis as any).__piTaskList = { tasks: [{ id: 1, text: "Continue", status: "inprogress" }] };
@@ -86,6 +87,9 @@ describe("handoff state", () => {
 			await new Promise((resolve) => setTimeout(resolve, 550));
 			expect(JSON.parse(readFileSync(handoffPath(workspace), "utf8")).tasks[0].text).toBe("Continue");
 			await command.handler("clear", ctx);
+			expect(readHandoff(workspace)).toBeUndefined();
+			(globalThis as any).__piTaskList = { tasks: [{ id: 1, text: "Still open", status: "inprogress" }] };
+			await handlers.get("session_shutdown")!({ reason: "quit" }, ctx);
 			expect(readHandoff(workspace)).toBeUndefined();
 			delete (globalThis as any).__piTaskList;
 		} finally {
@@ -176,8 +180,7 @@ describe("handoff state", () => {
 			await resumeTool.execute("resume", {}, undefined, undefined, ctx);
 			await handlers.get("session_shutdown")!({ reason: "quit" }, ctx);
 			const after = readHandoff(workspace)!;
-			expect(after.status).toBe("in_progress");
-			expect(after.updatedAt).toBe(original.updatedAt);
+			expect(after.status).toBe("interrupted");
 		} finally {
 			rmSync(workspace, { recursive: true, force: true });
 		}

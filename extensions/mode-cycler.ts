@@ -8,7 +8,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
-import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
+import { MODES, nextMode, modeLabel, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { rewritePayloadSystemPrompt } from "./lib/rewrite-system-prompt.ts";
 import { coordinationState, setCoordinationMode } from "./lib/coordination-state.ts";
@@ -44,19 +44,15 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		// Mode block — full-width colored banner with mode name
-		// Uses theme accent color (same as model name in footer)
+		// Mode block — restrained Terminal Paper rule with a readable mode badge.
 		ctx.ui.setWidget(
 			"mode-block",
-			(_tui, _theme) => ({
+			(_tui, theme) => ({
 				invalidate() {},
 				render(width: number): string[] {
-					const bg = modeBgAnsi(mode);
-					const text = modeTextAnsi(mode);
-					const reset = "\x1b[0m";
-					const label = ` ${mode} `;
-					const pad = " ".repeat(Math.max(0, width - label.length));
-					return [bg + text + label + pad + reset];
+					const label = theme.fg("accent", theme.bold(`[ ${mode} ]`));
+					const ruleWidth = Math.max(0, width - mode.length - 6);
+					return [theme.fg("borderMuted", "──") + label + theme.fg("borderMuted", "─".repeat(ruleWidth))];
 				},
 			}),
 			{ placement: "aboveEditor" },

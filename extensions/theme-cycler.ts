@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, type AutocompleteItem } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { persistTheme } from "./lib/persist-theme.ts";
 
@@ -58,9 +58,14 @@ export default function (pi: ExtensionAPI) {
 						theme.fg("dim", block) +
 						" " +
 						theme.fg("muted", block);
-					const label = theme.fg("accent", " Theme ") + theme.fg("muted", ctx.ui.theme.name) + "  " + swatch;
-					const border = theme.fg("borderMuted", "─".repeat(Math.max(0, width)));
-					return [border, truncateToWidth("  " + label, width), border];
+					const label = theme.fg("accent", theme.bold("THEME")) + theme.fg("muted", ` ${ctx.ui.theme.name}`) + "  " + swatch;
+					const innerWidth = Math.max(0, width - 2);
+					const content = truncateToWidth(" " + label, innerWidth, "");
+					const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(content)));
+					const top = theme.fg("borderMuted", "┌" + "─".repeat(innerWidth) + "┐");
+					const middle = theme.fg("borderMuted", "│") + content + padding + theme.fg("borderMuted", "│");
+					const bottom = theme.fg("borderAccent", "└" + "─".repeat(innerWidth) + "┘");
+					return [top, middle, bottom];
 				},
 			}),
 			{ placement: "belowEditor" },
