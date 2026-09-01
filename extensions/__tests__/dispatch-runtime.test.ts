@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchOrigin, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
 
@@ -28,7 +28,7 @@ function fakeChild() {
 	return child;
 }
 
-function runExplicit<T>(origin: "agent-team", operation: () => T): T {
+function runExplicit<T>(origin: DispatchOrigin, operation: () => T): T {
 	return explicitDispatchHandler(origin, operation)();
 }
 
@@ -79,6 +79,28 @@ describe("shared dispatch runtime", () => {
 		expect(journal).toContain('"pid":4242');
 		const events = listRunEvents(join(dir, "compositions", result.runId!));
 		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
+	});
+
+	it("authorizes every mode-specific dispatch origin through the same runtime", async () => {
+		const origins: DispatchOrigin[] = ["subagent-tool", "subagent-resume", "subagent-command", "agent-team", "agent-chain", "pipeline-team"];
+		for (const origin of origins) {
+			const child = fakeChild();
+			const dir = mkdtempSync(join(tmpdir(), `dispatch-origin-${origin}-`));
+			const id = `${origin}-matrix`;
+			journalAppend(dir, {
+				version: 1, id, kind: origin === "agent-chain" ? "chain" : origin === "pipeline-team" ? "pipeline" : origin === "agent-team" ? "team" : "sa", agent: "tester", task: origin,
+				status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
+			});
+			const resultPromise = runExplicit(origin, () => run({
+				authorization: currentDispatchAuthorization(), command: ["pi", "--mode", "json", origin],
+				cwd: dir, launchDir: dir, launchId: id, transport: "headless",
+				journal: { dir, id }, spawnProcess: (() => {
+					queueMicrotask(() => { child.stdout.end(); child.stderr.end(); child.emit("close", 0); });
+					return child;
+				}) as any,
+			}));
+			await expect(resultPromise).resolves.toMatchObject({ exitCode: 0, transport: "headless" });
+		}
 	});
 
 	it("bounds captured headless stderr while retaining both ends", async () => {
