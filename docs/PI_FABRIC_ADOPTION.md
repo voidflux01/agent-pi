@@ -15,9 +15,11 @@ worker lifecycle boundaries.
 - `compose_exec` executes registered extension capabilities in sequence or in
   parallel, caps a batch at 16 steps, blocks meta-tool recursion, and reuses
   the existing nested security and approval gates.
-- The workspace-bounded built-in `read` capability can participate in
-  `compose_exec` with schema validation; `bash`, `write`, and `edit` remain on
-  Pi's native path until their execution boundaries are equally explicit.
+- The workspace-bounded built-in `read` and `write` capabilities can
+  participate in `compose_exec` with schema validation; write operations reject
+  traversal and symlink escapes, and share the existing approval/security path.
+  `bash` and `edit` remain on Pi's native path until their execution boundaries
+  are equally explicit.
 - Nested arguments are validated against the registered capability schema before
   execution, and parallel batches are rejected when non-commutative effects
   share a resource.
@@ -96,10 +98,9 @@ worker lifecycle boundaries.
 
 - QuickJS guest execution: the first composition surface is host-side and only
   runs already registered extension handlers.
-- Remaining built-in Pi tool proxying: `bash`, `write`, and `edit` continue
-  through Pi's native path until their schemas and executors can be exposed
-  through the same registry. `read` is already available as the first bounded
-  adapter.
+- Remaining built-in Pi tool proxying: `bash` and `edit` continue through Pi's
+  native path until their schemas and executors can be exposed through the same
+  registry. `read` and the workspace-bounded `write` adapter are available.
 - Actors, councils, recursive workers, and a full cross-process topology: the
   current dashboard is a stable read model, but the underlying worker graph
   still needs every actor to emit the same `RunContext` events.
@@ -110,7 +111,9 @@ worker lifecycle boundaries.
    PIPELINE; compare the shared journal's average elapsed time, success rate,
    tokens, and cost before changing dispatch policy.
 2. Exercise `compose_exec` with mocked extension handlers and approval/security
-   rejection cases before exposing more built-in capabilities.
+   rejection cases before exposing more built-in capabilities. The current
+   read/write adapters cover workspace containment, symlink escape, and shared
+   resource conflict cases.
 3. Evaluate whether built-in Pi tools should publish capability descriptors, or
    remain on the native tool path until their security and schema contracts are
    equally explicit.

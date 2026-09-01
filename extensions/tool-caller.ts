@@ -340,13 +340,34 @@ export async function executeBuiltinTool(
 		}
 
 		case "write": {
-			const { writeFileSync, mkdirSync } = await import("node:fs");
+			const { writeFileSync, mkdirSync, realpathSync, lstatSync } = await import("node:fs");
 			const { resolve, dirname } = await import("node:path");
 			const path = (args.path as string) || "";
 			const content = (args.content as string) || "";
 			if (!path) return { content: [{ type: "text", text: "Error: 'path' parameter required" }] };
 			try {
 				const fullPath = resolve(cwd, path);
+				if (!isWithinDirectory(cwd, fullPath)) {
+					return { content: [{ type: "text", text: "Write blocked: path must stay inside the current workspace." }], details: { error: true, path } };
+				}
+				// Resolve the nearest existing ancestor before creating directories. This
+				// prevents a symlinked parent from redirecting mkdir/write outside cwd.
+				let existing = dirname(fullPath);
+				while (existing !== dirname(existing)) {
+					try { lstatSync(existing); break; } catch { existing = dirname(existing); }
+				}
+				const realCwd = realpathSync(cwd);
+				const realParent = realpathSync(existing);
+				if (!isWithinDirectory(realCwd, realParent)) {
+					return { content: [{ type: "text", text: "Write blocked: parent symlink must stay inside the current workspace." }], details: { error: true, path } };
+				}
+				try {
+					if (!isWithinDirectory(realCwd, realpathSync(fullPath))) {
+						return { content: [{ type: "text", text: "Write blocked: symlink target must stay inside the current workspace." }], details: { error: true, path } };
+					}
+				} catch {
+					// The target may not exist yet; the parent containment check covers it.
+				}
 				mkdirSync(dirname(fullPath), { recursive: true });
 				writeFileSync(fullPath, content, "utf-8");
 				return {

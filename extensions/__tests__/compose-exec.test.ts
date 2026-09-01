@@ -3,7 +3,7 @@ import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
 import { registerDiscoveredCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -132,6 +132,38 @@ describe("compose_exec", () => {
 		const result = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt", offset: 0 } }] }, undefined, undefined, { cwd: process.cwd() });
 		expect(result.details.results[0].status).toBe("blocked");
 		expect(result.details.results[0].error).toContain("invalid arguments");
+	});
+
+	test("composes workspace-bounded writes and rejects escaping parents", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-write-"));
+		const outside = mkdtempSync(join(tmpdir(), "compose-write-outside-"));
+		symlinkSync(outside, join(cwd, "redirect"), "dir");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const written = await tool.execute("outer", { steps: [{ tool: "write", arguments: { path: "nested/output.txt", content: "created" } }] }, undefined, undefined, { cwd });
+		expect(written.details).toMatchObject({ completed: 1, failed: 0 });
+		expect(readFileSync(join(cwd, "nested/output.txt"), "utf8")).toBe("created");
+		const blocked = await tool.execute("outer", { steps: [{ tool: "write", arguments: { path: "redirect/escape.txt", content: "nope" } }] }, undefined, undefined, { cwd });
+		expect(blocked.details.results[0].result.text).toContain("parent symlink");
+		expect(existsSync(join(outside, "escape.txt"))).toBe(false);
+	});
+
+	test("blocks parallel read/write batches sharing the workspace", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-conflict-"));
+		writeFileSync(join(cwd, "input.txt"), "input", "utf8");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { parallel: true, steps: [
+			{ tool: "read", arguments: { path: "input.txt" } },
+			{ tool: "write", arguments: { path: "output.txt", content: "output" } },
+		] }, undefined, undefined, { cwd });
+		expect(result.details.failed).toBe(2);
+		expect(result.details.results[0].error).toContain("parallel effect conflict");
+		expect(existsSync(join(cwd, "output.txt"))).toBe(false);
 	});
 
 	test("persists a bounded completed-step handoff for restart inspection", async () => {
