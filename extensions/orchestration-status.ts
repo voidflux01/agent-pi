@@ -116,6 +116,8 @@ export default function (pi: ExtensionAPI) {
 					? "Inspect the saved pipeline snapshot, then use /pipeline-resume."
 					: action === "compose-resume"
 						? `Re-run compose_exec with resume_run_id=${target} after reviewing its persisted step events.`
+						: action === "team-batch-recover"
+							? `Use team_batch_recover with run_id=${target}, then explicitly dispatch only selected workers after re-checking the workspace.`
 						: action === "subagent-resume"
 							? `Use subagent_resume with run_id=${target} and an explicit bounded prompt that re-checks the current workspace first.`
 							: `Inspect orchestration_status for run_id=${run.runId} with include_events=true before choosing a safe re-dispatch.`;

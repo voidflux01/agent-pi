@@ -73,15 +73,16 @@ describe("orchestration query", () => {
 	test("projects safe recovery actions for stale chain, pipeline, and subagent runs", () => {
 		const dir = mkdtempSync(join(tmpdir(), "agent-pi-recovery-"));
 		let fixture = 0;
-		const stale = (mode: string, dispatchId?: string) => {
+		const stale = (mode: string, dispatchId?: string, actor = "test") => {
 			const eventDir = join(dir, `${mode}-${fixture++}`);
-			const run = createOrchestrationRun({ eventDir, actor: "test", mode });
+			const run = createOrchestrationRun({ eventDir, actor, mode });
 			if (dispatchId) run.record("subagent.started", { dispatchId });
 			writeFileSync(join(eventDir, "active.json"), JSON.stringify({ pid: 2147483647 }));
 			return summarizeOrchestrationRun(eventDir)!;
 		};
 		expect(stale("CHAIN")).toMatchObject({ status: "stale", recoveryAction: "chain-resume" });
 		expect(stale("PIPELINE")).toMatchObject({ status: "stale", recoveryAction: "pipeline-resume" });
+		expect(stale("TEAM", undefined, "agent-team-batch")).toMatchObject({ status: "stale", recoveryAction: "team-batch-recover" });
 		expect(stale("NORMAL")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 		expect(stale("PLAN", "builder-sa1-resume")).toMatchObject({ status: "stale", recoveryAction: "subagent-resume", recoveryDispatchId: "builder-sa1-resume" });
 		expect(stale("PLAN", "../unsafe")).toMatchObject({ status: "stale", recoveryAction: "inspect" });

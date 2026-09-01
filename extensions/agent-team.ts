@@ -44,7 +44,7 @@ import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/f
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
@@ -612,6 +612,7 @@ export default function (pi: ExtensionAPI) {
 		journalAppend(sessionDir, {
 			version: 1,
 			id: journalId,
+			orchestrationRunId: parentRunId,
 			kind: "team",
 			agent: canonicalName,
 			mode: coordinationState().mode,
@@ -1056,6 +1057,37 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 		}),
+	});
+
+	registerToolWithExecutor(pi, {
+		name: "team_batch_recover",
+		label: "Recover Team Batch",
+		description: "Inspect a stale TEAM batch and return bounded worker resume candidates. Read-only: it never dispatches or mutates work; explicitly use dispatch_agent for selected candidates after re-checking the workspace.",
+		parameters: Type.Object({
+			run_id: Type.String({ maxLength: 128, description: "Persisted TEAM batch RunContext id" }),
+		}),
+		capabilityRisk: "read",
+		capabilityEffect: { ordering: "commutative" },
+		execute: async (_callId, args, _signal, _onUpdate, ctx) => {
+			const runId = String(args.run_id || "");
+			const sessionRoot = resolve(join(ctx?.cwd || process.cwd(), ".pi", "agent-sessions"));
+			const entries = journalList(sessionRoot).filter((entry: TaskJournalEntry) => entry.kind === "team" && entry.orchestrationRunId === runId);
+			if (entries.length === 0) {
+				return { content: [{ type: "text", text: `No TEAM batch workers found for ${runId}.` }], details: { found: false, runId } };
+			}
+			const candidates = entries.map((entry) => {
+				const sessionFile = typeof entry.sessionFile === "string" ? resolve(entry.sessionFile) : "";
+				const inSessionRoot = sessionFile === sessionRoot || sessionFile.startsWith(sessionRoot + "/");
+				const canResume = entry.status !== "done" && inSessionRoot && existsSync(sessionFile);
+				return { id: entry.id, agent: entry.agent, status: entry.status, task: entry.task.slice(0, 240), canResume, ...(canResume ? { sessionFile } : {}) };
+			});
+			const resumable = candidates.filter((candidate) => candidate.canResume);
+			const lines = [
+				`TEAM batch ${runId}: ${resumable.length}/${candidates.length} worker(s) have a safe persisted session to resume.`,
+				...candidates.map((candidate) => `${candidate.status.padEnd(10)} ${candidate.agent} ${candidate.id}${candidate.canResume ? " resumable — dispatch_agent after workspace re-check" : " inspect/re-dispatch required"} task=${candidate.task.replace(/\s+/g, " ")}`),
+			];
+			return { content: [{ type: "text", text: lines.join("\n").slice(0, 8_000) }], details: { found: true, runId, candidates } };
+		},
 	});
 
 	// ── Commands ─────────────────────────────────

@@ -18,7 +18,7 @@ export interface OrchestrationRunSummary {
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	recovery?: "active" | "stale" | "terminal" | "unknown";
 	/** Safe, user-facing next action for a stale run; never an executable command. */
-	recoveryAction?: "chain-resume" | "pipeline-resume" | "compose-resume" | "subagent-resume" | "inspect";
+	recoveryAction?: "chain-resume" | "pipeline-resume" | "compose-resume" | "team-batch-recover" | "subagent-resume" | "inspect";
 	recoveryDispatchId?: string;
 	failureCause?: "aborted" | "cancelled" | "timeout" | "authentication" | "process_error" | "exit_code";
 	lastEventType?: string;
@@ -88,6 +88,7 @@ function recoveryForRun(status: OrchestrationRunSummary["status"], mode: unknown
 	if (mode === "CHAIN") return { recoveryAction: "chain-resume" };
 	if (mode === "PIPELINE") return { recoveryAction: "pipeline-resume" };
 	if (actor === "compose_exec") return { recoveryAction: "compose-resume" };
+	if (actor === "agent-team-batch") return { recoveryAction: "team-batch-recover" };
 	const dispatch = [...events].reverse().map(payloadData).find(data => typeof data.dispatchId === "string" && /^[A-Za-z0-9_.-]{1,160}$/.test(data.dispatchId as string));
 	if (dispatch && typeof dispatch.dispatchId === "string") return { recoveryAction: "subagent-resume", recoveryDispatchId: dispatch.dispatchId };
 	return { recoveryAction: "inspect" };

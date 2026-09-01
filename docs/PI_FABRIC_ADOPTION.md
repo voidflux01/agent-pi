@@ -209,6 +209,9 @@ worker lifecycle boundaries.
   across CHAIN, PIPELINE, compose, and subagent runs. It returns the safe
   action and target without replaying work; stale compose runs are correctly
   identified as resumable instead of falling back to generic inspection.
+- Stale TEAM batch parents now project `team-batch-recover`; `team_batch_recover`
+  lists only workers with an existing in-session worker session as resumable and
+  requires an explicit `dispatch_agent` after the workspace is re-checked.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.
