@@ -42,7 +42,8 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 	return `You are in NORMAL mode. This is the default, low-ceremony path.
 
 ## Default behavior
-- Work directly on simple reads, answers, tests, and small edits.
+- Work directly on simple reads, answers, inspection commands, and small edits.
+- Before editing, briefly state the intended change and ask the user to confirm. This is a conversational check, not a mode switch or hard tool gate; after confirmation, make the change directly.
 - Do not call set_mode or create tasks for a one-file lookup, one-line fix, or routine command.
 - Do not dispatch an agent merely to make the workflow look formal.
 - Keep the user's task as the unit of work; use tasks only when tracking several real steps helps.

@@ -95,6 +95,31 @@ describe("handoff state", () => {
 		}
 	});
 
+	it("does not warn repeatedly for an already-interrupted handoff", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-interrupted-"));
+		const handlers = new Map<string, Function>();
+		const notifications: string[] = [];
+		const pi = {
+			registerCommand() {},
+			registerTool() {},
+			on(name: string, handler: Function) { handlers.set(name, handler); },
+		};
+		const ctx: any = {
+			cwd: workspace,
+			sessionManager: { getSessionId: () => "new-session" },
+			ui: { notify(message: string) { notifications.push(message); } },
+		};
+		try {
+			writeHandoff(workspace, buildHandoffSnapshot({ workspace, sessionId: "old-session", objective: "Resume this", status: "interrupted" }));
+			handoffExtension(pi as any);
+			await handlers.get("session_start")!({ reason: "startup" }, ctx);
+			expect(notifications).toHaveLength(0);
+		} finally {
+			await handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
 	it("does not consume the parent handoff in a child Pi session", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "handoff-child-"));
 		const handlers = new Map<string, Function>();

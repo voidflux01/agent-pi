@@ -202,7 +202,13 @@ export default function (pi: ExtensionAPI) {
 		const saved = readHandoff(cwdOf(ctx));
 		if (saved && saved.status !== "completed" && saved.sessionId !== sessionIdOf(ctx)) {
 			pendingPrompt = saved;
-			try { ctx.ui?.notify?.(`Unfinished handoff found: ${saved.objective || "unnamed task"}. It will be available to the next turn.`, "warning"); } catch {}
+			// An in-progress handoff is newly discovered on this boundary. Once a
+			// session has acknowledged it, it becomes interrupted and remains
+			// resumable without producing the same warning on every later startup.
+			if (saved.status === "in_progress") {
+				const label = saved.objective || saved.nextAction || saved.tasks[0]?.text || saved.children[0]?.task || "unnamed task";
+				try { ctx.ui?.notify?.(`Unfinished handoff found: ${label}. It will be available to the next turn.`, "warning"); } catch {}
+			}
 		}
 		// A new session is a boundary: preserve the previous session as interrupted.
 		if (event?.reason === "new" && saved && saved.status === "in_progress") {
