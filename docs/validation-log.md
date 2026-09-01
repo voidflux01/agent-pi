@@ -171,3 +171,4 @@ the authoritative fixture command is `node --test`.
 - TEAM batch recovery now has a read-only `team_batch_recover` projection; stale TEAM batch RunContexts identify it through `orchestration_recover`, and only existing in-session worker files become explicit resume candidates.
 - TEAM recovery candidate classification is now covered by fixture tests for completed, missing, out-of-root, and oversized-task journal rows rather than only source wiring.
 - NORMAL/PLAN/SPEC single-worker dispatch now supports explicit `join: true` for immediate planner/builder/reviewer results, while scout/researcher/toolkit defaults and background behavior remain unchanged.
+- TEAM batch dispatch/recovery are now registered in the shared task/approval gate matrix; regression coverage confirms dispatch requires an active task while recovery remains read-only.

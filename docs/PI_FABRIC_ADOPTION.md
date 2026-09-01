@@ -216,6 +216,9 @@ worker lifecycle boundaries.
 - Stale TEAM batch parents now project `team-batch-recover`; `team_batch_recover`
   lists only workers with an existing in-session worker session as resumable and
   requires an explicit `dispatch_agent` after the workspace is re-checked.
+- The shared task and approval gates classify `dispatch_team_batch` as a
+  write-capable orchestration action and `team_batch_recover` as read-only, so
+  new TEAM entry points do not bypass safety policy accidentally.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

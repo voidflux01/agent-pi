@@ -174,6 +174,12 @@ describe("scout reconnaissance bypass", () => {
 		expect(shouldBypassTaskGate("dispatch_agent", true, { agent: "scout" })).toBe(false);
 	});
 
+	it("classifies TEAM batch dispatch and recovery at the shared gate", () => {
+		expect(shouldBypassTaskGate("dispatch_team_batch", true)).toBe(false);
+		expect(shouldBypassTaskGate("dispatch_team_batch", false)).toBe(true);
+		expect(shouldBypassTaskGate("team_batch_recover", true)).toBe(true);
+	});
+
 	it("blocks the parent on scout RESULT and keeps other roles background", () => {
 		expect(shouldAwaitSubagentResult("scout")).toBe(true);
 		expect(shouldAwaitSubagentResult("SCOUT")).toBe(true);

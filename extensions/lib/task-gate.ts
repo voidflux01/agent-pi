@@ -4,12 +4,12 @@
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "subagent_wait", "ask_user", "run_chain",
+	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "dispatch_team_batch", "team_batch_recover", "subagent_wait", "ask_user", "run_chain",
 	"advance_phase", "pipeline_status",
 ] as const;
 
 /** Non-read-only workflow tools that require an active task in orchestration modes. */
-export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "run_chain", "advance_phase", "compose_exec"] as const;
+export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "dispatch_team_batch", "run_chain", "advance_phase", "compose_exec"] as const;
 
 export const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"] as const;
 
