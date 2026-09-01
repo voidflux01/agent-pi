@@ -36,6 +36,9 @@ worker lifecycle boundaries.
   `verification.completed` events with deterministic PASS/FAIL/BLOCKED status
   and assertion counts, so successful worker output cannot be confused with
   successful validation.
+- Exact `orchestration_status` queries can opt into a bounded event timeline
+  with `include_events`, keeping normal status responses small while making
+  targeted restart and audit inspection self-contained.
 - Sequential composition supports bounded `$STEP_n_TEXT` and
   `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
   and conditions are rejected in parallel mode instead of creating implicit

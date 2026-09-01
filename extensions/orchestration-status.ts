@@ -5,13 +5,14 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { listOrchestrationRuns, listOrchestrationTopology, type OrchestrationTopology } from "./lib/orchestration-query.ts";
+import { listOrchestrationRuns, listOrchestrationTopology, readOrchestrationEvents, type OrchestrationTopology } from "./lib/orchestration-query.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
 const Params = Type.Object({
 	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 	run_id: Type.Optional(Type.String({ description: "Optional exact run id" })),
 	tree: Type.Optional(Type.Boolean({ description: "Render parent-child relationships" })),
+	include_events: Type.Optional(Type.Boolean({ description: "For an exact run_id, include the last bounded event records" })),
 });
 
 function renderSummary(run: any): string {
@@ -50,8 +51,10 @@ export default function (pi: ExtensionAPI) {
 			const cwd = ctx?.cwd || process.cwd();
 			if (params.run_id) {
 				const runs = listOrchestrationRuns(cwd, { limit: params.limit, runId: params.run_id });
-				const text = runs.length ? runs.map(renderSummary).join("\n") : "No persisted orchestration runs found.";
-				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs } };
+				const events = params.include_events && runs[0] ? readOrchestrationEvents(runs[0].eventDir) : undefined;
+				const timeline = events?.map(event => `${event.timestamp} ${event.actor} ${event.type}`).join("\n");
+				const text = runs.length ? `${runs.map(renderSummary).join("\n")}${timeline ? `\n${timeline}` : ""}` : "No persisted orchestration runs found.";
+				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs, ...(events ? { events } : {}) } };
 			}
 			const topology = listOrchestrationTopology(cwd);
 			const limit = Math.max(1, Math.min(params.limit ?? 25, 100));

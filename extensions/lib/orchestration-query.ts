@@ -88,6 +88,11 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	};
 }
 
+/** Read a bounded event timeline for one already-resolved run directory. */
+export function readOrchestrationEvents(eventDir: string, limit = 100): RunEvent[] {
+	return listRunEvents(eventDir).slice(-Math.max(1, Math.min(limit, 200)));
+}
+
 export function listOrchestrationRuns(cwd: string, options: { limit?: number; runId?: string } = {}): OrchestrationRunSummary[] {
 	const root = orchestrationRunsDir(cwd);
 	const limit = Math.max(1, Math.min(options.limit ?? 25, 100));

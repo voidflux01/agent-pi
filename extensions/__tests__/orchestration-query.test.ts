@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
-import { buildOrchestrationTopology, listOrchestrationRuns, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
+import { buildOrchestrationTopology, listOrchestrationRuns, readOrchestrationEvents, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 
 describe("orchestration query", () => {
 	test("summarizes persisted run events", () => {
@@ -15,6 +15,7 @@ describe("orchestration query", () => {
 		run.finish("succeeded", { exitCode: 0 });
 		const summary = summarizeOrchestrationRun(run.eventDir!);
 		expect(summary).toMatchObject({ runId: run.runId, parentRunId: "parent-1", actor: "test", status: "succeeded", eventCount: 5, verificationStatus: "PASS", verificationPassed: 2, verificationFailed: 0, changedFiles: ["src/a.ts"] });
+		expect(readOrchestrationEvents(run.eventDir!, 2).map(event => event.type)).toEqual(["verification.completed", "run.succeeded"]);
 	});
 
 	test("ignores missing roots and respects run id filtering", () => {
