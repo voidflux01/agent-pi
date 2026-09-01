@@ -369,7 +369,7 @@ export function formatJournalSummary(summary: JournalSummary): string {
 	const cost = summary.costUsd > 0
 		? `$${summary.costUsd < 0.01 ? summary.costUsd.toFixed(4) : summary.costUsd.toFixed(2)}`
 		: "$0";
-	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}`;
+	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.cancelledRuns} cancelled | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}`;
 }
 
 /**

@@ -101,4 +101,9 @@ describe("journal usage rendering", () => {
 		expect(summary.totalTokens).toBe(300);
 		expect(summary.byKind.chain.failed).toBe(1);
 	});
+
+	test("summary rendering includes cancelled runs", () => {
+		const summary = summarizeJournal([{ ...base, status: "done", runStatus: "cancelled" }]);
+		expect(summary.cancelledRuns).toBe(1);
+	});
 });
