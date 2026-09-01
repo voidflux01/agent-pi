@@ -282,6 +282,8 @@ export function pidAlive(pid: number | undefined): boolean | undefined {
 
 /** One-line human-readable rendering of a journal record. */
 export function formatJournalEntry(e: TaskJournalEntry): string {
+	const normalizedStatus = normalizeRunStatus(e.runStatus || e.status);
+	const statusLabel = normalizedStatus === "unknown" ? e.status : normalizedStatus;
 	const alive = typeof e.pid === "number" && e.pid > 0
 		? (pidAlive(e.pid) === true ? " pid:alive" : pidAlive(e.pid) === false ? " pid:dead" : " pid:?")
 		: "";
@@ -297,7 +299,7 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 		usage = ` ${u.totalTokens.toLocaleString()}tok (${cachePct}% cached) ${cost}`;
 	}
 	const runtime = e.runtime ? ` [${e.runtime}]` : "";
-	return `${e.status.toUpperCase().padEnd(10)} ${e.id}${runtime}${alive}${elapsed}${usage}${resumed}${session}${note}`;
+	return `${statusLabel.toUpperCase().padEnd(10)} ${e.id}${runtime}${alive}${elapsed}${usage}${resumed}${session}${note}`;
 }
 
 /** Aggregate usage across finished rows — the fleet total under /agents-status. */

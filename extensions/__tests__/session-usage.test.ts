@@ -105,5 +105,6 @@ describe("journal usage rendering", () => {
 	test("summary rendering includes cancelled runs", () => {
 		const summary = summarizeJournal([{ ...base, status: "done", runStatus: "cancelled" }]);
 		expect(summary.cancelledRuns).toBe(1);
+		expect(formatJournalEntry({ ...base, status: "done", runStatus: "cancelled" })).toContain("CANCELLED");
 	});
 });
