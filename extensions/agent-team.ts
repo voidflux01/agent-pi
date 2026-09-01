@@ -717,6 +717,7 @@ export default function (pi: ExtensionAPI) {
 				if (runEpoch !== sessionEpoch) {
 					journalUpdate(sessionDir, journalId, {
 						status: code === 0 ? "done" : "error",
+						runStatus: code === 130 ? "cancelled" : undefined,
 						exitCode: code,
 						elapsedMs: elapsed,
 						outputFile: "",

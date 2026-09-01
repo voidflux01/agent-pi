@@ -38,6 +38,14 @@ describe("stale session lifecycle protection", () => {
 		expect(killHelper.indexOf("const timer = setTimeout")).toBeLessThan(killHelper.indexOf('proc.kill("SIGTERM")'));
 	});
 
+	it("records session-change cancellations as canonical cancelled journal rows", () => {
+		const widget = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		const team = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
+		expect(widget).toContain('runStatus: "cancelled"');
+		expect(widget).toContain('note: "cancelled: parent session changed"');
+		expect(team).toContain('runStatus: code === 130 ? "cancelled" : undefined');
+	});
+
 	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("shouldAwaitSubagentResult(agentName)");

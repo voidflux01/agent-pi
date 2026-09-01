@@ -402,6 +402,16 @@ export default function (pi: ExtensionAPI) {
 				// The child belongs to the replaced session. Finish timer cleanup,
 				// then stop before mutating its state or touching any session-bound UI.
 				if (spawnEpoch !== sessionEpoch) {
+					const staleJournalDir = path.join(spawnCwd, ".pi", "agent-sessions");
+					try {
+						journalUpdate(staleJournalDir, state.saRunId ?? "", {
+							status: "error",
+							runStatus: "cancelled",
+							exitCode: code ?? 130,
+							elapsedMs: Date.now() - startTime,
+							note: "cancelled: parent session changed",
+						});
+					} catch {}
 					resolve(`SA${state.id} (${state.name}) cancelled because the parent session changed.`);
 					return;
 				}
