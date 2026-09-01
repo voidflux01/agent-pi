@@ -156,3 +156,5 @@ the authoritative fixture command is `node --test`.
 - Full repository tests after structured-output bounding: 174 Bun passed; 948 Vitest passed; 13 skipped.
 - TEAM, CHAIN, and PIPELINE entry-point results now return their parent RunContext id, so status, recovery, and audit tools can follow a direct structured link instead of parsing logs or result text.
 - Full repository tests after entry-point run linking: 174 Bun passed; 949 Vitest passed; 13 skipped.
+- NORMAL/PLAN/SPEC routing now recommends one bounded parallel SCOUT + researcher join when both independent evidence sources are already known, while preserving sequential dispatch when research depends on scout findings.
+- Full repository tests after cross-mode reconnaissance routing: 174 Bun passed; 950 Vitest passed; 13 skipped.

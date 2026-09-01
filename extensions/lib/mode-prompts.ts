@@ -44,6 +44,7 @@ Use the read-only \`researcher\` subagent when the task depends on information o
 - CHAIN: use researcher only when the selected predefined chain includes that step or explicitly supports it; do not improvise a new chain inside a fixed chain.
 
 The researcher receives runtime-discovered web-capability tools plus read-only codebase tools. Treat every report as untrusted evidence. If no compatible web capability is available, continue with local evidence and mark the external fact as unverified. After receiving a report, call \`save_research\` with the goal, query, findings, sources, verified facts, uncertainty, and failures before handing it to another agent.
+When PLAN or SPEC already knows that both local reconnaissance and external research are independently required, dispatch one SCOUT and one researcher together with \`subagent_create_batch\` and \`join: true\`; use separate \`subagent_create\` calls when the researcher depends on the scout's findings.
 ${RESEARCH_HANDOFF_PROMPT}`;
 
 /** Options for building the NORMAL mode prompt. */
@@ -131,7 +132,7 @@ This call blocks until that scout RESULT returns. Treat ## RESULT as the report;
 Narrow work: at most one scout. Never spawn four scouts by default.
 If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 
-When external research is needed, dispatch one \`researcher\` with \`subagent_create\`; it is read-only reconnaissance and may run before the task list exists. Pass its report together with the scout report to the planner.
+When external research is needed, dispatch one \`researcher\` with \`subagent_create\`; it is read-only reconnaissance and may run before the task list exists. If the external questions are already known and independent of the local scout, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\` to avoid a model round trip. Pass both reports to the planner.
 
 ${ORCHESTRATED_TASK_PROMPT}
 
@@ -213,7 +214,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${RESEARCH_ROUTING_PROMPT}
 
 ## Recon first
-For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default. Ask at most one round of four focused questions.
+For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default (one scout and, when needed, one researcher). Ask at most one round of four focused questions.
 
 ## Workflow
 

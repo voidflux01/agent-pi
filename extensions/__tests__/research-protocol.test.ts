@@ -44,5 +44,7 @@ describe("research routing", () => {
 		expect(RESEARCH_ROUTING_PROMPT).toContain("TEAM: dispatch one shared researcher result");
 		expect(RESEARCH_ROUTING_PROMPT).toContain("PIPELINE: dispatch researcher in the earliest");
 		expect(RESEARCH_ROUTING_PROMPT).toContain("CHAIN: use researcher only when");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("subagent_create_batch");
+		expect(RESEARCH_ROUTING_PROMPT).toContain("independently required");
 	});
 });

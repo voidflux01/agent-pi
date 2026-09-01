@@ -68,6 +68,13 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).toContain("Never spawn four scouts by default");
 	});
 
+	it("can join independent local and external reconnaissance in one call", () => {
+		expect(PLAN_PROMPT).toContain("SCOUT + researcher");
+		expect(PLAN_PROMPT).toContain("join: true");
+		expect(SPEC_PROMPT).toContain("subagent_create_batch");
+		expect(SPEC_PROMPT).toContain("dependent calls sequential");
+	});
+
 	it("uses subagent_create for scout findings", () => {
 		expect(PLAN_PROMPT).toContain("read-only scout");
 		expect(PLAN_PROMPT).toContain("subagent_create");
