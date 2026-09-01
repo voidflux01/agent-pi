@@ -88,6 +88,10 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 	// out of the handoff prevents old reconnaissance from consuming the next
 	// session's context; failed/running children remain actionable.
 	const children = resumableChildren(cwdOf(ctx));
+	const handoffChildren = children.map((child) => ({
+		...child,
+		status: normalizeRunStatus(child.runStatus || child.status),
+	}));
 	const activeTask = tasks.find((task) => task.status === "inprogress");
 	const activeChild = children.find((child) => isResumableRunStatus(child.runStatus || child.status));
 	const receipt = state.verifierReceipt;
@@ -100,7 +104,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 		activeChain: state.activeChain,
 		activePipeline: state.activePipeline,
 		tasks,
-		children,
+		children: handoffChildren,
 		nextAction: activeTask?.text || (activeChild ? `${normalizeRunStatus(activeChild.runStatus || activeChild.status) === "failed" ? "Re-dispatch" : "Continue"} ${activeChild.agent}: ${activeChild.task || "recorded child task"}` : undefined),
 		verification: state.executionContract ? {
 			status: receipt?.status || "UNVERIFIED",
