@@ -193,6 +193,10 @@ worker lifecycle boundaries.
   NORMAL escalation, and delegation gates use an idempotent `toolCallId`
   boundary audit. Stacked gates cannot double-count one denied call, and the
   rejection reason is bounded without persisting raw arguments.
+- The orchestration query and Activity dashboard promote the bounded tool
+  identity and lifecycle status into each tool run summary, with a rejection
+  category when available. Operators can answer which tool was involved before
+  opening the full event timeline.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

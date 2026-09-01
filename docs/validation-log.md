@@ -120,6 +120,8 @@ the authoritative fixture command is `node --test`.
 - Gate audit coverage confirms stacked native-tool rejection decisions are
   deduplicated by `toolCallId`, persist a bounded category/reason, and do not
   require or persist raw tool arguments.
+- Query/dashboard coverage confirms tool name and terminal tool status are
+  promoted into bounded run summaries for direct and blocked tool executions.
 - Orchestration query regression coverage confirms a successful run without a
   verification receipt is explicitly projected as `UNVERIFIED`.
 - `compose_exec` regression coverage confirms a slow step receives an abort

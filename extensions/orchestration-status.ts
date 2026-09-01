@@ -20,12 +20,13 @@ function renderSummary(run: any): string {
 	const duration = run.durationMs === undefined ? "running" : `${Math.round(run.durationMs / 1000)}s`;
 	const parent = run.parentRunId ? ` parent=${run.parentRunId}` : "";
 	const mode = run.mode ? ` mode=${run.mode}` : "";
+	const tool = run.toolName ? ` tool=${run.toolName}${run.toolStatus === "blocked" && run.toolBlockCategory ? `:${run.toolBlockCategory}` : ""}` : "";
 	const verification = run.verificationStatus ? ` verify=${run.verificationStatus}` : "";
 	const files = Array.isArray(run.changedFiles) && run.changedFiles.length > 0 ? ` files=${run.changedFiles.length}` : "";
 	const usage = run.totalTokens !== undefined || run.costUsd !== undefined ? ` usage=${Math.max(0, Math.floor(run.totalTokens ?? 0))}tok/$${Math.max(0, run.costUsd ?? 0).toFixed(4)}` : "";
 	const recovery = run.recovery === "stale" ? ` recover=${run.recoveryAction === "subagent-resume" ? `subagent_resume:${run.recoveryDispatchId}` : run.recoveryAction || "inspect"}` : "";
 	const failure = run.failureCause ? ` cause=${run.failureCause}` : "";
-	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${usage}${verification}${files}${failure}${recovery}  ${run.runId}${parent}`;
+	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${tool}${usage}${verification}${files}${failure}${recovery}  ${run.runId}${parent}`;
 }
 
 function renderEvent(event: any): string {

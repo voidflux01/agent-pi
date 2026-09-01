@@ -11,6 +11,10 @@ export interface OrchestrationRunSummary {
 	parentRunId?: string;
 	mode?: string;
 	actor: string;
+	/** The bounded tool identity associated with a direct tool/call_tool run. */
+	toolName?: string;
+	toolStatus?: "started" | "succeeded" | "failed" | "cancelled" | "blocked";
+	toolBlockCategory?: string;
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	recovery?: "active" | "stale" | "terminal" | "unknown";
 	/** Safe, user-facing next action for a stale run; never an executable command. */
@@ -116,11 +120,25 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		? finishData.usage as Record<string, unknown>
 		: usageData;
 	const status = statusFromEvents(events, eventDir);
+	const toolEvent = [...events].reverse().find((event) => {
+		if (!event.type.startsWith("tool.")) return false;
+		return typeof payloadData(event).toolName === "string";
+	});
+	const toolData = toolEvent ? payloadData(toolEvent) : {};
+	const toolName = typeof toolData.toolName === "string" ? toolData.toolName : undefined;
+	const toolStatus = toolEvent?.type === "tool.blocked"
+		? "blocked"
+		: toolEvent?.type === "tool.completed" && ["succeeded", "failed", "cancelled"].includes(String(toolData.status))
+			? String(toolData.status) as OrchestrationRunSummary["toolStatus"]
+			: toolEvent?.type === "tool.started" ? "started" : undefined;
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
 		...(typeof startData.parentRunId === "string" ? { parentRunId: startData.parentRunId } : {}),
 		...(typeof startData.mode === "string" ? { mode: startData.mode } : {}),
 		actor: start?.actor || events[0]?.actor || "unknown",
+		...(toolName ? { toolName } : {}),
+		...(toolStatus ? { toolStatus } : {}),
+		...(typeof toolData.category === "string" ? { toolBlockCategory: toolData.category } : {}),
 		status,
 		recovery: status === "running" ? "active" : status === "stale" ? "stale" : status === "unknown" ? "unknown" : "terminal",
 		...recoveryForRun(status, startData.mode, events),

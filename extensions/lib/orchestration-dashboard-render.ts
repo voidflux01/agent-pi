@@ -55,6 +55,7 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 		const duration = run.durationMs === undefined ? age(run.startedAt) : `${Math.round(run.durationMs / 1000)}s`;
 		const parent = run.parentRunId ? ` ←${short(run.parentRunId, 8)}` : "";
 		const mode = run.mode ? ` ${short(run.mode, 8)}` : "";
+		const tool = run.toolName ? ` ${short(run.toolName, 16)}` : "";
 		const verification = run.verificationStatus ? ` ${run.verificationStatus}` : "";
 		const files = run.changedFiles?.length ? ` Δ${run.changedFiles.length}` : "";
 		const usage = run.totalTokens !== undefined || run.costUsd !== undefined
@@ -62,7 +63,7 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 			: "";
 		const recovery = run.status === "stale" ? ` ${run.recoveryAction === "subagent-resume" ? `resume:${short(run.recoveryDispatchId || "?", 12)}` : run.recoveryAction || "inspect"}` : "";
 		const failure = run.failureCause ? ` ${short(run.failureCause, 12)}` : "";
-		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode} ${duration.padStart(4)} ${run.eventCount}e${usage}${verification}${files}${failure}${recovery} ${short(run.runId, 16)}${parent}`;
+		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode}${tool} ${duration.padStart(4)} ${run.eventCount}e${usage}${verification}${files}${failure}${recovery} ${short(run.runId, 16)}${parent}`;
 		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text", line).slice(0, usable));
 	}
 	return lines;
