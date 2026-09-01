@@ -460,7 +460,11 @@ export function formatJournalSummary(summary: JournalSummary): string {
 	const cost = summary.costUsd > 0
 		? `$${summary.costUsd < 0.01 ? summary.costUsd.toFixed(4) : summary.costUsd.toFixed(2)}`
 		: "$0";
-	const modes = Object.entries(summary.byMode).sort(([a], [b]) => a.localeCompare(b)).map(([mode, bucket]) => `${mode}:${bucket.totalTokens.toLocaleString()}tok/$${bucket.costUsd.toFixed(4)}`).join(",");
+	const modes = Object.entries(summary.byMode).sort(([a], [b]) => a.localeCompare(b)).map(([mode, bucket]) => {
+		const label = mode.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 24) || "UNKNOWN";
+		const modeElapsed = `${Math.round(bucket.elapsedMs / 1000)}s`;
+		return `${label}:${bucket.runs}runs/${bucket.succeeded}ok/${modeElapsed}/${bucket.totalTokens.toLocaleString()}tok/$${bucket.costUsd.toFixed(4)}`;
+	}).join(",");
 	return `TOTAL: ${summary.totalRuns} runs | ${summary.succeededRuns} succeeded | ${summary.failedRuns} failed | ${summary.cancelledRuns} cancelled | ${summary.activeRuns} active | ${summary.resumedRuns} resumed | ${elapsed} elapsed | ${summary.totalTokens.toLocaleString()} tokens | ${cost}${modes ? ` | modes ${modes}` : ""}`;
 }
 

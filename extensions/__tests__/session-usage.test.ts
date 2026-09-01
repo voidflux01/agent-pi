@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readLastAssistantText, sessionUsage } from "../lib/herdr-client.ts";
-import { formatJournalEntry, sumJournalUsage, summarizeJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
+import { formatJournalEntry, formatJournalSummary, sumJournalUsage, summarizeJournal, type TaskJournalEntry } from "../lib/agent-task-journal.ts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -103,6 +103,16 @@ describe("journal usage rendering", () => {
 		expect(summary.byMode.TEAM).toMatchObject({ runs: 1, succeeded: 1, totalTokens: 100 });
 		expect(summary.byMode.CHAIN).toMatchObject({ runs: 1, failed: 1, totalTokens: 200 });
 		expect(summary.byMode.PIPELINE).toMatchObject({ runs: 1, totalTokens: 0 });
+		const rendered = formatJournalSummary(summary);
+		expect(rendered).toContain("TEAM:1runs/1ok/2s/100tok/$0.0100");
+		expect(rendered).toContain("CHAIN:1runs/0ok/3s/200tok/$0.0200");
+	});
+
+	test("bounds and sanitizes mode labels in summary output", () => {
+		const summary = summarizeJournal([{ ...base, mode: "TEAM\n" + "x".repeat(100), elapsedMs: 1 }]);
+		const rendered = formatJournalSummary(summary);
+		expect(rendered).not.toContain("\n");
+		expect(rendered.length).toBeLessThan(400);
 	});
 
 	test("ignores non-finite journal metrics", () => {
