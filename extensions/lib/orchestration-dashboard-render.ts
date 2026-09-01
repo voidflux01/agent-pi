@@ -1,7 +1,7 @@
 // ABOUTME: Pure terminal rendering for the orchestration Activity widget.
 // ABOUTME: Keeps layout decisions testable without booting the Pi UI runtime.
 
-import type { OrchestrationRunSummary } from "./orchestration-query.ts";
+import type { OrchestrationModeMetrics, OrchestrationRunSummary } from "./orchestration-query.ts";
 
 export interface DashboardBudget {
 	status: string;
@@ -18,6 +18,7 @@ export interface DashboardInput {
 	budget?: DashboardBudget;
 	limit: number;
 	mode?: string;
+	modeMetrics?: Record<string, OrchestrationModeMetrics>;
 }
 
 const short = (value: string, max: number): string => value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
@@ -38,6 +39,11 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 	if (input.budget) {
 		const marker = input.budget.blocked ? theme.fg("error", " BLOCKED") : "";
 		lines.push(theme.fg("muted", `Budget ${input.budget.status}${marker}`));
+	}
+	if (input.mode && input.modeMetrics?.[input.mode.toUpperCase()]) {
+		const metrics = input.modeMetrics[input.mode.toUpperCase()];
+		const average = metrics.runs > 0 ? Math.round(metrics.durationMs / metrics.runs / 1000) : 0;
+		lines.push(theme.fg("muted", `Metrics ${metrics.runs}runs · ${metrics.succeeded}ok/${metrics.failed}fail/${metrics.stale}stale · ${average}savg · ${Math.floor(metrics.totalTokens).toLocaleString()}tok · $${metrics.costUsd.toFixed(4)}`));
 	}
 	if (input.runs.length === 0) {
 		lines.push(theme.fg("muted", "No persisted runs · /orchestration-status for details"));

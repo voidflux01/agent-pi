@@ -102,6 +102,9 @@ worker lifecycle boundaries.
   RunContext units (including children and verification runs): run count,
   success/failure/stale counts, average duration, tokens, and cost. This gives
   routing changes a measurable baseline instead of relying on anecdotes.
+- When the live dashboard is filtered to one mode, it surfaces that mode's
+  compact metrics in the widget header, so operators can notice regressions in
+  speed, reliability, or spend during a run rather than after the session.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

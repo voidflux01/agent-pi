@@ -4,7 +4,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import { listOrchestrationRuns, listOrchestrationTopology } from "./lib/orchestration-query.ts";
+import { listOrchestrationRuns, listOrchestrationTopology, summarizeOrchestrationModes } from "./lib/orchestration-query.ts";
 import { activeOrchestrationBudget, budgetBlockReason, budgetStatus } from "./lib/orchestration-budget.ts";
 import { renderOrchestrationDashboard } from "./lib/orchestration-dashboard-render.ts";
 
@@ -38,11 +38,13 @@ function show(ctx: ExtensionContext): void {
 			return {
 				render(width: number): string[] {
 					const runs = listOrchestrationTopology(ctx.cwd || process.cwd(), { mode: dashboardMode }).runs;
+					const modeMetrics = summarizeOrchestrationModes(runs);
 					const budget = budgetStatus();
 					const lines = renderOrchestrationDashboard({
 						runs,
 						limit: 8,
 						...(dashboardMode ? { mode: dashboardMode } : {}),
+						...(dashboardMode ? { modeMetrics } : {}),
 						...(budget ? { budget: { status: budget, blocked: Boolean(budgetBlockReason()) } } : {}),
 					}, width, theme);
 					widgetText!.setText(lines.join("\n"));

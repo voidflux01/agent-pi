@@ -71,6 +71,8 @@ the authoritative fixture command is `node --test`.
 - Orchestration query/status regression coverage confirms mode metrics remain
   bounded and aggregate child/verification RunContext units by normalized
   mode, including success, failure, stale, duration, token, and cost fields.
+- Dashboard renderer coverage confirms a mode-filtered view shows compact
+  metrics while retaining the existing width bound and run-row details.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
