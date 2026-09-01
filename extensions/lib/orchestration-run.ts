@@ -56,8 +56,9 @@ export class RunBudgetError extends Error {
 function eventDirFromContext(context: any, runId: string, explicitSessionFile?: string, explicitEventDir?: string): string | undefined {
 	if (explicitEventDir) return explicitEventDir;
 	const sessionFile = explicitSessionFile || context?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
-	if (typeof sessionFile !== "string" || !sessionFile) return undefined;
-	return join(dirname(sessionFile), "compositions", runId);
+	if (typeof sessionFile === "string" && sessionFile) return join(dirname(sessionFile), "compositions", runId);
+	const cwd = context?.cwd;
+	return typeof cwd === "string" && cwd ? join(cwd, ".pi", "agent-sessions", "compositions", runId) : undefined;
 }
 
 function workspaceSnapshot(cwd: string | undefined): WorkspaceManifest | undefined {

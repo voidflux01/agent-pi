@@ -49,6 +49,9 @@ worker lifecycle boundaries.
 - Exact `orchestration_status` inspection now renders bounded event payloads,
   including handoffs, verification, and budget records; the slash command also
   accepts a run id or `events <run_id>` for the same read-only view.
+- Headless contexts without a Pi session file now persist parent orchestration
+  events under the workspace's `.pi/agent-sessions/compositions` directory,
+  keeping no-session worker topology and recovery inspectable.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and

@@ -21,6 +21,7 @@ the authoritative fixture command is `node --test`.
 | 10 | TEAM / CHAIN / PIPELINE | PASS | Live provider smoke called `set_mode` exactly once for each mode and returned `TEAM-SMOKE-PASS`, `CHAIN-SMOKE-PASS`, and `PIPELINE-SMOKE-PASS`; no worker or file mutation was started. |
 | 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `## RESULT`, and the join preserved an explicit contract-violation warning rather than treating the output as verified evidence. |
 | 12 | NORMAL batch join:true | PASS | In an isolated `/tmp` workspace with the real provider, one parent call to `subagent_create_batch` used `join:true` for two parallel SCOUT workers; no separate `subagent_wait` call occurred, the parent returned `JOIN-TRUE-SMOKE-PASS`, and both worker journal rows/transcript archives were retained. The `--no-session` smoke intentionally had no parent composition event directory. |
+| 13 | NORMAL headless batch join:true | PASS | A repeat isolated `--no-session` real-provider smoke used one `join:true` batch call for two SCOUT workers and returned `HEADLESS-EVENTS-SMOKE-PASS`; the parent composition event directory contained run start, child starts/completions, usage, workspace delta, and terminal success. |
 
 ## Current evidence
 
@@ -57,6 +58,8 @@ the authoritative fixture command is `node --test`.
 - Real provider smoke confirmed `join:true` performs parallel spawn plus one
   bounded join in a single parent call; worker contract warnings remain visible
   and are not promoted to verification evidence.
+- Headless real-provider smoke confirmed the workspace fallback persists the
+  parent composition event trail, including usage and terminal status.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

@@ -84,6 +84,12 @@ function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 	});
 }
 
+/** UI cleanup is best-effort and must not keep a headless parent alive. */
+function scheduleUnrefCleanup(callback: () => void, delayMs: number): void {
+	const timer = setTimeout(callback, delayMs);
+	try { (timer as any).unref?.(); } catch {}
+}
+
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const TIMEOUT_KILL_GRACE_MS = 30_000;
 
@@ -517,7 +523,7 @@ export default function (pi: ExtensionAPI) {
 
 				// Auto-remove completed widgets after 30s (default behavior).
 				if (!state.retainUntilCollected && shouldScheduleWidgetRemoval(state, false)) {
-					setTimeout(() => {
+					scheduleUnrefCleanup(() => {
 						if (spawnEpoch !== sessionEpoch) return;
 						if (agents.has(state.id) && state.status !== "running") {
 							clearWidgetCurrent(`sub-${state.id}`);
@@ -818,7 +824,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				for (const state of states) {
 					state.retainUntilCollected = false;
-					if (state.status !== "running") setTimeout(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
+					if (state.status !== "running") scheduleUnrefCleanup(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
 				}
 				const joined = outcome.value.map((result, index) => `SA${states[index].id} ${states[index].name}:\n${result}`).join("\n\n");
 				return {
@@ -889,7 +895,7 @@ export default function (pi: ExtensionAPI) {
 				if (!state.retainUntilCollected) continue;
 				state.retainUntilCollected = false;
 				if (state.status !== "running") {
-					setTimeout(() => {
+					scheduleUnrefCleanup(() => {
 						if (agents.get(state.id) !== state || state.status === "running") return;
 						clearWidgetCurrent(`sub-${state.id}`);
 						widgetBoxes.delete(state.id);

@@ -42,7 +42,9 @@ function eventData(event: RunEvent): Record<string, unknown> {
 
 function compositionEventDir(ctx: any, runId: string): string | undefined {
 	const sessionFile = ctx?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
-	return typeof sessionFile === "string" && sessionFile ? join(dirname(sessionFile), "compositions", runId) : undefined;
+	if (typeof sessionFile === "string" && sessionFile) return join(dirname(sessionFile), "compositions", runId);
+	const cwd = ctx?.cwd;
+	return typeof cwd === "string" && cwd ? join(cwd, ".pi", "agent-sessions", "compositions", runId) : undefined;
 }
 
 /** Keep a plan resumable without allowing one event to consume the whole journal. */

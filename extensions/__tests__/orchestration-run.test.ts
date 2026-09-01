@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { createOrchestrationRun, RunBudgetError } from "../lib/orchestration-run.ts";
 import { activeRunMarkerPath } from "../lib/orchestration-run.ts";
 import { summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
+import { listRunEvents } from "../lib/evidence-store.ts";
 
 describe("orchestration run context", () => {
 	test("assigns an id and records a bounded event trail", () => {
@@ -16,6 +17,15 @@ describe("orchestration run context", () => {
 		expect(run.runId).toMatch(/^[0-9a-f-]{36}$/);
 		expect(run.stepsUsed).toBe(1);
 		expect(run.events.map((event) => event.type)).toEqual(["run.started", "step.completed", "run.succeeded"]);
+	});
+
+	test("persists a parent event trail for headless contexts without a session file", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-headless-"));
+		const run = createOrchestrationRun({ context: { cwd }, actor: "headless-parent" });
+		run.record("dispatch.started", { launchId: "headless" });
+		run.finish("succeeded");
+		expect(run.eventDir).toBe(join(cwd, ".pi", "agent-sessions", "compositions", run.runId));
+		expect(listRunEvents(run.eventDir!).map((event) => event.type)).toEqual(["run.started", "dispatch.started", "run.succeeded"]);
 	});
 
 	test("blocks work beyond the run step budget", () => {
