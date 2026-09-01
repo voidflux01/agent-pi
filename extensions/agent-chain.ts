@@ -52,6 +52,7 @@ import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker,
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
+import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -176,6 +177,7 @@ export default function (pi: ExtensionAPI) {
 	let currentChainProc: any = null;
 	let currentChainTimer: ReturnType<typeof setInterval> | null = null;
 	let navProvider: any = null;
+	const lifecycle = createWorkerLifecycle();
 
 	function loadChains(cwd: string) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
@@ -385,20 +387,30 @@ export default function (pi: ExtensionAPI) {
 		let liveText = "";
 		const startTime = Date.now();
 		const state = stepStates[stepIndex];
+		const runEpoch = lifecycle.currentEpoch();
 
 		return new Promise((resolve) => {
-			const timer = setInterval(() => {
+			const timer = lifecycle.trackTimer(setInterval(() => {
+				if (!lifecycle.isCurrent(runEpoch)) {
+					lifecycle.clearTimer(timer);
+					return;
+				}
 				state.elapsed = Date.now() - startTime;
 				updateWidget();
-			}, 1000);
+			}, 1000));
 			currentChainTimer = timer;
 
 			// Shared completion path for both transports. Persist the FULL
 			// transcript on disk, then compose the compact but complete
 			// result index for the parent context / next step.
 			const finish = (code: number | null, externalFull?: string) => {
-				clearInterval(timer);
+				lifecycle.clearTimer(timer);
 				if (currentChainTimer === timer) currentChainTimer = null;
+				if (!lifecycle.isCurrent(runEpoch)) {
+					resolve({ output: "Dispatch cancelled because the parent session changed.", fullOutput: "", fullOutputPath: "", exitCode: 130, elapsed: Date.now() - startTime });
+					return;
+				}
+				lifecycle.clearProcess(currentChainProc);
 				currentChainProc = null;
 				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
 
@@ -468,7 +480,13 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
-				onProcess: (child) => { currentChainProc = child; },
+				onProcess: (child) => {
+					if (lifecycle.isCurrent(runEpoch)) {
+						currentChainProc = lifecycle.trackProcess(child);
+					} else {
+						try { child.kill?.("SIGTERM"); } catch {}
+					}
+				},
 				onStdoutLine: (line) => {
 					try {
 						const event = JSON.parse(line);
@@ -1435,12 +1453,10 @@ ${agentCatalog}
 	}));
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
+		lifecycle.stopAll();
 		unwatchMode?.();
 		unwatchMode = undefined;
-		if (currentChainTimer) {
-			clearInterval(currentChainTimer);
-			currentChainTimer = null;
-		}
+		currentChainTimer = null;
 		if (currentChainProc) {
 			try { currentChainProc.kill("SIGTERM"); } catch {}
 			currentChainProc = null;

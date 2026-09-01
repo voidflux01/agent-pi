@@ -55,6 +55,7 @@ import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-li
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
+import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -218,6 +219,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 export default function (pi: ExtensionAPI) {
 	registerHerdrCommands(pi);
 	const agentStates: Map<string, AgentState> = new Map();
+	const lifecycle = createWorkerLifecycle();
 	let allAgentDefs: AgentDef[] = [];
 	let teams: Record<string, string[]> = {};
 	let activeTeamName = "";
@@ -566,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 			if (n > state.toolCount) state.toolCount = n;
 			invalidateAgentWidget(state);
 		}, 1000);
-		state.timer = timer;
+		state.timer = lifecycle.trackTimer(timer);
 
 		// Use agent's defined model or fall back to default subagent model.
 		// NOTE: We intentionally do NOT inherit the parent model. Each agent
@@ -728,6 +730,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
+				lifecycle.clearProcess(state.proc);
 				state.proc = null;
 				updateHerdrPaneStatus(runCwd, journalId, code === 0 ? "done" : "error");
 				state.elapsed = elapsed;
@@ -873,7 +876,7 @@ export default function (pi: ExtensionAPI) {
 					runId: journalId,
 					paneTitle,
 					isCancelled: () => runEpoch !== sessionEpoch,
-					onProcess: (proc: any) => { state.proc = proc; },
+					onProcess: (proc: any) => { state.proc = lifecycle.trackProcess(proc); },
 					onStdoutLine: handleStdoutLine,
 					onStderr: (chunk: string) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
 				}).then(({ exitCode, raw }) => {
@@ -904,7 +907,7 @@ export default function (pi: ExtensionAPI) {
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
 				isAborted: () => runEpoch !== sessionEpoch,
-				onProcess: (child) => { state.proc = child as any; },
+					onProcess: (child) => { state.proc = lifecycle.trackProcess(child as any); },
 				onStdoutLine: handleStdoutLine,
 				onStderr: (chunk) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
 				onHerdrUpdate: () => {
@@ -1469,7 +1472,7 @@ ${agentCatalog}${commanderSection}`,
 
 	function clearAgentTimer(state: AgentState) {
 		if (!state.timer) return;
-		clearInterval(state.timer);
+		lifecycle.clearTimer(state.timer);
 		state.timer = undefined;
 	}
 
@@ -1490,6 +1493,7 @@ ${agentCatalog}${commanderSection}`,
 	// ── Clear session-bound UI references before replacement/reload ───────────
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
+		lifecycle.stopAll();
 		if ((globalThis as any).__piRefreshTaskWidget) {
 			(globalThis as any).__piRefreshTaskWidget = undefined;
 		}

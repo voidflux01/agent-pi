@@ -68,6 +68,7 @@ import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
 import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
+import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -214,6 +215,7 @@ export default function (pi: ExtensionAPI) {
 	let widgetCollapsed = true;
 	let sessionDir = "";
 	let contextWindow = 0;
+	const lifecycle = createWorkerLifecycle();
 
 	// Accumulated context across phases
 	let taskSummary = "";   // $TASK — from phase 1
@@ -399,10 +401,10 @@ export default function (pi: ExtensionAPI) {
 		updateWidget();
 
 		const startTime = Date.now();
-		agentState.timer = setInterval(() => {
+		agentState.timer = lifecycle.trackTimer(setInterval(() => {
 			agentState.elapsed = Date.now() - startTime;
 			updateWidget();
-		}, 1000);
+		}, 1000));
 
 		// Use agent's defined model or fall back to default subagent model.
 		// NOTE: We intentionally do NOT inherit the parent model. Each agent
@@ -463,7 +465,8 @@ export default function (pi: ExtensionAPI) {
 			// transcript on disk, then compose the compact but complete
 			// result index for the next phase agent / final report.
 			const finish = (code: number | null, externalFull?: string) => {
-				clearInterval(agentState.timer);
+				lifecycle.clearTimer(agentState.timer);
+				lifecycle.clearProcess(agentState.proc);
 				agentState.proc = null;
 				agentState.elapsed = Date.now() - startTime;
 				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
@@ -538,7 +541,7 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 				herdrPaneKey: journalId,
 				journal: { dir: sessionDir, id: journalId },
-				onProcess: (child) => { agentState.proc = child as any; },
+				onProcess: (child) => { agentState.proc = lifecycle.trackProcess(child as any); },
 				onStdoutLine: (line) => {
 					try {
 						const event = JSON.parse(line);
@@ -1485,6 +1488,7 @@ ${contextSummary}${planSection}${reviewSection}
 	}));
 
 	pi.on("session_shutdown", async (_event, _ctx) => {
+		lifecycle.stopAll();
 		unwatchMode?.();
 		unwatchMode = undefined;
 		for (const phase of phaseStates) {

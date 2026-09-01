@@ -43,6 +43,7 @@ import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdr
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
+import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ export default function (pi: ExtensionAPI) {
 	// processes can finish after that point, but must not touch the old ctx.
 	let sessionEpoch = 0;
 	const widgetBoxes = new Map<number, { invalidate: () => void }>();
+	const lifecycle = createWorkerLifecycle();
 
 	function contextCwd(ctx: any): string {
 		// Reading cwd from a context after session replacement throws, even with
@@ -363,9 +365,9 @@ export default function (pi: ExtensionAPI) {
 
 		return new Promise<string>((resolve) => {
 			const startTime = Date.now();
-			const timer = setInterval(() => {
+			const timer = lifecycle.trackTimer(setInterval(() => {
 				if (spawnEpoch !== sessionEpoch) {
-					clearInterval(timer);
+					lifecycle.clearTimer(timer);
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
@@ -374,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 					if (n > state.toolCount) state.toolCount = n;
 				}
 				invalidateWidget(state.id);
-			}, 1000);
+			}, 1000));
 			state.elapsedTimer = timer;
 
 			// ── Watchdog: kill agent if it exceeds maxDurationMs ──────────
@@ -395,7 +397,7 @@ export default function (pi: ExtensionAPI) {
 			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
 				if (finished) return;
 				finished = true;
-				clearInterval(timer);
+				lifecycle.clearTimer(timer);
 				if (state.elapsedTimer === timer) state.elapsedTimer = undefined;
 				// Clear watchdog — agent exited normally before timeout
 				if (state.watchdogTimer) {
@@ -420,6 +422,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				state.elapsed = Date.now() - startTime;
 				state.status = code === 0 && !failure ? "done" : "error";
+				lifecycle.clearProcess(state.proc);
 				state.proc = undefined;
 				if (state.toolCount === 0 && state.sessionFile) {
 					state.toolCount = countSessionToolCalls(state.sessionFile);
@@ -551,7 +554,7 @@ export default function (pi: ExtensionAPI) {
 					runId: state.saRunId ?? `sa${state.id}`,
 					paneTitle,
 					onProcess: (proc: any) => {
-						if (spawnEpoch === sessionEpoch) state.proc = proc;
+						if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(proc);
 					},
 					onStdoutLine: (line: string) => {
 						if (spawnEpoch === sessionEpoch) processLine(state, line);
@@ -589,7 +592,7 @@ export default function (pi: ExtensionAPI) {
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				isAborted: () => spawnEpoch !== sessionEpoch,
 				onProcess: (child) => {
-					if (spawnEpoch === sessionEpoch) state.proc = child as any;
+					if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(child as any);
 				},
 				onStdoutLine: (line) => {
 					if (spawnEpoch === sessionEpoch) processLine(state, line);
@@ -1100,12 +1103,13 @@ export default function (pi: ExtensionAPI) {
 	// This handler also runs during extension reload, where the old closure can
 	// otherwise receive a late child-process event.
 	pi.on("session_shutdown", async (_event, ctx) => withSessionLifecycle(async () => {
+		lifecycle.stopAll();
 		sessionEpoch++;
 		widgetCtx = undefined;
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
 			if (state.elapsedTimer) {
-				clearInterval(state.elapsedTimer);
+				lifecycle.clearTimer(state.elapsedTimer);
 				state.elapsedTimer = undefined;
 			}
 			if (state.watchdogTimer) {
@@ -1137,7 +1141,7 @@ export default function (pi: ExtensionAPI) {
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
 			if (state.elapsedTimer) {
-				clearInterval(state.elapsedTimer);
+				lifecycle.clearTimer(state.elapsedTimer);
 				state.elapsedTimer = undefined;
 			}
 			if (state.proc && state.status === "running") {
@@ -1193,7 +1197,7 @@ export default function (pi: ExtensionAPI) {
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
 			if (state.elapsedTimer) {
-				clearInterval(state.elapsedTimer);
+				lifecycle.clearTimer(state.elapsedTimer);
 				state.elapsedTimer = undefined;
 			}
 			if (state.proc && state.status === "running") {
