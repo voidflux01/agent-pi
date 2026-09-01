@@ -39,6 +39,9 @@ worker lifecycle boundaries.
 - The shared token/cost ledger serializes check-and-append across processes
   with a short-lived lock and stale-lock recovery, so parallel workers cannot
   pass the same preflight based on an outdated total.
+- The live orchestration Activity dashboard now shows bounded per-run
+  token/cost usage alongside status, duration, verification, and recovery
+  information, making mode-level efficiency differences visible during work.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and

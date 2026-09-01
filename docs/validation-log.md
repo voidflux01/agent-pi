@@ -45,6 +45,8 @@ the authoritative fixture command is `node --test`.
   total-duration ceilings are exceeded, including a long single-step run.
 - Shared budget check-and-append is protected by a cross-process lock, with a
   stale-lock recovery regression test.
+- Live orchestration dashboard rows include bounded per-run token/cost usage;
+  renderer regression coverage keeps the row within the requested width.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
