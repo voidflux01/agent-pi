@@ -3,7 +3,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-export type DispatchOrigin = "agent-team" | "agent-chain" | "pipeline-team" | "subagent-command" | "subagent-tool";
+export type DispatchOrigin = "agent-team" | "agent-chain" | "pipeline-team" | "subagent-command" | "subagent-tool" | "subagent-resume";
 
 const DISPATCH_AUTHORIZATION = Symbol("explicit-dispatch");
 
@@ -114,4 +114,3 @@ export function isExplicitDispatchActive(): boolean {
 export function authorizationMatchesActive(authorization: DispatchAuthorization | undefined): boolean {
 	return isExplicitDispatchActive() && authorization === dispatchContext.getStore()?.authorization;
 }
-
