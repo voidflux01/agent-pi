@@ -95,6 +95,19 @@ describe("commander-mcp extension", () => {
 		expect(pi.on).toHaveBeenCalledWith("session_shutdown", expect.any(Function));
 	});
 
+	it("does not start health checks after shutdown races an in-flight probe", async () => {
+		let resolveConnect!: () => void;
+		mockConnect.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveConnect = resolve; }));
+		const intervalSpy = vi.spyOn(globalThis, "setInterval");
+		const start = pi._events.session_start({}, createMockCtx());
+		await Promise.resolve();
+		await pi._events.session_shutdown();
+		resolveConnect();
+		await start;
+		expect(intervalSpy).not.toHaveBeenCalled();
+		intervalSpy.mockRestore();
+	});
+
 	it("should proxy tool calls to MCP client", async () => {
 		mockIsConnected.mockReturnValue(true);
 		mockCallTool.mockResolvedValue({

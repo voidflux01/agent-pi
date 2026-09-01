@@ -423,6 +423,7 @@ const TOOL_PARAMS: Record<string, ReturnType<typeof Type.Object>> = {
 export default function (pi: ExtensionAPI) {
 	const client = new McpClient(SERVER_PATH, SERVER_ENV);
 	let healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+	let shuttingDown = false;
 
 	// ── Ready gate — queues ops until probe resolves ────────────────
 	const gate = createReadyGate();
@@ -481,12 +482,14 @@ export default function (pi: ExtensionAPI) {
 
 	// Lifecycle events
 	pi.on("session_start", async (_event, ctx) => {
+		shuttingDown = false;
 		// Fire-and-forget probe — don't block session_start chain
 		// (other extensions like footer.ts must not wait for this)
 		probeCommander(ctx).catch(() => {});
 	});
 
 	async function probeCommander(ctx: any) {
+		if (shuttingDown) return;
 		if (!SERVER_PATH) {
 			setCommanderClient(undefined);
 			setCommanderState("unavailable");
@@ -496,8 +499,16 @@ export default function (pi: ExtensionAPI) {
 		}
 		try {
 			await client.connect();
+			if (shuttingDown) {
+				client.disconnect();
+				return;
+			}
 			// Lightweight probe — 3s timeout
 			await client.callTool("commander_session", { operation: "list" }, 3000);
+			if (shuttingDown) {
+				client.disconnect();
+				return;
+			}
 			setCommanderClient(client);
 			ctx.ui.setStatus("Commander: connected", "commander");
 
@@ -508,6 +519,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Periodic health check (60s)
 			healthCheckTimer = setInterval(async () => {
+				if (shuttingDown) return;
 				try {
 					if (!client.isConnected()) {
 						await client.connect();
@@ -524,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 				} catch {
+					if (shuttingDown) return;
 					// Reset gate so operations queue again until recovery.
 					if (gate.state !== "pending") resetCommanderGate();
 					else setCommanderState("pending");
@@ -540,6 +553,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_shutdown", async () => {
+		shuttingDown = true;
 		if (healthCheckTimer) {
 			clearInterval(healthCheckTimer);
 			healthCheckTimer = undefined;
