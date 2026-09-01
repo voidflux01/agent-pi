@@ -15,4 +15,11 @@ describe("debug capture boundaries", () => {
 		expect(source).toContain("safeVhsText(terminalCommand, 5000)");
 		expect(source).toContain("env: childEnvironment()");
 	});
+
+	it("bounds VHS stdout and stderr capture", () => {
+		const source = readFileSync(new URL("../debug-capture.ts", import.meta.url), "utf8");
+		expect(source).toContain("MAX_VHS_OUTPUT_CHARS = 64 * 1024");
+		expect(source).toContain("appendBoundedOutput(stdout, chunk)");
+		expect(source).toContain("appendBoundedOutput(stderr, chunk)");
+	});
 });

@@ -40,6 +40,16 @@ import { Text } from "@mariozechner/pi-tui";
 // ── Constants ────────────────────────────────────
 
 const CAPTURE_DIR_NAME = "debug-captures";
+const MAX_VHS_OUTPUT_CHARS = 64 * 1024;
+const VHS_OUTPUT_TRUNCATION_MARKER = "\n...[vhs output truncated]...\n";
+
+function appendBoundedOutput(current: string, chunk: string): string {
+	const next = current + chunk;
+	if (next.length <= MAX_VHS_OUTPUT_CHARS) return next;
+	const budget = Math.max(0, MAX_VHS_OUTPUT_CHARS - VHS_OUTPUT_TRUNCATION_MARKER.length);
+	const head = Math.ceil(budget / 2);
+	return next.slice(0, head) + VHS_OUTPUT_TRUNCATION_MARKER + next.slice(-(budget - head));
+}
 const DEFAULT_WIDTH = 1400;
 const DEFAULT_HEIGHT = 900;
 const DEFAULT_FONT_SIZE = 13;
@@ -302,9 +312,9 @@ function runVhs(tapePath: string, cwd: string, ts: string): Promise<CaptureResul
 		let stderr = "";
 
 		proc.stdout!.setEncoding("utf-8");
-		proc.stdout!.on("data", (chunk: string) => { stdout += chunk; });
+		proc.stdout!.on("data", (chunk: string) => { stdout = appendBoundedOutput(stdout, chunk); });
 		proc.stderr!.setEncoding("utf-8");
-		proc.stderr!.on("data", (chunk: string) => { stderr += chunk; });
+		proc.stderr!.on("data", (chunk: string) => { stderr = appendBoundedOutput(stderr, chunk); });
 
 		proc.on("close", (code) => {
 			const elapsed = Date.now() - startTime;
