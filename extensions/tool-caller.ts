@@ -382,6 +382,50 @@ export async function executeBuiltinTool(
 			}
 		}
 
+		case "edit": {
+			const { readFileSync, writeFileSync, realpathSync, lstatSync } = await import("node:fs");
+			const { resolve } = await import("node:path");
+			const path = (args.path as string) || "";
+			const oldText = typeof args.oldText === "string" ? args.oldText : "";
+			const newText = typeof args.newText === "string" ? args.newText : "";
+			const replaceAll = args.replaceAll === true;
+			if (!path) return { content: [{ type: "text", text: "Error: 'path' parameter required" }] };
+			if (!oldText) return { content: [{ type: "text", text: "Error: 'oldText' must not be empty" }], details: { error: true, path } };
+			try {
+				const fullPath = resolve(cwd, path);
+				if (!isWithinDirectory(cwd, fullPath)) {
+					return { content: [{ type: "text", text: "Edit blocked: path must stay inside the current workspace." }], details: { error: true, path } };
+				}
+				const realCwd = realpathSync(cwd);
+				const realPath = realpathSync(fullPath);
+				if (!isWithinDirectory(realCwd, realPath)) {
+					return { content: [{ type: "text", text: "Edit blocked: symlink target must stay inside the current workspace." }], details: { error: true, path } };
+				}
+				if (!lstatSync(fullPath).isFile()) {
+					return { content: [{ type: "text", text: "Edit error: target must be a regular file" }], details: { error: true, path } };
+				}
+				const before = readFileSync(fullPath, "utf8");
+				const occurrences = before.split(oldText).length - 1;
+				if (occurrences === 0) {
+					return { content: [{ type: "text", text: "Edit blocked: oldText was not found" }], details: { error: true, path, occurrences: 0 } };
+				}
+				if (occurrences > 1 && !replaceAll) {
+					return { content: [{ type: "text", text: `Edit blocked: oldText matched ${occurrences} locations; set replaceAll=true to apply all matches` }], details: { error: true, path, occurrences } };
+				}
+				const after = replaceAll ? before.split(oldText).join(newText) : before.replace(oldText, newText);
+				writeFileSync(fullPath, after, "utf8");
+				return {
+					content: [{ type: "text", text: `Successfully edited ${path} (${replaceAll ? occurrences : 1} replacement${occurrences === 1 ? "" : "s"})` }],
+					details: { path: fullPath, occurrences: replaceAll ? occurrences : 1, bytesBefore: Buffer.byteLength(before), bytesAfter: Buffer.byteLength(after) },
+				};
+			} catch (err: any) {
+				return {
+					content: [{ type: "text", text: `Edit error: ${err.message}` }],
+					details: { error: true, path },
+				};
+			}
+		}
+
 		default:
 			return null;
 	}

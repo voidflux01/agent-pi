@@ -166,6 +166,21 @@ describe("compose_exec", () => {
 		expect(existsSync(join(cwd, "output.txt"))).toBe(false);
 	});
 
+	test("composes exact edits and refuses ambiguous matches", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-edit-"));
+		writeFileSync(join(cwd, "input.txt"), "alpha\nbeta\nbeta\n", "utf8");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const ambiguous = await tool.execute("outer", { steps: [{ tool: "edit", arguments: { path: "input.txt", oldText: "beta", newText: "gamma" } }] }, undefined, undefined, { cwd });
+		expect(ambiguous.details.results[0].result.text).toContain("matched 2 locations");
+		expect(readFileSync(join(cwd, "input.txt"), "utf8")).toBe("alpha\nbeta\nbeta\n");
+		const edited = await tool.execute("outer", { steps: [{ tool: "edit", arguments: { path: "input.txt", oldText: "beta", newText: "gamma", replaceAll: true } }] }, undefined, undefined, { cwd });
+		expect(edited.details).toMatchObject({ completed: 1, failed: 0 });
+		expect(readFileSync(join(cwd, "input.txt"), "utf8")).toBe("alpha\ngamma\ngamma\n");
+	});
+
 	test("persists a bounded completed-step handoff for restart inspection", async () => {
 		const registered: any[] = [];
 		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };

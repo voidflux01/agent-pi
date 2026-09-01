@@ -15,11 +15,12 @@ worker lifecycle boundaries.
 - `compose_exec` executes registered extension capabilities in sequence or in
   parallel, caps a batch at 16 steps, blocks meta-tool recursion, and reuses
   the existing nested security and approval gates.
-- The workspace-bounded built-in `read` and `write` capabilities can
-  participate in `compose_exec` with schema validation; write operations reject
-  traversal and symlink escapes, and share the existing approval/security path.
-  `bash` and `edit` remain on Pi's native path until their execution boundaries
-  are equally explicit.
+- The workspace-bounded built-in `read`, `write`, and exact-match `edit`
+  capabilities can participate in `compose_exec` with schema validation; write
+  operations reject traversal and symlink escapes, edit rejects ambiguous
+  matches by default, and all share the existing approval/security path.
+  `bash` remains on Pi's native path until its execution boundary is equally
+  explicit.
 - Nested arguments are validated against the registered capability schema before
   execution, and parallel batches are rejected when non-commutative effects
   share a resource.
@@ -98,9 +99,9 @@ worker lifecycle boundaries.
 
 - QuickJS guest execution: the first composition surface is host-side and only
   runs already registered extension handlers.
-- Remaining built-in Pi tool proxying: `bash` and `edit` continue through Pi's
-  native path until their schemas and executors can be exposed through the same
-  registry. `read` and the workspace-bounded `write` adapter are available.
+- Remaining built-in Pi tool proxying: `bash` continues through Pi's native
+  path until its schema and executor can be exposed through the same registry.
+  `read`, `write`, and exact-match `edit` adapters are available.
 - Actors, councils, recursive workers, and a full cross-process topology: the
   current dashboard is a stable read model, but the underlying worker graph
   still needs every actor to emit the same `RunContext` events.

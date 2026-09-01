@@ -23,7 +23,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 140 Bun passed; 943 Vitest passed; 13 skipped.
+- Full repository tests: 141 Bun passed; 943 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -31,6 +31,9 @@ the authoritative fixture command is `node --test`.
 - `compose_exec` can execute the workspace-bounded built-in `write` with schema
   validation, rejects escaping parent symlinks, and blocks parallel read/write
   batches that share the workspace resource.
+- `compose_exec` can execute exact-match built-in `edit`; ambiguous matches are
+  rejected unless `replaceAll` is explicit, and successful replacements remain
+  inside the workspace boundary.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
