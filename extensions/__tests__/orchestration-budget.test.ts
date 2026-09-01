@@ -63,4 +63,12 @@ describe("orchestration budget", () => {
 		expect(reservation && releaseBudgetReservation(reservation)).toBe(true);
 		expect(activeOrchestrationBudget()).toMatchObject({ reservedTokens: 0, reservedCostUsd: 0 });
 	});
+
+	test("does not count expired reservations as actual usage", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-"));
+		const budget = initOrchestrationBudget(dir, 1000, 1);
+		appendFileSync(budget.file, JSON.stringify({ kind: "reservation", reservationId: "expired", sourceRunId: "dead-run", tokens: 900, costUsd: 0.9, expiresAt: Date.now() - 1, recordedAt: Date.now() }) + "\n");
+		expect(readBudgetTotals(budget.file)).toEqual({ totalTokens: 0, costUsd: 0 });
+		expect(activeOrchestrationBudget()).toMatchObject({ totalTokens: 0, reservedTokens: 0, reservedCostUsd: 0 });
+	});
 });

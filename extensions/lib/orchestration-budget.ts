@@ -113,8 +113,10 @@ function readBudgetState(file: string, now = Date.now()): { totalTokens: number;
 			if (!line.trim()) continue;
 			try {
 				const entry = JSON.parse(line) as Partial<BudgetEntry>;
-				if (entry.kind === "reservation" && typeof entry.reservationId === "string" && typeof entry.sourceRunId === "string" && typeof entry.expiresAt === "number" && entry.expiresAt > now) {
-					reservations.set(entry.reservationId, { reservationId: entry.reservationId, sourceRunId: entry.sourceRunId, tokens: Math.max(0, Number(entry.tokens) || 0), costUsd: Math.max(0, Number(entry.costUsd) || 0), expiresAt: entry.expiresAt });
+				if (entry.kind === "reservation") {
+					if (typeof entry.reservationId === "string" && typeof entry.sourceRunId === "string" && typeof entry.expiresAt === "number" && entry.expiresAt > now) {
+						reservations.set(entry.reservationId, { reservationId: entry.reservationId, sourceRunId: entry.sourceRunId, tokens: Math.max(0, Number(entry.tokens) || 0), costUsd: Math.max(0, Number(entry.costUsd) || 0), expiresAt: entry.expiresAt });
+					}
 					continue;
 				}
 				if (entry.kind === "reservation_released" && typeof entry.reservationId === "string") {
