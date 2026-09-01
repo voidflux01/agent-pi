@@ -29,30 +29,11 @@ import { Container, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-t
 import { outputLine } from "./lib/output-box.ts";
 import { Type } from "@sinclair/typebox";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import {
-	localToCommander,
-	parseCommanderTaskId,
-	lookupMapping,
-	addMapping,
-	removeMapping,
-	clearMappings,
-	emptySyncState,
-	shouldCreateGroup,
-	isExternalSyncActive,
-	markGroupCreationInFlight,
-	parseGroupCreateResult,
-	buildGroupCreatePayload,
-	applyGroupCreateResult,
-	updateMappingStatus,
-	type SyncState,
-} from "./lib/commander-sync.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
 import { padRight } from "./lib/ui-helpers.ts";
-import { enqueueOrExecute } from "./lib/commander-ready.ts";
-import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
 import { isPlanningArtifactWrite, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
-import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState } from "./lib/coordination-state.ts";
+import { coordinationState } from "./lib/coordination-state.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
@@ -103,7 +84,6 @@ interface TasksDetails {
 	listTitle?: string;
 	listDescription?: string;
 	error?: string;
-	syncState?: SyncState;
 }
 
 const TasksParams = Type.Object({
@@ -120,7 +100,7 @@ const STATUS_ICON: Record<TaskStatus, string> = { idle: "-", inprogress: "*", do
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = { idle: "inprogress", inprogress: "done", done: "idle" };
 const STATUS_LABEL: Record<TaskStatus, string> = { idle: "idle", inprogress: "in progress", done: "done" };
 
-export interface CurrentTaskInfo { id: number; text: string; commanderTaskId?: number }
+export interface CurrentTaskInfo { id: number; text: string }
 export interface TaskListInfo {
 	tasks: { id: number; text: string; status: TaskStatus }[];
 	title?: string;
@@ -129,16 +109,15 @@ export interface TaskListInfo {
 }
 
 const g = globalThis as any;
-function publishCurrentTask(tasks: Task[], sync: SyncState) {
+function publishCurrentTask(tasks: Task[]) {
 	const cur = tasks.find(t => t.status === "inprogress");
-	g.__piCurrentTask = cur ? { id: cur.id, text: cur.text, commanderTaskId: lookupMapping(sync, cur.id) } as CurrentTaskInfo : null;
+	g.__piCurrentTask = cur ? { id: cur.id, text: cur.text } as CurrentTaskInfo : null;
 
 	const remaining = tasks.filter(t => t.status !== "done").length;
 	g.__piTaskList = {
 		tasks: tasks.map(t => ({ id: t.id, text: t.text, status: t.status })),
 		remaining,
 		total: tasks.length,
-		__syncState: sync,
 	} as TaskListInfo;
 }
 
@@ -245,29 +224,6 @@ export default function (pi: ExtensionAPI) {
 	let listTitle: string | undefined;
 	let listDescription: string | undefined;
 	let nudgedThisCycle = false;
-	let syncState: SyncState = emptySyncState();
-	// Queue tasks added while the initial Commander group request is in flight.
-	let pendingGroupTaskIds: number[] = [];
-	let syncGeneration = 0;
-
-	// ── Commander sync (gate-aware) ─────────────────────────────────────
-
-	function syncToCommander(label: string, fn: (client: any) => Promise<void>): void {
-		const g = globalThis as any;
-		const gate = commanderGate();
-		if (!gate) return; // commander-mcp not loaded
-		const wrappedFn = async (client: any) => {
-			try { await fn(client); }
-			catch {
-				const tracker = g.__piCommanderTracker;
-				if (tracker?._state) {
-					tracker._state = addRetry(tracker._state, label, fn);
-				}
-			}
-		};
-		enqueueOrExecute(gate, { fn: wrappedFn, label }, commanderClient());
-	}
-
 	// ── Snapshot for details ───────────────────────────────────────────
 
 	const makeDetails = (action: string, error?: string): TasksDetails => ({
@@ -276,14 +232,13 @@ export default function (pi: ExtensionAPI) {
 		nextId,
 		listTitle,
 		listDescription,
-		syncState: { ...syncState, mappings: [...syncState.mappings] },
 		...(error ? { error } : {}),
 	});
 
 	// ── UI refresh ─────────────────────────────────────────────────────
 
 	const refreshWidget = (_ctx: ExtensionContext) => {
-		publishCurrentTask(tasks, syncState);
+		publishCurrentTask(tasks);
 	};
 
 	let localTaskListState: TaskListState = { selectedIndex: -1, scrollOffset: 0 };
@@ -326,13 +281,12 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const refreshUI = (ctx: ExtensionContext) => {
-		const syncIndicator = isCommanderAvailable() ? "(synced)" : "(local)";
 		if (tasks.length === 0) {
-			ctx.ui.setStatus(`Tasks: none ${syncIndicator}`, "tasks");
+			ctx.ui.setStatus("Tasks: none", "tasks");
 		} else {
 			const remaining = tasks.filter((t) => t.status !== "done").length;
 			const label = listTitle ? listTitle : "Tasks";
-			ctx.ui.setStatus(`${label}: ${tasks.length} tasks (${remaining} remaining) ${syncIndicator}`, "tasks");
+			ctx.ui.setStatus(`${label}: ${tasks.length} tasks (${remaining} remaining)`, "tasks");
 		}
 
 		refreshWidget(ctx);
@@ -356,12 +310,10 @@ export default function (pi: ExtensionAPI) {
 	// ── State reconstruction from session ──────────────────────────────
 
 	const reconstructState = (ctx: ExtensionContext) => {
-		syncGeneration++;
 		tasks = [];
 		nextId = 1;
 		listTitle = undefined;
 		listDescription = undefined;
-		syncState = emptySyncState();
 
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type !== "message") continue;
@@ -374,9 +326,6 @@ export default function (pi: ExtensionAPI) {
 				nextId = Number.isSafeInteger(details.nextId) ? details.nextId : nextId;
 				listTitle = details.listTitle;
 				listDescription = details.listDescription;
-				if (details.syncState) {
-					syncState = { ...details.syncState, groupCreationInFlight: false };
-				}
 			}
 		}
 
@@ -461,28 +410,6 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" as const };
 	});
 
-	function syncTasksAddedAfterGroupCreation(localIds: number[], generation: number): void {
-		for (const localId of localIds) {
-			syncToCommander("task-create-after-group", async (client) => {
-				if (generation !== syncGeneration) return;
-				const task = tasks.find((candidate) => candidate.id === localId);
-				const groupId = syncState.groupId;
-				if (!task || groupId === undefined || lookupMapping(syncState, localId) !== undefined) return;
-				const res = await client.callTool("commander_task", {
-					operation: "create",
-					description: task.text,
-					working_directory: process.cwd(),
-					group_id: groupId,
-				});
-				const commanderId = parseCommanderTaskId(res);
-				if (commanderId === undefined) throw new Error("Commander did not return a task id");
-				if (generation !== syncGeneration) return;
-				syncState = addMapping(syncState, localId, commanderId);
-				syncState = updateMappingStatus(syncState, localId, task.status);
-			});
-		}
-	}
-
 	// ── Register tasks tool ────────────────────────────────────────────
 
 	registerToolWithExecutor(pi, {
@@ -523,23 +450,10 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
-					// Cancel any previously synced tasks before resetting
-					if (syncState.mappings.length > 0) {
-						const mappingsToCancel = [...syncState.mappings];
-						syncToCommander("cancel-old-list", async (client) => {
-							for (const m of mappingsToCancel) {
-								await client.callTool("commander_task", { operation: "update", task_id: m.commanderId, status: "cancelled" });
-							}
-						});
-					}
-
 					tasks = [];
 					nextId = 1;
 					listTitle = params.text;
 					listDescription = params.description || undefined;
-					syncState = emptySyncState();
-					syncGeneration++;
-					pendingGroupTaskIds = [];
 
 					// Group creation deferred to first `add` — avoids empty tasks[] rejection
 
@@ -583,76 +497,6 @@ export default function (pi: ExtensionAPI) {
 						const t: Task = { id: nextId++, text: item, status: "idle" };
 						tasks.push(t);
 						added.push(t);
-					}
-
-					// Sync: create Commander tasks (skip if external sync owns it)
-					if (!isExternalSyncActive()) {
-						const generation = syncGeneration;
-						if (shouldCreateGroup(syncState)) {
-							// Path A: no group yet — batch all tasks into a single group:create
-							syncState = markGroupCreationInFlight(syncState);
-							const localIds = added.map((t) => t.id);
-							const payload = buildGroupCreatePayload(
-								listTitle || "Tasks",
-								listDescription || listTitle || "Tasks",
-								added.map((t) => t.text),
-								process.cwd(),
-							);
-							syncToCommander("group-create", async (client) => {
-								if (generation !== syncGeneration) return;
-								const res = await client.callTool("commander_task", payload);
-								const parsed = parseGroupCreateResult(res);
-								if (generation !== syncGeneration) return;
-								if (parsed) {
-									syncState = applyGroupCreateResult(syncState, localIds, parsed);
-									for (const lid of localIds) {
-										syncState = updateMappingStatus(syncState, lid, "idle");
-									}
-									const queuedIds = pendingGroupTaskIds.splice(0);
-									syncTasksAddedAfterGroupCreation(queuedIds, generation);
-								} else {
-									// Keep locally-created tasks recoverable when the first group request
-									// fails. Rebuild the group from every currently unmapped task.
-									syncState = { ...syncState, groupCreationInFlight: false };
-									const retryTasks = tasks.filter(t => lookupMapping(syncState, t.id) === undefined);
-									pendingGroupTaskIds = [];
-									if (retryTasks.length > 0 && generation === syncGeneration) {
-										syncState = markGroupCreationInFlight(syncState);
-										const retryIds = retryTasks.map(t => t.id);
-										const retryPayload = buildGroupCreatePayload(listTitle || "Tasks", listDescription || listTitle || "Tasks", retryTasks.map(t => t.text), process.cwd());
-										syncToCommander("group-create-retry", async (retryClient) => {
-											const retryRes = await retryClient.callTool("commander_task", retryPayload);
-											const retryParsed = parseGroupCreateResult(retryRes);
-											if (!retryParsed) throw new Error("Commander group retry returned no tasks");
-											syncState = applyGroupCreateResult(syncState, retryIds, retryParsed);
-										});
-									}
-								}
-								try { refreshUI(ctx); } catch {}
-							});
-						} else if (syncState.groupId !== undefined) {
-							// Path B: group exists — add individual tasks with group_id
-							for (const t of added) {
-								syncToCommander("task-create", async (client) => {
-									if (generation !== syncGeneration) return;
-									const res = await client.callTool("commander_task", {
-										operation: "create",
-										description: t.text,
-										working_directory: process.cwd(),
-										group_id: syncState.groupId,
-									});
-									const cid = parseCommanderTaskId(res);
-									if (generation !== syncGeneration) return;
-									if (cid !== undefined) {
-										syncState = addMapping(syncState, t.id, cid);
-										syncState = updateMappingStatus(syncState, t.id, "idle");
-										try { refreshUI(ctx); } catch {}
-									}
-								});
-							}
-						} else if (syncState.groupCreationInFlight) {
-							pendingGroupTaskIds.push(...added.map((task) => task.id));
-						}
 					}
 
 					const msg = added.length === 1
@@ -699,80 +543,6 @@ export default function (pi: ExtensionAPI) {
 						msg += `\n(Auto-paused ${demoted.map((t) => `#${t.id}`).join(", ")} → idle. Only one task can be in progress at a time.)`;
 					}
 
-					// Sync: update Commander task status (skip if external sync owns it)
-					if (!isExternalSyncActive()) {
-						const gate = commanderGate();
-						const client = commanderClient();
-
-						if (gate?.state === "available" && client) {
-							// Commander available: await sync for per-task verification
-							const cid = lookupMapping(syncState, task.id);
-							if (cid !== undefined) {
-								try {
-									await client.callTool("commander_task", {
-										operation: "update",
-										task_id: cid,
-										status: localToCommander(task.status),
-									});
-									syncState = updateMappingStatus(syncState, task.id, task.status);
-									msg += ` (Commander #${cid} → ${localToCommander(task.status)})`;
-								} catch {
-									// Direct sync failed — queue for retry
-									syncToCommander("task-toggle-retry", async (c) => {
-										await c.callTool("commander_task", {
-											operation: "update",
-											task_id: cid,
-											status: localToCommander(task.status),
-										});
-										syncState = updateMappingStatus(syncState, task.id, task.status);
-									});
-									msg += ` (Commander sync failed — queued for retry)`;
-								}
-							} else {
-								msg += ` (Commander: no mapping for task #${task.id})`;
-							}
-
-							// On completion: verify all tasks are synced
-							if (task.status === "done") {
-								const synced = isFullySynced(
-									tasks.map(t => ({ id: t.id, text: t.text, status: t.status })),
-									syncState.mappings,
-								);
-								if (!synced) {
-									const tracker = g.__piCommanderTracker;
-									if (tracker?.reconcileNow) tracker.reconcileNow();
-									msg += "\n(Triggering Commander sync for remaining tasks)";
-								}
-							}
-						} else {
-							// Commander unavailable: fire-and-forget (existing behavior)
-							syncToCommander("task-toggle", async (client) => {
-								const cid = lookupMapping(syncState, task.id);
-								if (cid === undefined) return;
-								await client.callTool("commander_task", {
-									operation: "update",
-									task_id: cid,
-									status: localToCommander(task.status),
-								});
-								syncState = updateMappingStatus(syncState, task.id, task.status);
-							});
-						}
-
-						// Demoted tasks: fire-and-forget (automatic side effect)
-						for (const d of demoted) {
-							syncToCommander("task-demote", async (client) => {
-								const cid = lookupMapping(syncState, d.id);
-								if (cid === undefined) return;
-								await client.callTool("commander_task", {
-									operation: "update",
-									task_id: cid,
-									status: "pending",
-								});
-								syncState = updateMappingStatus(syncState, d.id, "idle");
-							});
-						}
-					}
-
 					const result = {
 						content: [{
 							type: "text" as const,
@@ -799,23 +569,6 @@ export default function (pi: ExtensionAPI) {
 						};
 					}
 					const removed = tasks.splice(idx, 1)[0];
-					pendingGroupTaskIds = pendingGroupTaskIds.filter((localId) => localId !== removed.id);
-
-					// Sync: cancel Commander task (skip if external sync owns it)
-					if (!isExternalSyncActive()) {
-						const removedCommanderId = lookupMapping(syncState, removed.id);
-						syncToCommander("task-remove", async (client) => {
-							const cid = removedCommanderId;
-							if (cid === undefined) return;
-							await client.callTool("commander_task", {
-								operation: "update",
-								task_id: cid,
-								status: "cancelled",
-							});
-						});
-					}
-					syncState = removeMapping(syncState, removed.id);
-
 					const result = {
 						content: [{ type: "text" as const, text: `Removed task #${removed.id}: ${removed.text}` }],
 						details: makeDetails("remove"),
@@ -846,14 +599,6 @@ export default function (pi: ExtensionAPI) {
 					}
 					const oldText = toUpdate.text;
 					toUpdate.text = params.text;
-					if (!isExternalSyncActive()) {
-						const commanderId = lookupMapping(syncState, toUpdate.id);
-						if (commanderId !== undefined) {
-							syncToCommander("task-update", async (client) => {
-								await client.callTool("commander_task", { operation: "update", task_id: commanderId, description: toUpdate.text });
-							});
-						}
-					}
 					const result = {
 						content: [{ type: "text" as const, text: `Updated #${toUpdate.id}: "${oldText}" → "${toUpdate.text}"` }],
 						details: makeDetails("update"),
@@ -879,27 +624,10 @@ export default function (pi: ExtensionAPI) {
 
 					const count = tasks.length;
 
-					// Sync: cancel all mapped Commander tasks (skip if external sync owns it)
-					if (!isExternalSyncActive() && syncState.mappings.length > 0) {
-						const mappingsToCancel = [...syncState.mappings];
-						syncToCommander("cancel-all", async (client) => {
-							for (const m of mappingsToCancel) {
-								await client.callTool("commander_task", {
-									operation: "update",
-									task_id: m.commanderId,
-									status: "cancelled",
-								});
-							}
-						});
-					}
-
 					tasks = [];
 					nextId = 1;
-					syncGeneration++;
-					pendingGroupTaskIds = [];
 					listTitle = undefined;
 					listDescription = undefined;
-					syncState = clearMappings(syncState);
 
 					const result = {
 						content: [{ type: "text" as const, text: `Cleared ${count} task(s)` }],

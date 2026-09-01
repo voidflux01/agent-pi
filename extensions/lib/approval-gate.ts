@@ -290,8 +290,6 @@ export function decideApprovalGate(input: {
 	if ((APPROVAL_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 	if ((READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 	if (toolName === "bash" && isReadOnlyBash(args)) return { block: false };
-	if (toolName.startsWith("commander_")) return { block: false };
-
 	if ((FILE_MUTATION_TOOLS as readonly string[]).includes(toolName)) {
 		const path = toolPath(args);
 		if (path && isPlanningArtifact(mode, path, cwd)) return { block: false };

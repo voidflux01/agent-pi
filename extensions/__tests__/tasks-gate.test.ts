@@ -53,24 +53,6 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("")).toBe(false);
 	});
 
-	it("should bypass for 'commander_task' tool", () => {
-		expect(shouldBypassTaskGate("commander_task")).toBe(true);
-	});
-
-	it("should bypass for 'commander_session' tool", () => {
-		expect(shouldBypassTaskGate("commander_session")).toBe(true);
-	});
-
-	it("should bypass for 'commander_mailbox' tool", () => {
-		expect(shouldBypassTaskGate("commander_mailbox")).toBe(true);
-	});
-
-	it("should bypass for any commander_* prefixed tool", () => {
-		expect(shouldBypassTaskGate("commander_workflow")).toBe(true);
-		expect(shouldBypassTaskGate("commander_orchestration")).toBe(true);
-		expect(shouldBypassTaskGate("commander_dependency")).toBe(true);
-	});
-
 	it("should bypass for 'advance_phase' pipeline tool", () => {
 		expect(shouldBypassTaskGate("advance_phase")).toBe(true);
 	});

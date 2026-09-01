@@ -29,14 +29,10 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
-import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
-import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
-import { parseGroupCreateResult, buildGroupCreatePayload } from "./lib/commander-sync.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
-import { commanderAvailable as commanderAvailableState, commanderClient } from "./lib/coordination-state.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
@@ -44,16 +40,6 @@ import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-
-// ── Commander availability ───────────────────────────────────────────────────
-
-function isCommanderAvailable(): boolean {
-	return commanderAvailableState();
-}
-
-function getCommanderClient(): any | undefined {
-	return isCommanderAvailable() ? commanderClient() : undefined;
-}
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -122,7 +108,6 @@ interface SubState {
 	turnCount: number;     // increments each time /subcont continues this agent
 	summary?: string;      // pre-written summary shown in widget (no markdown)
 	proc?: any;            // active ChildProcess ref (for kill on /subrm)
-	commanderTaskId?: number;  // pre-assigned Commander task ID
 	autoRemove?: boolean;      // auto-remove widget ~30s after done (default: true)
 	model?: string;            // resolved model string for display
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
@@ -250,7 +235,6 @@ export default function (pi: ExtensionAPI) {
 		state: SubState,
 		prompt: string,
 		ctx: any,
-		peerNames?: string[],
 	): Promise<string> {
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
@@ -303,10 +287,6 @@ export default function (pi: ExtensionAPI) {
 
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 
-		// Commander integration
-		const commanderAvail = isCommanderAvailable();
-		const cmdTaskId = state.commanderTaskId;
-
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
 		if (state.name.toLowerCase() === "researcher") {
@@ -318,33 +298,15 @@ export default function (pi: ExtensionAPI) {
 		// after finishing its task.
 		const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
 
-		// Build system prompt: agent definition prompt + Commander discipline
 		// Build one stable prompt block instead of several append flags. This keeps
-		// the worker's system-prefix reusable for provider prompt caching and avoids
-		// repeating the same framing between runtime adapters.
+		// the worker's system-prefix reusable for provider prompt caching.
 		const promptParts: string[] = [];
 		if (agentDef?.systemPrompt) promptParts.push(agentDef.systemPrompt);
-		if (commanderAvail) {
-			promptParts.push(buildCommanderPrompt({
-				agentName: `SA-${state.id}-${state.name}`,
-				taskId: cmdTaskId,
-				enableMailboxChat: true,
-				peerNames,
-			}));
-		}
 		if (!isToolkitCliAgent(state.name)) {
 			promptParts.push(buildAgentResultContractPrompt());
 			if (isExecutionWorker(state.name)) promptParts.push(implementationWorkerPrompt());
 		}
 		const systemPromptArgs = ["--append-system-prompt", promptParts.join("\n\n")];
-
-		// Pre-claim: parent claims Commander task on behalf of subagent
-		if (commanderAvail && cmdTaskId !== undefined) {
-			const client = getCommanderClient();
-			if (client) {
-				preClaimTask(client, cmdTaskId, `SA-${state.id}-${state.name}`).catch(() => {});
-			}
-		}
 
 		// Mailbox identity must follow the visible SA id, not the role name:
 		// multiple SCOUT/BUILDER workers can run at the same time.
@@ -359,10 +321,6 @@ export default function (pi: ExtensionAPI) {
 			PI_PANE_TITLE: paneTitle,
 			PI_SESSION_FILE: state.sessionFile,
 		});
-		if (commanderAvail && cmdTaskId !== undefined) {
-			spawnEnv.PI_COMMANDER_TASK_ID = String(cmdTaskId);
-		}
-
 		return new Promise<string>((resolve) => {
 			const startTime = Date.now();
 			const timer = lifecycle.trackTimer(setInterval(() => {
@@ -433,21 +391,6 @@ export default function (pi: ExtensionAPI) {
 					code === 0 && !failure ? "done" : "error",
 				);
 				invalidateWidget(state.id);
-
-				// Post-dispatch: reconcile Commander task to terminal state
-				if (commanderAvail && cmdTaskId !== undefined) {
-					const client = getCommanderClient();
-					if (client) {
-						const agentLabel = `SA-${state.id}-${state.name}`;
-						const summary = state.textChunks.join("").trim().split("\n").pop() || agentLabel;
-						if (state.status === "done") {
-							postCompleteTask(client, cmdTaskId, agentLabel, summary).catch(() => {});
-						} else {
-							const errMsg = summary || "Agent exited with error";
-							postFailTask(client, cmdTaskId, errMsg).catch(() => {});
-						}
-					}
-				}
 
 				const result = externalFull ?? state.textChunks.join("");
 
@@ -576,7 +519,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Standard Pi transport is shared with team, chain, and pipeline. The
-			// widget keeps watchdog, epoch, Commander, and follow-up policies local.
+			// Keep watchdog, epoch, and follow-up policies local to this widget.
 			const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
@@ -631,7 +574,6 @@ export default function (pi: ExtensionAPI) {
 			name: Type.Optional(Type.String({ description: "Short role label (e.g. REVIEWER, SCOUT). If this matches a known agent definition, that agent's model/tools/prompt are auto-applied." })),
 			summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
-			commanderTaskId: Type.Optional(Type.Number({ description: "Pre-assigned Commander task ID (avoids race conditions)" })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit or 0 to run until the agent finishes." })),
 		}),
@@ -656,7 +598,6 @@ export default function (pi: ExtensionAPI) {
 				sessionFile: makeSessionFile(id),
 				turnCount: 1,
 				summary: args.summary,
-				commanderTaskId: args.commanderTaskId,
 				autoRemove: args.autoRemove,
 				model: args.model, // caller-specified model override
 				maxDurationMs: resolveTimeout(agentName, args.timeout),
@@ -680,7 +621,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
-		description: "Spawn multiple subagents at once with optional Commander task group. Pre-creates Commander tasks to avoid race conditions where multiple agents try to claim the same task.\n\nWhen an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
+		description: "Spawn multiple subagents at once. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				task: Type.String({ description: "The complete task description for the subagent" }),
@@ -688,7 +629,6 @@ export default function (pi: ExtensionAPI) {
 				summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 				model: Type.Optional(Type.String({ description: "Model override. Only set to override the agent definition's default model." })),
 			}), { description: "Array of agent definitions to spawn" }),
-			groupName: Type.Optional(Type.String({ description: "Commander task group name (used when Commander is available)" })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit or 0 to run until each agent finishes." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
@@ -750,35 +690,9 @@ export default function (pi: ExtensionAPI) {
 				};
 			});
 
-			// Try to create Commander task group for all agents at once
-			const client = getCommanderClient();
-			if (client && isCommanderAvailable()) {
-				const groupName = args.groupName || `subagent-batch-${Date.now()}`;
-				const taskTexts = defs.map((def: any) => def.task);
-				const payload = buildGroupCreatePayload(
-					groupName,
-					`Batch subagent group: ${groupName}`,
-					taskTexts,
-					process.cwd(),
-				);
-				try {
-					const result = await client.callTool("commander_task", payload);
-					const parsed = parseGroupCreateResult(result);
-					if (parsed && parsed.taskIds.length >= states.length) {
-						for (let i = 0; i < states.length; i++) {
-							states[i].commanderTaskId = parsed.taskIds[i];
-						}
-					}
-				} catch {
-					// Commander group creation failed — proceed without task IDs
-				}
-			}
 			if (commandEpoch !== sessionEpoch) {
 				return { content: [{ type: "text", text: "Session changed before the subagent batch could start." }] };
 			}
-
-			// Collect peer names for mailbox banter
-			const peerNames = states.map(s => `SA-${s.id}-${s.name}`);
 
 			// Register and spawn all agents
 			for (const state of states) {
@@ -787,8 +701,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			for (const state of states) {
-				const peers = peerNames.filter(n => n !== `SA-${state.id}-${state.name}`);
-				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, peers))();
+				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx))();
 			}
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");

@@ -63,8 +63,8 @@ export default function (pi: ExtensionAPI) {
 			"- 'inspect': Get full details and parameter schema for a specific tool by name.\n\n" +
 			"Examples:\n" +
 			'{ "operation": "search", "query": "file management" }\n' +
-			'{ "operation": "list", "category": "commander" }\n' +
-			'{ "operation": "inspect", "tool_name": "commander_task" }',
+			'{ "operation": "list", "category": "workflow" }\n' +
+			'{ "operation": "inspect", "tool_name": "tasks" }',
 		parameters: ToolSearchParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {

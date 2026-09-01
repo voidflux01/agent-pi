@@ -857,17 +857,16 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
   <span class="local-icon">⚡</span>
   <span>Local Mode</span>
   <span id="localTitleLabel" class="local-title-name"></span>
-  <span class="local-hint">Commander offline — showing local tasks</span>
+  <span class="local-hint">Showing local tasks</span>
 </div>
 
 <!-- Offline Overlay (only shown when no local tasks) -->
 <div class="offline-overlay" id="offlineOverlay">
   <div class="offline-icon">⚡</div>
-  <div class="offline-title">Commander Offline</div>
+  <div class="offline-title">Local task board</div>
   <div class="offline-desc">
-    The Commander service is not running or not reachable.<br>
     No local tasks found. Use <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:12px">tasks add</code> to get started.<br>
-    The board will reconnect automatically when Commander comes back online.
+    Tasks are stored locally in the current Pi session.
   </div>
 </div>
 
@@ -934,7 +933,7 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
       statusText.textContent = 'Connected';
       offlineOverlay.classList.remove('visible');
       localModeBanner.classList.remove('visible');
-      // Restore Commander-only sections
+      // Restore optional sections
       agentStrip.style.display = '';
       sidebar.style.display = '';
     } else if (state === 'local') {
@@ -947,7 +946,7 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
       } else {
         localTitleLabel.textContent = '';
       }
-      // Hide Commander-only sections (no data in local mode)
+      // Hide optional sections when no data is available
       agentStrip.style.display = 'none';
       sidebar.style.display = 'none';
     } else if (state === 'offline') {

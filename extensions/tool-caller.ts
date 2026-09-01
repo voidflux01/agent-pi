@@ -14,7 +14,7 @@ import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 // ── Tool Parameters ────────────────────────────────────────────────────
 
 const CallToolParams = Type.Object({
-	tool_name: Type.String({ description: "Name of the tool to invoke (e.g. 'read', 'commander_task', 'web_remote')" }),
+	tool_name: Type.String({ description: "Name of the tool to invoke (e.g. 'read', 'tasks', 'web_remote')" }),
 	arguments: Type.Record(Type.String(), Type.Unknown(), { description: "Arguments to pass to the tool — must match the tool's parameter schema" }),
 	reason: Type.Optional(Type.String({ description: "Brief description of why this tool is being called (for audit trail)" })),
 });
@@ -72,13 +72,13 @@ export default function (pi: ExtensionAPI) {
 			"Use tool_search first to discover available tools and their parameters. " +
 			"This enables dynamic tool composition — call tools based on runtime conditions.\n\n" +
 			"Parameters:\n" +
-			"- tool_name: The exact name of the tool to call (e.g. 'read', 'bash', 'commander_task')\n" +
+			"- tool_name: The exact name of the tool to call (e.g. 'read', 'bash', 'tasks')\n" +
 			"- arguments: Object with the tool's expected parameters\n" +
 			"- reason: (optional) Why this tool is being called\n\n" +
 			"Examples:\n" +
 			'{ "tool_name": "read", "arguments": { "path": "package.json" }, "reason": "Check project dependencies" }\n' +
 			'{ "tool_name": "bash", "arguments": { "command": "git status" }, "reason": "Check repo state" }\n' +
-			'{ "tool_name": "commander_task", "arguments": { "operation": "list" }, "reason": "List current tasks" }\n\n' +
+			'{ "tool_name": "tasks", "arguments": { "operation": "list" }, "reason": "List current tasks" }\n\n' +
 			"Note: Cannot call 'call_tool' or 'tool_search' recursively. " +
 			"All security restrictions still apply — blocked operations remain blocked.",
 		parameters: CallToolParams,

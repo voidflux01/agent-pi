@@ -1,5 +1,5 @@
 // ABOUTME: Tests for toolkit-commands slash command registration.
-// ABOUTME: Verifies subdirectory prefix logic and TOOL_MAP legacy entry resolution.
+// ABOUTME: Verifies subdirectory prefix logic and tool name normalization.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
@@ -38,7 +38,7 @@ describe("scanCommandDirs", () => {
 	});
 
 	it("should prefix commands in a subdirectory with the dir name", async () => {
-		const subDir = join(tmpDir, "commander");
+		const subDir = join(tmpDir, "workflow");
 		mkdirSync(subDir);
 		writeMdFile(subDir, "task.md", { description: "Plan and execute a task" }, "Task body");
 
@@ -46,11 +46,11 @@ describe("scanCommandDirs", () => {
 		const cmds = scanCommandDirs(tmpDir);
 
 		expect(cmds).toHaveLength(1);
-		expect(cmds[0].name).toBe("commander-task");
+		expect(cmds[0].name).toBe("workflow-task");
 	});
 
 	it("should not prefix when frontmatter has an explicit name field", async () => {
-		const subDir = join(tmpDir, "commander");
+		const subDir = join(tmpDir, "workflow");
 		mkdirSync(subDir);
 		writeMdFile(subDir, "task.md", {
 			description: "A custom command",
@@ -67,20 +67,20 @@ describe("scanCommandDirs", () => {
 	it("should follow symlinked directories and prefix with dir name", async () => {
 		// Create a real directory with a command file outside tmpDir
 		const realDir = mkdtempSync(join(tmpdir(), "toolkit-cmd-real-"));
-		const realSubDir = join(realDir, "commander");
+		const realSubDir = join(realDir, "workflow");
 		mkdirSync(realSubDir);
-		writeMdFile(realSubDir, "task.md", { description: "Commander task" }, "Task body");
-		writeMdFile(realSubDir, "plan.md", { description: "Commander plan" }, "Plan body");
+		writeMdFile(realSubDir, "task.md", { description: "Workflow task" }, "Task body");
+		writeMdFile(realSubDir, "plan.md", { description: "Workflow plan" }, "Plan body");
 
 		// Symlink it into the scan root
-		symlinkSync(realSubDir, join(tmpDir, "commander"));
+		symlinkSync(realSubDir, join(tmpDir, "workflow"));
 
 		const { scanCommandDirs } = await import("../toolkit-commands.ts");
 		const cmds = scanCommandDirs(tmpDir);
 
 		expect(cmds).toHaveLength(2);
 		const names = cmds.map(c => c.name).sort();
-		expect(names).toEqual(["commander-plan", "commander-task"]);
+		expect(names).toEqual(["workflow-plan", "workflow-task"]);
 
 		rmSync(realDir, { recursive: true, force: true });
 	});
@@ -98,19 +98,14 @@ describe("scanCommandDirs", () => {
 	});
 });
 
-describe("mapTools — legacy commander entries", () => {
-	it("should map pre-unification commander tool names to commander_task", async () => {
+describe("mapTools", () => {
+	it("should discard removed external tool names", async () => {
 		const { mapTools } = await import("../toolkit-commands.ts");
 
-		const legacyNames = [
-			"mcp__commander__commander_task_lifecycle",
-			"mcp__commander__commander_task_group",
-			"mcp__commander__commander_comment",
-			"mcp__commander__commander_log",
-		];
+		const legacyNames = ["mcp__external__removed_tool"];
 
 		const result = mapTools(legacyNames);
-		expect(result).toEqual(["commander_task"]);
+		expect(result).toEqual(["mcp__external__removed_tool"]);
 	});
 
 	it("should map SlashCommand to skill", async () => {

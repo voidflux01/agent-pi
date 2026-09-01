@@ -58,36 +58,16 @@ const TOOL_MAP: Record<string, string> = {
 	"AskUserQuestion": "ask_user",
 	Task: "dispatch_agent",
 	Skill: "skill",
+	SlashCommand: "skill",
 	Python: "bash",
 	python: "bash",
 	terminal: "bash",
-	"claude-code-sdk": "read,grep,bash",
-	// Commander MCP tools (Claude Code → Pi name mapping)
-	"mcp__commander__commander_task": "commander_task",
-	"mcp__commander__commander_session": "commander_session",
-	"mcp__commander__commander_workflow": "commander_workflow",
-	"mcp__commander__commander_spec": "commander_spec",
-	"mcp__commander__commander_jira": "commander_jira",
-	"mcp__commander__commander_mailbox": "commander_mailbox",
-	"mcp__commander__commander_orchestration": "commander_orchestration",
-	"mcp__commander__commander_dependency": "commander_dependency",
-	"mcp__commander__commander_agentmail": "commander_agentmail",
-	// Legacy tool names used in session-cleanup.md
-	"mcp__commander__commander_session_cleanup": "commander_session",
-	"mcp__commander__commander_terminal_sessions": "commander_session",
-	// Legacy pre-unification commander tool names (all map to unified commander_task)
-	"mcp__commander__commander_task_lifecycle": "commander_task",
-	"mcp__commander__commander_task_group": "commander_task",
-	"mcp__commander__commander_comment": "commander_task",
-	"mcp__commander__commander_log": "commander_task",
-	// Claude Code tool equivalents
-	"SlashCommand": "skill",
 };
 
 export function mapTools(toolList: string[]): string[] {
 	const result: string[] = [];
 	for (let t of toolList) {
-		// Handle Claude Code tool filter patterns like "Bash(python3:*)"
+		// Handle tool filter patterns like "Bash(python3:*)"
 		// Strip the filter suffix — Pi doesn't use it, just map the base tool name
 		const filterMatch = t.match(/^([A-Za-z_-]+)\(.*\)$/);
 		if (filterMatch) t = filterMatch[1];

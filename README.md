@@ -207,16 +207,6 @@ PI_HERDR_SUBAGENTS=0  # disable visible Herdr workers
 PI_HERDR_SPLIT=0      # use background tabs instead of sibling splits
 ```
 
-### Commander MCP (optional)
-
-Commander integration is disabled by default. Enable it by pointing to a Commander MCP server build:
-
-```bash
-export COMMANDER_MCP_SERVER_PATH="/path/to/commander/services/commander-mcp/dist/server.js"
-```
-
-When unset, Commander tools report that they are not configured instead of spawning a server.
-
 ## Development
 
 Install dependencies and run the test suite. Bun is required because part of the
@@ -261,7 +251,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [CHANGELO
 | `Shift+Tab` does nothing | Confirm `mode-cycler` is loaded. |
 | Chains or pipelines are missing | Confirm the package's `agents/` directory is available to the extensions. |
 | Agents use an unexpected model | Add a project- or user-level `models.json` override. |
-| Commander tools say “not configured” | Set `COMMANDER_MCP_SERVER_PATH` to a valid server build. |
 
 ## Credits
 

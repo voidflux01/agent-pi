@@ -32,7 +32,7 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
-import { commanderAvailable as isCommanderAvailable, commanderClient, commanderGate, coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
+import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
@@ -43,7 +43,6 @@ import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, pars
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
-import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
@@ -51,7 +50,6 @@ import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispat
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
-import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
@@ -585,19 +583,6 @@ export default function (pi: ExtensionAPI) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
 		const herdrDoneExtPath = join(extDir, "herdr-done.ts");
 
-		// Resolve tools — append commander tools when Commander is available
-		const g = globalThis as any;
-		const commanderAvailable = isCommanderAvailable();
-
-		// Commander lifecycle: gate-aware fire-and-forget helper
-		function commanderSync(fn: (client: any) => Promise<void>): void {
-			const gate = commanderGate();
-			const client = commanderClient();
-			if (!gate || !isCommanderAvailable() || !client) return;
-			fn(client).catch(() => {});
-		}
-
-		// Hoist for use in pre-dispatch claim + post-dispatch reconciliation
 		const canonicalName = state.def.name;
 
 		// Purge stale steer mails from a previous (dead) run so a fresh task
@@ -607,33 +592,12 @@ export default function (pi: ExtensionAPI) {
 				rmSync(path, { force: true });
 			}
 		} catch {}
-		const taskId = commanderAvailable ? g.__piCurrentTask?.commanderTaskId as number | undefined : undefined;
-
 		let tools = state.def.tools;
 		if (canonicalName.toLowerCase() === "researcher") {
 			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
 		}
 		if (!isToolkitCliAgent(canonicalName)) tools = ensurePiTool(tools, "ask_parent");
-		// Commander tools are intentionally omitted from the worker allowlist; package
-		// discovery loads commander-mcp and Pi auto-activates its extension tools.
-
-		// Build system prompt — append Commander discipline when available
 		let systemPrompt = state.def.systemPrompt;
-		if (commanderAvailable) {
-			// Gather peer names for inter-agent mailbox communication
-			const peerNames: string[] = [];
-			for (const [name] of agentStates) {
-				if (name !== canonicalName.toLowerCase()) {
-					peerNames.push(name);
-				}
-			}
-			systemPrompt += buildCommanderPrompt({
-				agentName: canonicalName,
-				taskId,
-				enableMailboxChat: true,
-				peerNames,
-			});
-		}
 
 		if (!isToolkitCliAgent(canonicalName)) {
 			systemPrompt += buildAgentResultContractPrompt();
@@ -679,7 +643,7 @@ export default function (pi: ExtensionAPI) {
 		let liveText = "";
 
 		return new Promise((resolve) => {
-			// Build env — include Commander task ID when available
+			// Build the least-privilege worker environment.
 			const paneTitle = herdrWorkerLabel(state.def.name, journalId);
 			const spawnEnv: Record<string, string | undefined> = childEnvironment({
 				PI_SUBAGENT: "1",
@@ -687,18 +651,6 @@ export default function (pi: ExtensionAPI) {
 				PI_PANE_TITLE: paneTitle,
 				PI_SESSION_FILE: state.sessionFile || undefined,
 			});
-			if (commanderAvailable) {
-				const currentTask = g.__piCurrentTask as { commanderTaskId?: number } | null;
-				if (currentTask?.commanderTaskId !== undefined) {
-					spawnEnv.PI_COMMANDER_TASK_ID = String(currentTask.commanderTaskId);
-				}
-			}
-
-			// Pre-dispatch: claim task in Commander before spawning
-			if (commanderAvailable && taskId !== undefined) {
-				commanderSync((client) => preClaimTask(client, taskId, canonicalName));
-			}
-
 			let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
 			let toolkitModel: string | undefined;
 			let finished = false;
@@ -793,16 +745,6 @@ export default function (pi: ExtensionAPI) {
 					if (runEpoch === sessionEpoch && state.status !== "running") removeAgentWidget(state, ctx);
 				}, 30_000);
 
-				if (commanderAvailable && taskId !== undefined) {
-					const summary = textChunks.join("").trim().split("\n").pop() || canonicalName;
-					if (state.status === "done") {
-						commanderSync((client) => postCompleteTask(client, taskId, canonicalName, summary));
-					} else {
-						const errMsg = stderrBuf.trim() || summary || "Agent exited with error";
-						commanderSync((client) => postFailTask(client, taskId, errMsg));
-					}
-				}
-
 				safeNotify(
 					ctx,
 					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
@@ -892,7 +834,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Standard Pi transport is centralized. Team-specific state, context
-			// warnings, Commander reconciliation, and result composition stay here.
+			// warnings and result composition stay here.
 			const launch = applyWorkerLaunchPolicy(["pi", ...args], canonicalName);
 			runDispatch({
 				authorization: currentDispatchAuthorization(),
@@ -1408,11 +1350,6 @@ export default function (pi: ExtensionAPI) {
 			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` + (s.def.model ? `\n**Model:** ${s.def.model}` : ""))
 			.join("\n\n");
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
-		const commanderAvailable = isCommanderAvailable();
-		const commanderSection = commanderAvailable ? `
-
-## Commander
-Commander is connected. Use commander_task for tracking and commander_mailbox for concise status updates.` : "";
 		const scoutSection = agentStates.has("scout") ? `
 
 ## Context gathering
@@ -1452,7 +1389,7 @@ ${scoutSection}
 - When team work is complete, present the outcome with show_report. If a ## Contract with executable assertions is bound (approved plan/spec), completion is blocked until those assertions PASS deterministically.
 
 ## Agents
-${agentCatalog}${commanderSection}`,
+${agentCatalog}`,
 		};
 	});
 

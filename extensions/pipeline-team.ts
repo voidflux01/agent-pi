@@ -38,7 +38,6 @@ import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } f
 import {
 	coordinationState,
 	setActivePipeline,
-	commanderAvailable as isCommanderAvailable,
 	onCoordinationModeChange,
 	setCoordinationMode,
 	bumpVerifierAttempt,
@@ -1353,21 +1352,6 @@ After reviewing the output:
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}
 
-		const commanderAvailable = isCommanderAvailable();
-		const commanderSection = commanderAvailable ? `
-
-## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_session { operation: "file:open", file_path: <path> }\` — display key files in Commander's floating viewer
-- \`commander_task\` — track tasks in the Commander dashboard
-- \`commander_mailbox\` — send status updates to the dashboard
-
-### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "coordinator" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere
-- Use file:open to show pipeline plans, phase results, or review reports` : "";
-
 		return {
 			systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
 
@@ -1403,7 +1387,7 @@ ${contextSummary}${planSection}${reviewSection}
 - \`advance_phase\`: Move to next phase after this phase's dispatch_agents have finished (required summary from their RESULT)
 - \`dispatch_agents\`: Send agents to work (array of {role, task})
 - \`pipeline_status\`: Check current pipeline state
-- Plus all standard codebase tools (read, write, edit, bash, etc.)${commanderSection}`,
+- Plus all standard codebase tools (read, write, edit, bash, etc.)`,
 		};
 	});
 

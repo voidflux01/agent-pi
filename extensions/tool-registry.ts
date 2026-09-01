@@ -11,7 +11,7 @@ export interface ToolEntry {
 	description: string;
 	category: string;
 	tags: string[];
-	source: "builtin" | "extension" | "skill" | "commander";
+	source: "builtin" | "extension" | "skill";
 	parameterSummary: string;
 }
 
@@ -27,11 +27,6 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 		category: "shell",
 		names: ["bash"],
 		keywords: ["command", "terminal", "shell", "execute"],
-	},
-	{
-		category: "commander",
-		names: [],
-		keywords: ["commander"],
 	},
 	{
 		category: "testing",
@@ -59,16 +54,8 @@ function detectCategory(name: string, description: string): string {
 	const lowerName = name.toLowerCase();
 	const lowerDesc = description.toLowerCase();
 
-	// Commander tools — name-based match
-	if (lowerName.startsWith("commander_")) return "commander";
-
 	for (const rule of CATEGORY_RULES) {
 		if (rule.names.includes(lowerName)) return rule.category;
-		for (const kw of rule.keywords) {
-			if (lowerDesc.includes(kw) && !lowerName.startsWith("commander_")) {
-				// Only match if not already caught by a name rule above
-			}
-		}
 	}
 
 	// Keyword-based fallback
@@ -121,7 +108,6 @@ const BUILTIN_TOOLS = ["read", "write", "edit", "bash", "ls", "find", "grep"];
 
 function detectSource(name: string): ToolEntry["source"] {
 	if (BUILTIN_TOOLS.includes(name)) return "builtin";
-	if (name.startsWith("commander_")) return "commander";
 	return "extension";
 }
 

@@ -71,7 +71,6 @@ export function shouldBypassTaskGate(toolName: string, requireActiveTask = false
 	if (isScoutRecon(toolName, args)) return true;
 	if (requireActiveTask && (TASK_EXECUTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	return (TASK_GATE_BYPASS_TOOLS as readonly string[]).includes(toolName)
-		|| toolName.startsWith("commander_")
 		|| (READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName);
 }
 

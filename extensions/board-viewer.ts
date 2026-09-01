@@ -1,5 +1,5 @@
 // ABOUTME: Task Board Viewer — opens a GUI browser window showing a live Kanban board of agent work.
-// ABOUTME: Polls Commander MCP tools for tasks, agents, messages, and groups. Auto-refreshes every 3 seconds.
+// ABOUTME: Shows the local Pi task list in a browser Kanban board.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
@@ -16,7 +16,6 @@ import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAut
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { generateBoardViewerHTML } from "./lib/board-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
-import { commanderClient } from "./lib/coordination-state.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -43,35 +42,8 @@ function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (bod
 	readBoundedRequestBody(req, res, onBody, MAX_BOARD_REQUEST_BODY_BYTES, { ok: false, error: "Request body too large" });
 }
 
-// ── Commander Data Helpers ───────────────────────────────────────────
-
-/**
- * Call a Commander MCP tool via the global client set by commander-mcp.ts.
- * Returns the parsed result or null on failure.
- */
-async function callCommander(toolName: string, params: Record<string, unknown>): Promise<any> {
-	const client = commanderClient();
-	if (!client) return null;
-
-	try {
-		const result = await client.callTool(toolName, params, 8000);
-		// MCP results come as { content: [{ type: "text", text: "..." }] }
-		if (result?.content?.[0]?.text) {
-			try {
-				return JSON.parse(result.content[0].text);
-			} catch {
-				return result.content[0].text;
-			}
-		}
-		return result;
-	} catch {
-		return null;
-	}
-}
-
 /**
  * Read local tasks from the tasks extension (globalThis.__piTaskList).
- * Always available regardless of Commander status.
  */
 function getLocalTasks(): { tasks: any[]; title?: string } {
 	const g = globalThis as any;
@@ -91,11 +63,9 @@ function getLocalTasks(): { tasks: any[]; title?: string } {
 }
 
 /**
- * Gather board data — always local-first.
- * Local tasks are the primary data source. Commander data is layered in when available.
+ * Gather board data from the local Pi task list.
  */
 async function gatherBoardData(): Promise<BoardData> {
-	const g = globalThis as any;
 	const local = getLocalTasks();
 
 	// Always return local tasks — this is the local-first board
@@ -105,7 +75,7 @@ async function gatherBoardData(): Promise<BoardData> {
 		messages: [],
 		groups: [],
 		readyTasks: [],
-		connected: false,
+		connected: true,
 		localMode: true,
 		localTitle: local.title,
 		timestamp: new Date().toISOString(),
@@ -292,7 +262,7 @@ export default function (pi: ExtensionAPI) {
 			"(Pending → Working → Completed → Failed). Auto-refreshes every 3 seconds.\n\n" +
 			"The board runs as a lightweight background web server. Unlike other viewers, " +
 			"it stays open and keeps refreshing — close the browser tab when done.\n\n" +
-			"Shows local tasks from the tasks extension — no Commander required.",
+			"Shows the local Pi task list in a browser Kanban board.",
 		parameters: ShowBoardParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

@@ -36,7 +36,7 @@ import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
-import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
+import { coordinationState, setActiveChain, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
@@ -1125,20 +1125,6 @@ export default function (pi: ExtensionAPI) {
 			})
 			.join("\n\n");
 
-		const commanderAvailable = isCommanderAvailable();
-		const commanderSection = commanderAvailable ? `
-
-## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_session { operation: "file:open", file_path: <path> }\` — display key files in Commander's floating viewer
-- \`commander_task\` — track tasks in the Commander dashboard
-- \`commander_mailbox\` — send status updates to the dashboard
-
-### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "coordinator" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere` : "";
-
 		return {
 			systemPrompt: `You are the coordinator for a sequential pipeline called "${activeChain.name}".${desc}
 
@@ -1174,7 +1160,7 @@ ${agentCatalog}
 - Each step's output feeds into the next step as $INPUT
 - Agents maintain session context — they remember previous work within this session
 - You can run the chain multiple times with different tasks if needed
-- After the chain completes, report the RESULT summaries — do not re-run them${commanderSection}`,
+- After the chain completes, report the RESULT summaries — do not re-run them`,
 		};
 	});
 

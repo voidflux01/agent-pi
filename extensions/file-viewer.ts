@@ -1,4 +1,4 @@
-// ABOUTME: Lightweight local file viewer/editor that opens in the browser without Commander.
+// ABOUTME: Lightweight local file viewer/editor for the Pi runtime.
 // ABOUTME: Serves a local web UI for viewing and optionally editing a single file directly from the CLI.
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -296,7 +296,7 @@ export default function (pi: ExtensionAPI) {
 		name: "show_file",
 		label: "Show File",
 		description:
-			"Open a lightweight local file viewer/editor in the browser without Commander. " +
+			"Open a lightweight local file viewer/editor in the browser. " +
 			"Supports read-only viewing by default, optional editing/saving, and simple line-range display.",
 		parameters: ShowFileParams,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

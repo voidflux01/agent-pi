@@ -33,10 +33,6 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("implement");
 	});
 
-	it("does not mention unavailable Commander tools", () => {
-		expect(PLAN_PROMPT).not.toContain("commander_task");
-	});
-
 	it("contains '.context/todo.md'", () => {
 		expect(PLAN_PROMPT).toContain(".context/todo.md");
 	});
@@ -59,14 +55,6 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT.indexOf("1. Recon first: inspect the repository")).toBeLessThan(PLAN_PROMPT.indexOf("3. Write"));
 		expect(PLAN_PROMPT.indexOf("## Scout")).toBeLessThan(PLAN_PROMPT.indexOf("## Grill-me"));
 		expect(PLAN_PROMPT).not.toContain("grill_record_turn");
-	});
-});
-
-describe("buildPlanPrompt — optional Commander", () => {
-	it("adds Commander instructions only when connected", () => {
-		expect(buildPlanPrompt(false)).not.toContain("commander_task");
-		expect(buildPlanPrompt(true)).toContain("commander_task");
-		expect(buildPlanPrompt(true)).toContain("ALWAYS");
 	});
 });
 
@@ -162,12 +150,6 @@ describe("orchestration task discipline", () => {
 	});
 });
 
-describe("SPEC_PROMPT — Commander-first enforcement", () => {
-	it("contains 'ALWAYS' for Commander usage", () => {
-		expect(SPEC_PROMPT).toContain("ALWAYS");
-	});
-});
-
 describe("SPEC_PROMPT", () => {
 	it("is a non-empty string", () => {
 		expect(typeof SPEC_PROMPT).toBe("string");
@@ -192,9 +174,6 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("cannot pass show_report");
 	});
 
-	it("contains 'commander_mailbox'", () => {
-		expect(SPEC_PROMPT).toContain("commander_mailbox");
-	});
 
 	it("requires focused recon for non-trivial SPEC tasks while allowing small known-scope tasks to self-inspect", () => {
 		expect(SPEC_PROMPT).toContain("one read-only scout by default");

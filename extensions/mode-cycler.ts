@@ -11,7 +11,7 @@ import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
 import { MODES, nextMode, modeLabel, modeBgAnsi, modeTextAnsi, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { rewritePayloadSystemPrompt } from "./lib/rewrite-system-prompt.ts";
-import { coordinationState, setCoordinationMode, commanderAvailable as isCommanderAvailable } from "./lib/coordination-state.ts";
+import { coordinationState, setCoordinationMode } from "./lib/coordination-state.ts";
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
@@ -79,12 +79,11 @@ export default function (pi: ExtensionAPI) {
 	function systemPromptForMode(mode: Mode): string | undefined {
 		if (mode === "NORMAL") {
 			return buildNormalPrompt({
-				commanderAvailable: isCommanderAvailable(),
 				activeChain: coordinationState().activeChain,
 				activePipeline: coordinationState().activePipeline,
 			});
 		}
-		if (mode === "PLAN") return buildPlanPrompt(isCommanderAvailable());
+		if (mode === "PLAN") return buildPlanPrompt();
 		if (mode === "SPEC") return SPEC_PROMPT;
 		return undefined;
 	}

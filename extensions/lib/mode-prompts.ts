@@ -1,20 +1,7 @@
 // ABOUTME: System prompt templates injected by mode-cycler for each operational mode.
-// ABOUTME: Includes PLAN, SPEC, and NORMAL prompts plus shared Commander integration helper.
+// ABOUTME: Includes PLAN, SPEC, and NORMAL prompts for the Pi runtime.
 
 import { RESEARCH_HANDOFF_PROMPT } from "./research-protocol.ts";
-
-/** Shared Commander integration section appended to mode prompts when Commander is available. */
-export function buildCommanderSection(): string {
-	return `\n## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_task\` — track tasks in the Commander dashboard (auto-synced from local tasks)
-- \`commander_mailbox\` — ALWAYS send status updates at task start and completion
-
-### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "<your-name>" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere`;
-}
 
 /** Light enhancement only. Does not replace scout, questions.md, pipeline phases, or dispatch. */
 export const GRILL_ME_SECTION = `## Grill-me
@@ -40,7 +27,6 @@ ${RESEARCH_HANDOFF_PROMPT}`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
-	commanderAvailable: boolean;
 	activeChain: string | null;
 	activePipeline: string | null;
 }
@@ -53,12 +39,6 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 	const pipelineStatus = opts.activePipeline
 		? `Active: "${opts.activePipeline}"`
 		: "Not active — use /pipeline only when you choose a pipeline";
-	const commanderSection = opts.commanderAvailable
-		? buildCommanderSection()
-		: `
-## Optional capabilities
-Commander: offline. Do not call commander_* tools.`;
-
 	return `You are in NORMAL mode. This is the default, low-ceremony path.
 
 ## Default behavior
@@ -106,8 +86,7 @@ Do not enter PLAN merely because a task has several steps. If the direction is c
 
 ## Active workflows
 - CHAIN: ${chainStatus}
-- PIPELINE: ${pipelineStatus}
-${commanderSection}`;
+- PIPELINE: ${pipelineStatus}`;
 }
 
 /** Plan-first workflow: analyze → plan → approve → implement. */
@@ -191,16 +170,13 @@ Always write \.context/todo.md first, then call:
 \`show_plan { file_path: ".context/todo.md", title: "Implementation Plan" }\`
 Do not implement until the user approves. For questions, use show_plan in questions mode.
 
-## Commander
-Use Commander tools only when the capability is reported as connected. If it is offline, do not call commander_* tools.
 `;
 
-/** Add Commander instructions only after the runtime capability probe succeeds. */
-export function buildPlanPrompt(commanderAvailable: boolean): string {
-	return commanderAvailable ? `${PLAN_PROMPT}${buildCommanderSection()}` : PLAN_PROMPT;
+export function buildPlanPrompt(): string {
+	return PLAN_PROMPT;
 }
 
-/** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
+/** Context-os spec-driven workflow: Q&A → spec → implement. */
 export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-driven workflow for every feature request.
 
 ${ORCHESTRATED_TASK_PROMPT}
@@ -261,8 +237,4 @@ This task refresh is required even when the pre-approval planning tasks are alre
 write/edit/mutating bash outside \`context-os/\` are blocked until show_spec is approved. Writing under \`context-os/\` is allowed before that. Read-only bash (\`date +%F\`, \`wc\`, \`pwd\`) may run so you can name the dated spec folder.
 Use /microtasks only when a larger spec needs further decomposition.
 
-## Commander Integration (ALWAYS use when connected)
-- ALWAYS use commander_spec: create/shape/write operations for tracking
-- ALWAYS use commander_workflow template:get contextos: get structured templates
-- ALWAYS use commander_mailbox: send status at spec creation, shaping, and approval
 `;

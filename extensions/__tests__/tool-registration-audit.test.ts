@@ -63,7 +63,7 @@ describe("registered tool lifecycle audit", () => {
 			.map((name) => join(EXTENSIONS_DIR, name));
 		const registrations = files.flatMap((file) => registeredObjects(readFileSync(file, "utf8")).map((object) => ({ file, object })));
 
-		expect(registrations).toHaveLength(41);
+		expect(registrations).toHaveLength(38);
 		for (const { file, object } of registrations) {
 			const hasStaticName = /\bname\s*:\s*["']([^"']+)["']/.test(object);
 			const hasDynamicName = /\bname\s*:\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?/.test(object);
@@ -75,17 +75,5 @@ describe("registered tool lifecycle audit", () => {
 			if (file.endsWith("/tool-caller.ts")) continue;
 			expect(readFileSync(file, "utf8")).not.toContain("pi.registerTool({");
 		}
-	});
-
-	test("dynamic Commander registrations are backed by the complete tool table", () => {
-		const source = readFileSync(join(EXTENSIONS_DIR, "commander-mcp.ts"), "utf8");
-		const declared = [...source.matchAll(/name:\s*"(commander_[a-z]+)"/g)].map((match) => match[1]);
-		expect(declared).toEqual([
-			"commander_task", "commander_session", "commander_workflow", "commander_spec",
-			"commander_jira", "commander_mailbox", "commander_orchestration",
-			"commander_dependency", "commander_agentmail",
-		]);
-		expect(source).toContain("name: tool.name");
-		expect(source).toContain("async execute");
 	});
 });
