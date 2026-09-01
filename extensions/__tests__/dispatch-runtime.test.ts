@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchOrigin, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
+import { activeOrchestrationBudget, clearOrchestrationBudget, initOrchestrationBudget, recordBudgetUsage } from "../lib/orchestration-budget.ts";
 
 function fakeChild() {
 	const child = new EventEmitter() as EventEmitter & {
@@ -82,6 +83,30 @@ describe("shared dispatch runtime", () => {
 		const events = listRunEvents(join(dir, "compositions", result.runId!));
 		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
 		expect((events[0].payload as any)?.data?.mode).toBe("PLAN");
+	});
+
+	it("reserves dispatch admission and releases it when journal usage settles", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "dispatch-budget-reservation-"));
+		initOrchestrationBudget(dir, 16, 0.16);
+		try {
+			const id = "reservation-dispatch-1";
+			journalAppend(dir, { version: 1, id, kind: "team", agent: "builder", task: "task", status: "dispatched", startedAt: Date.now(), updatedAt: Date.now() });
+			const child = fakeChild();
+			const resultPromise = runExplicit("agent-team", () => run({
+				authorization: currentDispatchAuthorization(), command: ["pi", "task"], cwd: dir, launchDir: dir, launchId: id,
+				transport: "headless", journal: { dir, id }, spawnProcess: (() => {
+					queueMicrotask(() => { child.stdout.end(); child.stderr.end(); child.emit("close", 0); });
+					return child;
+				}) as any,
+			}));
+			const result = await resultPromise;
+			expect(result.exitCode).toBe(0);
+			expect(activeOrchestrationBudget()).toMatchObject({ reservedTokens: 1, reservedCostUsd: 0.01 });
+			expect(recordBudgetUsage(id, { totalTokens: 1, costUsd: 0.01 })).toBe(true);
+			expect(activeOrchestrationBudget()).toMatchObject({ totalTokens: 1, reservedTokens: 0, reservedCostUsd: 0 });
+		} finally {
+			clearOrchestrationBudget();
+		}
 	});
 
 	it("authorizes every mode-specific dispatch origin through the same runtime", async () => {

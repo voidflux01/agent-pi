@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 163 Bun passed; 946 Vitest passed; 13 skipped.
+- Full repository tests: 163 Bun passed; 947 Vitest passed; 13 skipped.
 - Orchestration budget regression coverage confirms concurrent admission
   reservations are atomic, visible in status, released on actual usage, and
   explicitly releasable when a worker produces no usage; expired reservations
