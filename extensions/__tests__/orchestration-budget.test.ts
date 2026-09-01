@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { activeOrchestrationBudget, budgetBlockReason, clearOrchestrationBudget, initOrchestrationBudget, readBudgetTotals, recordBudgetUsage } from "../lib/orchestration-budget.ts";
+import { activeOrchestrationBudget, budgetBlockReason, clearOrchestrationBudget, initOrchestrationBudget, readBudgetTotals, recordBudgetUsage, releaseBudgetReservation, reserveBudget } from "../lib/orchestration-budget.ts";
 
 afterEach(() => clearOrchestrationBudget());
 
@@ -42,5 +42,25 @@ describe("orchestration budget", () => {
 		utimesSync(lock, old, old);
 		expect(recordBudgetUsage("run-after-stale-lock", { totalTokens: 10, costUsd: 0.01 })).toBe(true);
 		expect(readBudgetTotals(budget.file)).toEqual({ totalTokens: 10, costUsd: 0.01 });
+	});
+
+	test("reserves admission slices atomically and releases them on actual usage", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-"));
+		initOrchestrationBudget(dir, 1000, 1);
+		const first = reserveBudget("run-reserved-a", 1000, 0.6);
+		expect(first?.reservationId).toMatch(/^[A-Za-z0-9-]+$/);
+		expect(reserveBudget("run-reserved-b", 500, 0.5)).toBeUndefined();
+		expect(activeOrchestrationBudget()).toMatchObject({ reservedTokens: 1000, reservedCostUsd: 0.6 });
+		expect(budgetBlockReason()).toContain("committed");
+		expect(recordBudgetUsage("run-reserved-a", { totalTokens: 100, costUsd: 0.1 })).toBe(true);
+		expect(activeOrchestrationBudget()).toMatchObject({ totalTokens: 100, reservedTokens: 0, reservedCostUsd: 0 });
+	});
+
+	test("can explicitly release an unused reservation", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-"));
+		initOrchestrationBudget(dir, 1000, 1);
+		const reservation = reserveBudget("run-release", 100, 0.1);
+		expect(reservation && releaseBudgetReservation(reservation)).toBe(true);
+		expect(activeOrchestrationBudget()).toMatchObject({ reservedTokens: 0, reservedCostUsd: 0 });
 	});
 });

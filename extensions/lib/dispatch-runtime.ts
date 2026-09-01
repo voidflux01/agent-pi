@@ -25,7 +25,7 @@ import {
 	type HerdrTabRef,
 } from "./herdr-client.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
-import { budgetBlockReason } from "./orchestration-budget.ts";
+import { activeOrchestrationBudget, budgetBlockReason, defaultBudgetReservation, reserveBudget } from "./orchestration-budget.ts";
 import { createOrchestrationRun } from "./orchestration-run.ts";
 
 export {
@@ -392,6 +392,14 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		spec.onStderr?.(`Dispatch refused: ${budgetReason}`);
 		return { exitCode: 122, stderr: `Dispatch refused: ${budgetReason}`, failure: "process_error", transport: "headless" };
 	}
+	const estimate = defaultBudgetReservation(spec.pollTimeoutMs && spec.pollTimeoutMs > 0 ? spec.pollTimeoutMs + 60_000 : undefined);
+	const reservation = estimate ? reserveBudget(spec.journal?.id || spec.launchId, estimate.tokens, estimate.costUsd, estimate.ttlMs) : undefined;
+	if (activeOrchestrationBudget() && !reservation) {
+		const message = "Dispatch refused: shared budget has no available admission reservation";
+		updateJournal(spec, { status: "error", exitCode: 122, note: "reservation_exhausted" });
+		spec.onStderr?.(message);
+		return { exitCode: 122, stderr: message, failure: "process_error", transport: "headless" };
+	}
 	const orchestrationRun = createOrchestrationRun({
 		sessionFile: spec.sessionFile,
 		parentRunId: spec.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
@@ -400,7 +408,7 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		budget: { maxSteps: 1 },
 	});
 	if (spec.journal) updateJournal(spec, { orchestrationRunId: orchestrationRun.runId });
-	orchestrationRun.record("dispatch.started", { launchId: spec.launchId, cwd: spec.cwd });
+	orchestrationRun.record("dispatch.started", { launchId: spec.launchId, cwd: spec.cwd, ...(reservation ? { reservationId: reservation.reservationId, reservedTokens: reservation.tokens, reservedCostUsd: reservation.costUsd } : {}) });
 	const settleRun = (result: DispatchRuntimeResult): DispatchRuntimeResult => {
 		const status = result.failure === "aborted" ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
 		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport, failure: result.failure });

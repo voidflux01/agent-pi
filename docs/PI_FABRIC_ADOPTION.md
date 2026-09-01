@@ -39,6 +39,11 @@ worker lifecycle boundaries.
 - The shared token/cost ledger serializes check-and-append across processes
   with a short-lived lock and stale-lock recovery, so parallel workers cannot
   pass the same preflight based on an outdated total.
+- Standard Pi and toolkit dispatches now take an atomic bounded admission
+  reservation before launching. Reservations account for active work in
+  `/budget` status, are released when journal usage is recorded, and expire
+  after a bounded TTL when a worker dies before settlement; the reservation is
+  deliberately a concurrency slice, while actual usage remains authoritative.
 - The live orchestration Activity dashboard now shows bounded per-run
   token/cost usage alongside status, duration, verification, and recovery
   information, making mode-level efficiency differences visible during work.

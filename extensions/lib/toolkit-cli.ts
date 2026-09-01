@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
-import { budgetBlockReason } from "./orchestration-budget.ts";
+import { activeOrchestrationBudget, budgetBlockReason, defaultBudgetReservation, reserveBudget } from "./orchestration-budget.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./orchestration-run.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
 import {
@@ -628,6 +628,14 @@ export async function runToolkitDispatch(opts: {
 		opts.onStderr?.(message);
 		return { exitCode: 122, raw: message, transport: "headless" };
 	}
+	const estimate = defaultBudgetReservation(opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs + 60_000 : undefined);
+	const reservation = estimate ? reserveBudget(opts.journal?.id || opts.runId, estimate.tokens, estimate.costUsd, estimate.ttlMs) : undefined;
+	if (activeOrchestrationBudget() && !reservation) {
+		const message = "Dispatch refused: shared budget has no available admission reservation";
+		opts.onStderr?.(message);
+		if (opts.journal) journalUpdate(opts.journal.dir, opts.journal.id, { status: "error", exitCode: 122, note: "reservation_exhausted" });
+		return { exitCode: 122, raw: message, transport: "headless", failure: "process_error" };
+	}
 	const orchestrationRun = createOrchestrationRun({
 		eventDir: join(opts.sessionDir, "compositions", opts.runId),
 		parentRunId: opts.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
@@ -636,7 +644,7 @@ export async function runToolkitDispatch(opts: {
 		budget: { maxSteps: 1 },
 	});
 	if (opts.journal) journalUpdate(opts.journal.dir, opts.journal.id, { orchestrationRunId: orchestrationRun.runId });
-	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName });
+	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName, ...(reservation ? { reservationId: reservation.reservationId, reservedTokens: reservation.tokens, reservedCostUsd: reservation.costUsd } : {}) });
 	const settleRun = (result: ToolkitDispatchResult): ToolkitDispatchResult => {
 		const status = result.exitCode === 130 ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
 		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport, ...(result.failure ? { failure: result.failure } : {}) });
