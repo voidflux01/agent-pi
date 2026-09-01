@@ -37,5 +37,8 @@ describe("spec viewer boundaries", () => {
 		const source = readFileSync(new URL("../spec-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("allowedDocument");
 		expect(source).toContain('typeof content !== "string"');
+		expect(source).toContain("MAX_SPEC_REQUEST_BODY_BYTES = 256 * 1024");
+		expect(source).toContain("readRequestBody(req, res");
+		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 	});
 });

@@ -41,6 +41,39 @@ interface SpecViewerResult {
 	modified: boolean;
 }
 
+const MAX_SPEC_REQUEST_BODY_BYTES = 256 * 1024;
+
+function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
+	const declared = Number(req.headers["content-length"] || 0);
+	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_SPEC_REQUEST_BODY_BYTES) {
+		res.writeHead(413, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ error: "Request body too large" }));
+		req.resume();
+		return;
+	}
+	let body = "";
+	let received = 0;
+	let rejected = false;
+	req.on("data", (chunk) => {
+		if (rejected) return;
+		received += Buffer.byteLength(chunk);
+		if (received > MAX_SPEC_REQUEST_BODY_BYTES) {
+			rejected = true;
+			res.writeHead(413, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Request body too large" }));
+			return;
+		}
+		body += chunk;
+	});
+	req.on("end", () => { if (!rejected) onBody(body); });
+	req.on("error", () => {
+		if (!rejected && !res.headersSent) {
+			res.writeHead(400, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ error: "Request body unreadable" }));
+		}
+	});
+}
+
 // ── MIME Types ────────────────────────────────────────────────────────
 
 const MIME_TYPES: Record<string, string> = {
@@ -237,9 +270,7 @@ function startSpecViewerServer(
 
 			// Handle result submission
 			if (req.method === "POST" && url.pathname === "/result") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body);
 						res.writeHead(200, { "Content-Type": "application/json" });
@@ -260,9 +291,7 @@ function startSpecViewerServer(
 
 			// Save comments
 			if (req.method === "POST" && url.pathname === "/save") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body);
 						const commentsPath = join(folderPath, "spec-comments.json");
@@ -278,9 +307,7 @@ function startSpecViewerServer(
 			}
 
 			if (req.method === "POST" && url.pathname === "/export-standalone") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body || "{}");
 						const exportDocs = buildStandaloneSpecDocuments(folderPath, documents, data.markdownChanges || {});
