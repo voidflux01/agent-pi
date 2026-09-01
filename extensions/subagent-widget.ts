@@ -560,6 +560,7 @@ export default function (pi: ExtensionAPI) {
 					runId: state.saRunId ?? `sa${state.id}`,
 					parentRunId: orchestrationRun.runId,
 					mode: coordinationState().mode,
+					timeoutMs: state.maxDurationMs,
 					paneTitle,
 					onProcess: (proc: any) => {
 						if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(proc);

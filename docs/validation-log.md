@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 152 Bun passed; 943 Vitest passed; 13 skipped.
+- Full repository tests: 152 Bun passed; 944 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -78,6 +78,9 @@ the authoritative fixture command is `node --test`.
   watchdog for intentional long-running work.
 - Static mode-path coverage confirms TEAM, CHAIN, and PIPELINE standard worker
   dispatches pass the shared 15-minute deadline into the transport runtime.
+- Toolkit-worker regression coverage confirms the shared deadline applies to
+  headless workers, terminates a timed-out child, and reports timeout as
+  failure rather than cancellation.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

@@ -822,6 +822,7 @@ export default function (pi: ExtensionAPI) {
 					runId: journalId,
 					parentRunId,
 					mode: "TEAM",
+					timeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 					paneTitle,
 					isCancelled: () => runEpoch !== sessionEpoch,
 					onProcess: (proc: any) => { state.proc = lifecycle.trackProcess(proc); },

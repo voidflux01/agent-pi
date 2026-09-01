@@ -112,6 +112,9 @@ worker lifecycle boundaries.
 - TEAM, CHAIN, and PIPELINE standard Pi workers now pass the same 15-minute
   orchestration deadline into the shared transport, keeping all six modes'
   standard worker paths aligned on timeout and cancellation behavior.
+- External toolkit workers now use the same default deadline in both headless
+  and Herdr transports; timeout termination is journaled as a failed run while
+  cancellation remains distinguishable.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

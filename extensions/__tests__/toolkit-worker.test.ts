@@ -98,6 +98,32 @@ describe("toolkit CLI agent detection", () => {
 		expect(signal).toBe("SIGTERM");
 	});
 
+	it("times out a headless toolkit worker and reports a failed result", async () => {
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: PassThrough;
+			stderr: PassThrough;
+			kill: (signal?: NodeJS.Signals | number) => boolean;
+		};
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		let signal: NodeJS.Signals | number | undefined;
+		child.kill = (nextSignal) => {
+			signal = nextSignal;
+			child.emit("close", 1);
+			return true;
+		};
+		const resultPromise = runExplicit(() => spawnToolkitWorker({
+			name: "codex-agent", tools: "", systemPrompt: "",
+		}, {
+			task: "time out",
+			timeoutMs: 20,
+			spawnProcess: (() => child) as any,
+		}));
+
+		await expect(resultPromise).resolves.toMatchObject({ exitCode: 1, output: expect.stringContaining("timed out") });
+		expect(signal).toBe("SIGTERM");
+	});
+
 	it("bounds captured toolkit output while retaining both ends", async () => {
 		const child = new EventEmitter() as EventEmitter & {
 			stdout: PassThrough;

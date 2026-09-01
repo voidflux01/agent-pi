@@ -9,7 +9,7 @@ import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
 import { budgetBlockReason } from "./orchestration-budget.ts";
-import { createOrchestrationRun } from "./orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./orchestration-run.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -58,6 +58,8 @@ export interface ToolkitWorkerSpawnOptions {
 	onProcess?: (proc: any) => void;
 	/** Polled while the worker runs (session switches and user aborts). */
 	isCancelled?: () => boolean;
+	/** Mode-owned deadline; 0 explicitly disables the watchdog. */
+	timeoutMs?: number;
 	/** Injected in tests; defaults to child_process.spawn. */
 	spawnProcess?: typeof spawn;
 }
@@ -308,21 +310,30 @@ export function spawnToolkitWorker(
 		});
 
 		let cancelled = false;
+		let timedOut = false;
 		let settled = false;
 		let abortTimer: ReturnType<typeof setInterval> | undefined;
 		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 		const clearAttemptTimers = () => {
 			if (abortTimer) clearInterval(abortTimer);
 			if (forceKillTimer) clearTimeout(forceKillTimer);
+			if (timeoutTimer) clearTimeout(timeoutTimer);
 			abortTimer = undefined;
 			forceKillTimer = undefined;
+			timeoutTimer = undefined;
 		};
-		const finishWith = (exitCode: number, outText: string) => {
+		const finishWith = (exitCode: number, outText: string, preserveKillTimer = false) => {
 			if (settled) return;
 			settled = true;
-			clearAttemptTimers();
+			if (abortTimer) clearInterval(abortTimer);
+			if (timeoutTimer) clearTimeout(timeoutTimer);
+			if (!preserveKillTimer && forceKillTimer) clearTimeout(forceKillTimer);
+			abortTimer = undefined;
+			timeoutTimer = undefined;
+			if (!preserveKillTimer) forceKillTimer = undefined;
 			resolve({
-				exitCode: cancelled ? 130 : exitCode,
+				exitCode: timedOut ? 1 : cancelled ? 130 : exitCode,
 				elapsed: Date.now() - startTime,
 				output: cancelled ? (outText || "Toolkit worker cancelled") : outText,
 			});
@@ -335,6 +346,18 @@ export function spawnToolkitWorker(
 			}, TOOLKIT_FORCE_KILL_DELAY_MS);
 			try { proc.kill("SIGTERM"); } catch {}
 		};
+		const timeoutMs = options.timeoutMs ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS;
+		if (timeoutMs > 0) {
+			timeoutTimer = setTimeout(() => {
+				if (settled || cancelled) return;
+				timedOut = true;
+				const message = `Toolkit worker timed out after ${timeoutMs}ms`;
+				output = appendBoundedOutput(output, message);
+				options.onStderr?.(message);
+				cancel();
+				finishWith(1, output, true);
+			}, timeoutMs);
+		}
 		if (options.isCancelled) {
 			abortTimer = setInterval(() => {
 				try {
@@ -371,6 +394,8 @@ export function spawnToolkitWorker(
 		});
 
 		proc.on("close", (code) => {
+			if (forceKillTimer) clearTimeout(forceKillTimer);
+			forceKillTimer = undefined;
 			if (cancelled) {
 				finishWith(130, output);
 				return;
@@ -579,6 +604,7 @@ export async function runToolkitDispatch(opts: {
 	runId: string;
 	parentRunId?: string;
 	mode?: string;
+	timeoutMs?: number;
 	paneTitle: string;
 	onProcess?: (proc: any) => void;
 	onStdoutLine?: (line: string) => void;
@@ -667,7 +693,7 @@ export async function runToolkitDispatch(opts: {
 							await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 							const rc = await pollDoneFileAsync(
 								refs.donePath,
-								DEFAULT_POLL_TIMEOUT_MS,
+								opts.timeoutMs === 0 ? DEFAULT_POLL_TIMEOUT_MS : opts.timeoutMs ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 								() => herdrCancelled || cancelled(),
 							);
 							let rawOut = "";
@@ -718,6 +744,7 @@ export async function runToolkitDispatch(opts: {
 		onStdoutLine: opts.onStdoutLine,
 		onStderr: opts.onStderr,
 		isCancelled: opts.isCancelled,
+		timeoutMs: opts.timeoutMs,
 	});
 	return settleRun({ exitCode: result.exitCode, raw: result.output, transport: "headless" });
 }
