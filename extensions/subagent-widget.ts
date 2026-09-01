@@ -635,7 +635,7 @@ export default function (pi: ExtensionAPI) {
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit or 0 to run until the agent finishes." })),
 		}),
-		execute: async (callId, args, _signal, _onUpdate, ctx) => {
+		execute: async (callId, args, signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
 			const contextUsage = ctx?.getContextUsage?.();
 			const budget = subagentContextBudget(contextUsage?.percent, 1);
@@ -680,7 +680,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
-		description: "Spawn multiple subagents at once. The tool returns immediately; call subagent_wait with the returned SA IDs to join their bounded results. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
+		description: "Spawn multiple subagents at once. By default the tool returns immediately; call subagent_wait with the returned SA IDs to join their bounded results. Set join: true to spawn and perform one bounded join in this same call, reducing a model round trip. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				task: Type.String({ description: "The complete task description for the subagent" }),
@@ -691,8 +691,9 @@ export default function (pi: ExtensionAPI) {
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit or 0 to run until each agent finishes." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
+			join: Type.Optional(Type.Boolean({ description: "Wait for all spawned agents and return bounded summaries in this call (default: false)" })),
 		}),
-		execute: async (callId, args, _signal, _onUpdate, ctx) => {
+		execute: async (callId, args, signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
 			const commandEpoch = sessionEpoch;
 			const requestedDefs = args.agents;
@@ -791,6 +792,40 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
+			if (args.join === true) {
+				const timeoutMs = args.timeout && args.timeout > 0 ? args.timeout : 0;
+				const allResults = Promise.all(states.map((state) => state.completion || Promise.resolve(`${state.name} is running without a join handle.`)));
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				let abortHandler: (() => void) | undefined;
+				type JoinOutcome = { kind: "joined"; value: string[] } | { kind: "timedOut" } | { kind: "aborted" };
+				const waitPromises: Promise<JoinOutcome>[] = [allResults.then((value) => ({ kind: "joined" as const, value }))];
+				if (timeoutMs > 0) waitPromises.push(new Promise<JoinOutcome>((resolve) => { timer = setTimeout(() => resolve({ kind: "timedOut" }), timeoutMs); }));
+				if (signal) {
+					if (signal.aborted) return { content: [{ type: "text", text: "Batch join cancelled; background subagents remain running." }], details: { joined: false, aborted: true, ids: states.map((state) => state.id), runId: batchRun.runId } };
+					waitPromises.push(new Promise<JoinOutcome>((resolve) => {
+						abortHandler = () => resolve({ kind: "aborted" });
+						signal.addEventListener("abort", abortHandler, { once: true });
+					}));
+				}
+				const outcome = await Promise.race(waitPromises);
+				if (timer) clearTimeout(timer);
+				if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
+				if (outcome.kind !== "joined") {
+					return {
+						content: [{ type: "text", text: outcome.kind === "timedOut" ? `Batch join timed out after ${timeoutMs}ms.` : "Batch join cancelled; background subagents remain running." }],
+						details: { joined: false, ...(outcome.kind === "timedOut" ? { timedOut: true, timeoutMs } : { aborted: true }), ids: states.map((state) => state.id), statuses: states.map((state) => state.status), runId: batchRun.runId },
+					};
+				}
+				for (const state of states) {
+					state.retainUntilCollected = false;
+					if (state.status !== "running") setTimeout(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
+				}
+				const joined = outcome.value.map((result, index) => `SA${states[index].id} ${states[index].name}:\n${result}`).join("\n\n");
+				return {
+					content: [{ type: "text", text: joined.length > 12000 ? joined.slice(0, 11970) + "\n... [join truncated]" : joined }],
+					details: { joined: true, timedOut: false, ids: states.map((state) => state.id), statuses: states.map((state) => state.status), runId: batchRun.runId },
+				};
+			}
 			return {
 				content: [{ type: "text", text: `Batch spawned ${states.length} subagents: ${ids}${deferred > 0 ? `; deferred ${deferred} due to context budget` : ""}` }],
 				details: { runId: batchRun.runId, ids: states.map((state) => state.id), count: states.length, deferred },

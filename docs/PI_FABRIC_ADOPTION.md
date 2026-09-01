@@ -67,6 +67,9 @@ worker lifecycle boundaries.
   SPEC as well as TEAM without creating one follow-up turn per child. Both
   tools also return bounded IDs, parent `runId`, terminal statuses, and timeout
   state for machine-readable recovery and audit.
+- `subagent_create_batch` accepts `join: true` when the parent needs results
+  immediately; parallel spawn and the bounded join then happen in one tool
+  call, while the default background behavior remains unchanged.
 - Audited parent runs can capture a bounded before/after workspace manifest;
   the event trail records changed file paths and hashes alongside the run
   result, while excluding the runtime's `.pi` bookkeeping files.

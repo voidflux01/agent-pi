@@ -51,6 +51,8 @@ the authoritative fixture command is `node --test`.
   re-running its completed step, and rejects terminal/active source runs.
 - Exact orchestration status inspection includes bounded event payloads and
   supports slash-command lookup by run id plus `events <run_id>`.
+- Batch dispatch guidance now supports a single-call `join: true` path for
+  immediate parallel results, while preserving explicit background joins.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

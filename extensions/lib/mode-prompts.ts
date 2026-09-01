@@ -19,7 +19,7 @@ The task gate is strict in this mode. Only read-only inspection, read-only scout
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
 If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
 
-const PARALLEL_JOIN_PROMPT = `For independent background work, use \`subagent_create_batch\` and then one \`subagent_wait\` join with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
+const PARALLEL_JOIN_PROMPT = `For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` so parallel spawn and one bounded join happen in a single tool call. For work that may continue in the background, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
 
 export const RESEARCH_ROUTING_PROMPT = `## Shared external-research routing
 This protocol applies in every mode, including NORMAL, PLAN, SPEC, TEAM, PIPELINE, and CHAIN.
@@ -97,7 +97,7 @@ Treat modes as capability choices, not a difficulty ladder. Make one classificat
 ## Orchestration entry rules
 Use structural tests. A mode change is justified only when its positive conditions are present and its exclusion conditions are absent.
 
-For independent background work, use \`subagent_create_batch\` and then one \`subagent_wait\` join with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.
+For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` to spawn and join in one bounded call. For background work, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.
 
 ### TEAM — independent parallel work
 Use TEAM when the task itself contains at least two separable workstreams that should proceed concurrently, each with a clear owner and independent deliverable, and neither needs the other's intermediate result. An explicit request for two or more parallel reports, audits, implementations, or reviews is sufficient evidence.
