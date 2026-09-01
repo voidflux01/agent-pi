@@ -9,7 +9,7 @@ import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool
 import { capabilityConflict, getCapability, getCapabilityForTool, listCapabilities, registerCapability, validateCapabilityArguments } from "./lib/capability-registry.ts";
 import { executeBuiltinTool, nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, RunBudgetError } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 import { listRunEvents, type RunEvent } from "./lib/evidence-store.ts";
 import { summarizeOrchestrationRun } from "./lib/orchestration-query.ts";
@@ -20,6 +20,7 @@ const Step = Type.Object({
 	arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	label: Type.Optional(Type.String({ description: "Short label for the returned audit" })),
 	retry: Type.Optional(Type.Integer({ minimum: 0, maximum: 3, description: "Retry transient executor errors up to this many times" })),
+	timeout_ms: Type.Optional(Type.Integer({ minimum: 0, maximum: 3_600_000, description: "Maximum time for one executor attempt; omit for 15 minutes, use 0 to disable" })),
 	when: Type.Optional(Type.Object({
 		step: Type.Integer({ minimum: 0, maximum: 15, description: "Prior step index to inspect" }),
 		status: Type.Union([Type.Literal("completed"), Type.Literal("failed"), Type.Literal("blocked"), Type.Literal("skipped")]),
@@ -33,7 +34,7 @@ const ComposeParams = Type.Object({
 	resume_run_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9-]{1,128}$", description: "Explicitly resume a stale compose run by id" })),
 });
 
-type StepArgs = { tool: string; arguments?: Record<string, unknown>; label?: string; retry?: number; when?: { step: number; status: "completed" | "failed" | "blocked" | "skipped" } };
+type StepArgs = { tool: string; arguments?: Record<string, unknown>; label?: string; retry?: number; timeout_ms?: number; when?: { step: number; status: "completed" | "failed" | "blocked" | "skipped" } };
 
 function eventData(event: RunEvent): Record<string, unknown> {
 	if (!event.payload || typeof event.payload !== "object") return {};
@@ -246,9 +247,30 @@ export default function (pi: ExtensionAPI) {
 					try {
 						run.consumeStep();
 						run.record("step.started", { index, tool: name, risk: capability.risk, parallel, attempt, maxAttempts: attempts });
-						const result = await executor(`${toolCallId}-compose-${index}-attempt-${attempt}`, args, signal, onUpdate, ctx);
-						run.record("step.completed", { index, tool: name, attempt, result: compactEventResult(result) });
-						return { index, tool: name, status: "completed", attempts: attempt, result: compactResult(result), risk: capability.risk };
+						const stepTimeoutMs = step.timeout_ms === undefined ? DEFAULT_ORCHESTRATION_TIMEOUT_MS : step.timeout_ms;
+						const controller = new AbortController();
+						let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+						let abortListener: (() => void) | undefined;
+						const timeoutPromise = stepTimeoutMs > 0 ? new Promise<never>((_, reject) => {
+							timeoutTimer = setTimeout(() => {
+								controller.abort();
+								reject(new Error(`step timed out after ${stepTimeoutMs}ms`));
+							}, stepTimeoutMs);
+						}) : undefined;
+						if (signal) {
+							abortListener = () => controller.abort();
+							if (signal.aborted) abortListener();
+							else signal.addEventListener("abort", abortListener, { once: true });
+						}
+						try {
+							const execution = executor(`${toolCallId}-compose-${index}-attempt-${attempt}`, args, controller.signal, onUpdate, ctx);
+							const result = await (timeoutPromise ? Promise.race([execution, timeoutPromise]) : execution);
+							run.record("step.completed", { index, tool: name, attempt, result: compactEventResult(result) });
+							return { index, tool: name, status: "completed", attempts: attempt, result: compactResult(result), risk: capability.risk };
+						} finally {
+							if (timeoutTimer) clearTimeout(timeoutTimer);
+							if (signal && abortListener) signal.removeEventListener("abort", abortListener);
+						}
 					} catch (error) {
 						const message = error instanceof RunBudgetError ? `${error.message}; reduce steps or split the composition` : error instanceof Error ? error.message : String(error);
 						if (!(error instanceof RunBudgetError) && attempt < attempts) {

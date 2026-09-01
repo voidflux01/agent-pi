@@ -103,6 +103,30 @@ describe("compose_exec", () => {
 		expect(exhausted.details.results[0]).toMatchObject({ status: "failed", attempts: 2 });
 	});
 
+	test("aborts a step that exceeds its bounded timeout", async () => {
+		const registered: any[] = [];
+		let aborted = false;
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, {
+			name: "compose_slow",
+			description: "Slow",
+			async execute(_id, _args, stepSignal) {
+				await new Promise<void>((resolve) => {
+					const timer = setTimeout(resolve, 100);
+					stepSignal?.addEventListener("abort", () => { aborted = true; clearTimeout(timer); resolve(); }, { once: true });
+				});
+				if (aborted) throw new Error("aborted by timeout");
+				return { content: [{ type: "text", text: "unexpected" }] };
+			},
+		});
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "compose_slow", timeout_ms: 10 }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(aborted).toBe(true);
+		expect(result.details.results[0]).toMatchObject({ status: "failed" });
+		expect(result.details.results[0].error).toContain("timed out");
+	});
+
 	test("supports safe conditional skips and blocks references in parallel mode", async () => {
 		const registered: any[] = [];
 		const calls: string[] = [];

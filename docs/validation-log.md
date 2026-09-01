@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 155 Bun passed; 944 Vitest passed; 13 skipped.
+- Full repository tests: 156 Bun passed; 944 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -88,6 +88,8 @@ the authoritative fixture command is `node --test`.
 - `compose_exec` regression coverage confirms transient step errors retry at
   most three attempts, emit retry events, and expose the final attempt count;
   budget errors remain terminal.
+- `compose_exec` regression coverage confirms a slow step receives an abort
+  signal at its bounded `timeout_ms` and becomes a failed step.
 - Orchestration status/dashboard regression coverage confirms dispatch failure
   causes are projected into the read model and remain bounded for display.
 - Journal rendering regression coverage confirms each linked task row exposes

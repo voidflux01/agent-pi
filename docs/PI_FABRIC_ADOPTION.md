@@ -65,6 +65,10 @@ worker lifecycle boundaries.
   attempts consume the same RunContext step budget and never retry budget
   errors. This avoids replaying an entire long composition for a transient
   executor failure.
+- Each composition step also supports `timeout_ms`; the default is the shared
+  15-minute deadline, and the step receives an AbortSignal when its deadline
+  expires. Explicit zero disables the per-step watchdog for intentional long
+  operations.
 - Task journal rows now carry the initiating mode when known, and
   `/agents-status` aggregates elapsed time, tokens, and cost by mode so a
   NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE baseline can be measured from
