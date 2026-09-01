@@ -6,7 +6,7 @@ Thank you for your interest in contributing to agent! This guide will help you g
 
 1. **Fork the repository** and clone your fork
 2. **Install Pi** — follow the [Pi Coding Agent](https://github.com/badlogic/pi-mono) installation instructions
-3. **Install dependencies** — `npm install` in the root directory
+3. **Install dependencies** — `npm install` in the root directory and install [Bun](https://bun.sh/) for the full test suite
 4. **Run Pi with extensions** — `pi` from the project root (settings.json auto-loads extensions)
 
 ## Project Structure

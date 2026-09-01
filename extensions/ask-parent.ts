@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import { Type } from "typebox";
+import { Type } from "@sinclair/typebox";
 import { deliverMail, listMail, readMail, settleMail, sendSteer, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
 
 const DEFAULT_TIMEOUT_S = Number(process.env.PI_ASK_PARENT_TIMEOUT_S || 600);

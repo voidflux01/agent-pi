@@ -37,7 +37,7 @@ The project is intentionally configuration-driven: extensions, Markdown agent de
 - [Pi Coding Agent](https://github.com/badlogic/pi-mono)
 - Node.js and npm
 - Git
-- [Bun](https://bun.sh/) is optional and can speed up local test runs
+- [Bun](https://bun.sh/) for running the Bun-based test files
 
 The bundled installer can install Pi when it is not already available. The Pi version used by the installer is pinned in `install.sh` for reproducible setup.
 
@@ -219,7 +219,8 @@ When unset, Commander tools report that they are not configured instead of spawn
 
 ## Development
 
-Install dependencies and run the test suite:
+Install dependencies and run the test suite. Bun is required because part of the
+suite uses `bun:test`; the remaining tests run through Vitest:
 
 ```bash
 npm ci
