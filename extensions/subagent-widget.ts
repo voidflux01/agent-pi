@@ -43,6 +43,7 @@ import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
+import { listOrchestrationRuns, readOrchestrationEvents } from "./lib/orchestration-query.ts";
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -185,6 +186,42 @@ export default function (pi: ExtensionAPI) {
 			if (!stat.isFile() || stat.isSymbolicLink()) return undefined;
 		} catch { return undefined; }
 		return entry;
+	}
+
+	/**
+	 * Recoverable view of a persisted batch. This is deliberately read-only:
+	 * after a restart the volatile SA ids are gone, so the caller must inspect
+	 * the candidates and explicitly resume only the workers it still wants.
+	 */
+	function inspectPersistedBatch(cwd: string, runId: string): {
+		runId: string;
+		status: string;
+		mode?: string;
+		children: Array<{ dispatchId: string; status: string; canResume: boolean; sessionFile?: string }>;
+	} | undefined {
+		const run = listOrchestrationRuns(cwd, { runId, limit: 1 })[0];
+		if (!run || run.actor !== "subagent_batch") return undefined;
+		const started = new Map<string, string>();
+		const completed = new Map<string, string>();
+		for (const event of readOrchestrationEvents(run.eventDir, 200)) {
+			const raw = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
+			const data = raw.data && typeof raw.data === "object" ? raw.data as Record<string, unknown> : raw;
+			if (typeof data.dispatchId !== "string" || !/^[A-Za-z0-9_.-]{1,160}$/.test(data.dispatchId)) continue;
+			if (event.type === "subagent.started") started.set(data.dispatchId, "running");
+			if (event.type === "subagent.completed") completed.set(data.dispatchId, typeof data.status === "string" ? data.status : "done");
+		}
+		const entries = new Map(journalList(path.join(cwd, ".pi", "agent-sessions")).map((entry) => [entry.id, entry]));
+		const children = [...started.keys()].map((dispatchId) => {
+			const entry = entries.get(dispatchId);
+			const status = completed.get(dispatchId) || entry?.status || "unknown";
+			return {
+				dispatchId,
+				status,
+				canResume: !completed.has(dispatchId) && !!resumableJournalEntry(cwd, dispatchId),
+				...(entry?.sessionFile ? { sessionFile: entry.sessionFile } : {}),
+			};
+		});
+		return { runId: run.runId, status: run.status, ...(run.mode ? { mode: run.mode } : {}), children };
 	}
 
 	// ── Widget rendering ──────────────────────────────────────────────────────
@@ -634,7 +671,31 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-		// ── Tools for the Main Agent ──────────────────────────────────────────────
+	// ── Tools for the Main Agent ──────────────────────────────────────────────
+
+	registerToolWithExecutor(pi, {
+		name: "subagent_batch_recover",
+		label: "Recover Subagent Batch",
+		description: "Inspect a persisted subagent batch after restart and return unfinished dispatch ids that are safe to resume. Read-only: it never re-dispatches workers automatically; use subagent_resume explicitly for selected candidates.",
+		parameters: Type.Object({
+			run_id: Type.String({ description: "Persisted parent run id returned by subagent_create_batch" }),
+		}),
+		capabilityRisk: "read",
+		capabilityEffect: { ordering: "commutative" },
+		execute: async (_callId, args, _signal, _onUpdate, ctx) => {
+			const recovery = inspectPersistedBatch(contextCwd(ctx), args.run_id);
+			if (!recovery) {
+				return { content: [{ type: "text", text: `No persisted subagent batch found for ${args.run_id}.` }], details: { found: false, runId: args.run_id } };
+			}
+			const resumable = recovery.children.filter((child) => child.canResume).map((child) => child.dispatchId);
+			const text = [
+				`Batch ${recovery.runId} status=${recovery.status}${recovery.mode ? ` mode=${recovery.mode}` : ""}`,
+				...recovery.children.map((child) => `${child.status.padEnd(9)} ${child.dispatchId}${child.canResume ? " resumable" : ""}`),
+				resumable.length > 0 ? `Resume candidates: ${resumable.join(", ")}. Call subagent_resume with an explicit prompt for each selected worker.` : "No unfinished worker has a safe persisted session to resume.",
+			].join("\n");
+			return { content: [{ type: "text", text }], details: { found: true, ...recovery, resumableDispatchIds: resumable } };
+		},
+	});
 
 	registerToolWithExecutor(pi, {
 		name: "subagent_create",

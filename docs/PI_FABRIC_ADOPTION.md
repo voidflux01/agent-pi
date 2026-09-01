@@ -90,6 +90,10 @@ worker lifecycle boundaries.
 - `subagent_create_batch` accepts `join: true` when the parent needs results
   immediately; parallel spawn and the bounded join then happen in one tool
   call, while the default background behavior remains unchanged.
+- `subagent_batch_recover` provides a read-only restart path for persisted
+  batch parents: it reconstructs child dispatch ids and safe resume candidates
+  from the RunContext and task journal, while requiring an explicit
+  `subagent_resume` call for every worker the user chooses to replay.
 - Audited parent runs can capture a bounded before/after workspace manifest;
   the event trail records changed file paths and hashes alongside the run
   result, while excluding the runtime's `.pi` bookkeeping files.

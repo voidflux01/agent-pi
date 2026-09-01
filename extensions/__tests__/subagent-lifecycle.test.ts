@@ -86,6 +86,14 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("orchestrationRun: batchRun");
 		expect(src).toContain("onSettled: onBatchSettled");
 	});
+
+	it("exposes read-only persisted batch recovery without automatic replay", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain('name: "subagent_batch_recover"');
+		expect(src).toContain("inspectPersistedBatch(contextCwd(ctx), args.run_id)");
+		expect(src).toContain("never re-dispatches workers automatically");
+		expect(src).toContain("subagent_resume with an explicit prompt");
+	});
 });
 
 describe("timeout resolution", () => {
