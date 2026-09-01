@@ -20,6 +20,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateWebChatHTML } from "./lib/web-chat-html.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { readBoundedRequestBody } from "./lib/request-body.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -492,11 +493,6 @@ function startChatServer(
 					return;
 				}
 				if (typeof req.setTimeout === "function") req.setTimeout(15_000, () => req.destroy());
-				let received = 0;
-				req.on("data", (chunk) => {
-					received += Buffer.byteLength(chunk);
-					if (received > 64 * 1024) req.destroy();
-				});
 			}
 
 			if (url.pathname === "/favicon.ico") {
@@ -507,9 +503,7 @@ function startChatServer(
 
 			// ── PIN Auth ─────────────────────────────────────────
 			if (req.method === "POST" && url.pathname === "/auth") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readBoundedRequestBody(req, res, (body) => {
 					try {
 						const ip = req.socket.remoteAddress || "unknown";
 						const now = Date.now();
@@ -549,7 +543,7 @@ function startChatServer(
 						res.writeHead(400, { "Content-Type": "application/json" });
 						res.end(JSON.stringify({ ok: false, error: "Bad request" }));
 					}
-				});
+				}, 64 * 1024, { ok: false, error: "Request body too large" }, { ok: false, error: "Bad request" });
 				return;
 			}
 
@@ -571,9 +565,7 @@ function startChatServer(
 
 			// ── Send Message (relay to main session) ─────────────
 			if (req.method === "POST" && url.pathname === "/send") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readBoundedRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body || "{}");
 						const message = String(data.message || "").trim();
@@ -589,7 +581,7 @@ function startChatServer(
 						res.writeHead(400, { "Content-Type": "application/json" });
 						res.end(JSON.stringify({ ok: false, error: err?.message || "Invalid request" }));
 					}
-				});
+				}, 64 * 1024, { ok: false, error: "Request body too large" }, { ok: false, error: "Invalid request" });
 				return;
 			}
 
