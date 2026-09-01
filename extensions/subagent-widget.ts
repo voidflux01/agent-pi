@@ -116,6 +116,9 @@ interface SubState {
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
+	result?: string;         // bounded result retained for an explicit wait/join
+	completion?: Promise<string>;
+	retainUntilCollected?: boolean;
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
 	elapsedTimer?: ReturnType<typeof setInterval>; // live widget timer, cleared on lifecycle changes
 	/** When true, the parent tool waits for RESULT and skips the follow-up turn. */
@@ -493,6 +496,7 @@ export default function (pi: ExtensionAPI) {
 					maxResultChars: state.resultBudgetChars,
 					skipContract: toolkitRun,
 				});
+				state.result = compactResult.content;
 				if (!state.awaitResult) {
 					try {
 						void pi.sendMessage({
@@ -504,7 +508,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Auto-remove completed widgets after 30s (default behavior).
-				if (shouldScheduleWidgetRemoval(state, false)) {
+				if (!state.retainUntilCollected && shouldScheduleWidgetRemoval(state, false)) {
 					setTimeout(() => {
 						if (spawnEpoch !== sessionEpoch) return;
 						if (agents.has(state.id) && state.status !== "running") {
@@ -653,6 +657,7 @@ export default function (pi: ExtensionAPI) {
 			registerWidget(state);
 
 			const started = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx))();
+			state.completion = started;
 			if (!awaitResult) {
 				return {
 					content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
@@ -667,7 +672,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
-		description: "Spawn multiple subagents at once. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
+		description: "Spawn multiple subagents at once. The tool returns immediately; call subagent_wait with the returned SA IDs to join their bounded results. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				task: Type.String({ description: "The complete task description for the subagent" }),
@@ -733,6 +738,8 @@ export default function (pi: ExtensionAPI) {
 					model: def.model, // per-agent model override
 					maxDurationMs: resolveTimeout(agentName, args.timeout),
 					resultBudgetChars: budget.resultChars,
+					awaitResult: true,
+					retainUntilCollected: true,
 				};
 			});
 
@@ -769,7 +776,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			for (const state of states) {
-				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
+				state.completion = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
 					orchestrationRun: batchRun,
 					onSettled: onBatchSettled,
 				}))();
@@ -779,6 +786,59 @@ export default function (pi: ExtensionAPI) {
 			return {
 				content: [{ type: "text", text: `Batch spawned ${states.length} subagents: ${ids}${deferred > 0 ? `; deferred ${deferred} due to context budget` : ""}` }],
 			};
+		},
+	});
+
+	registerToolWithExecutor(pi, {
+		name: "subagent_wait",
+		label: "Wait for Subagents",
+		description: "Wait for selected background subagents and return bounded results. Use after subagent_create_batch to join parallel work without replaying full transcripts into the parent context.",
+		capabilityRisk: "read",
+		capabilityEffect: { ordering: "commutative" },
+		parameters: Type.Object({
+			ids: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 16, description: "Subagent IDs to join. Omit to join all currently tracked subagents." })),
+			timeout_ms: Type.Optional(Type.Integer({ minimum: 0, maximum: 900000, description: "Maximum wait in milliseconds. 0 means wait until all selected agents finish." })),
+		}),
+		execute: async (_callId, args) => {
+			const requested: number[] = Array.isArray(args.ids) ? args.ids : Array.from(agents.keys());
+			const missing = requested.filter((id) => !agents.has(id));
+			if (missing.length > 0) {
+				return { content: [{ type: "text", text: `Unknown subagent id(s): ${missing.join(", ")}. Use subagent_list to inspect tracked agents.` }] };
+			}
+			const selected = requested.map((id) => agents.get(id)!).filter(Boolean);
+			if (selected.length === 0) return { content: [{ type: "text", text: "No subagents to wait for." }] };
+			const waitFor = async (state: SubState): Promise<string> => {
+				if (state.status !== "running") return state.result || `${state.name} finished with no result.`;
+				if (!state.completion) return `${state.name} is running without a join handle.`;
+				return state.completion;
+			};
+			const allResults = Promise.all(selected.map(waitFor));
+			const timeoutMs = args.timeout_ms && args.timeout_ms > 0 ? args.timeout_ms : 0;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const results = timeoutMs > 0
+				? await Promise.race([
+					allResults.then((value) => ({ timedOut: false as const, value })),
+					new Promise<{ timedOut: true; value?: string[] }>((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), timeoutMs); }),
+				])
+				: { timedOut: false as const, value: await allResults };
+			if (timer) clearTimeout(timer);
+			if (results.timedOut) {
+				return { content: [{ type: "text", text: `Wait timed out after ${timeoutMs}ms. Running: ${selected.filter((state) => state.status === "running").map((state) => `SA${state.id}`).join(", ") || "none"}.` }] };
+			}
+			for (const state of selected) {
+				if (!state.retainUntilCollected) continue;
+				state.retainUntilCollected = false;
+				if (state.status !== "running") {
+					setTimeout(() => {
+						if (agents.get(state.id) !== state || state.status === "running") return;
+						clearWidgetCurrent(`sub-${state.id}`);
+						widgetBoxes.delete(state.id);
+						agents.delete(state.id);
+					}, 30_000);
+				}
+			}
+			const joined = results.value.map((result, index) => `SA${selected[index].id} ${selected[index].name}:\n${result}`).join("\n\n");
+			return { content: [{ type: "text", text: joined.length > 12000 ? joined.slice(0, 11970) + "\n... [join truncated]" : joined }] };
 		},
 	});
 

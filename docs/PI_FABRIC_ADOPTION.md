@@ -33,6 +33,10 @@ worker lifecycle boundaries.
 - `subagent_create_batch` gives a parallel batch one bounded parent run and
   aggregates child success/failure/cancellation before closing it, preserving
   one auditable unit for independent work.
+- `subagent_wait` provides an explicit bounded join for background batches:
+  child results stay in the runtime until requested, then one capped summary is
+  returned to the parent. This keeps parallel work useful in NORMAL, PLAN, and
+  SPEC as well as TEAM without creating one follow-up turn per child.
 - Audited parent runs can capture a bounded before/after workspace manifest;
   the event trail records changed file paths and hashes alongside the run
   result, while excluding the runtime's `.pi` bookkeeping files.

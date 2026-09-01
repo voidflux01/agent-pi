@@ -93,6 +93,8 @@ Treat modes as capability choices, not a difficulty ladder. Make one classificat
 ## Orchestration entry rules
 Use structural tests. A mode change is justified only when its positive conditions are present and its exclusion conditions are absent.
 
+For independent background work, use \`subagent_create_batch\` and then one \`subagent_wait\` join with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.
+
 ### TEAM — independent parallel work
 Use TEAM when the task itself contains at least two separable workstreams that should proceed concurrently, each with a clear owner and independent deliverable, and neither needs the other's intermediate result. An explicit request for two or more parallel reports, audits, implementations, or reviews is sufficient evidence.
 Examples: frontend and backend changes with a stable interface; independent module audits; implementation, documentation, and test design that can run in parallel.

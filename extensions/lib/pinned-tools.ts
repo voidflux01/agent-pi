@@ -7,6 +7,7 @@ export const PINNED_ORCHESTRATION_TOOLS = [
 	"tasks",
 	"subagent_create",
 	"subagent_create_batch",
+	"subagent_wait",
 	"show_plan",
 	"dispatch_agent",
 	"ask_user",

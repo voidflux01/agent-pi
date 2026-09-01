@@ -4,7 +4,7 @@
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "ask_user", "run_chain",
+	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "subagent_wait", "ask_user", "run_chain",
 	"advance_phase", "pipeline_status",
 ] as const;
 

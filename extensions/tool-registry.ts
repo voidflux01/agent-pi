@@ -41,7 +41,7 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "agents",
-		names: ["dispatch_agent", "subagent_create", "subagent_create_batch", "subagent_continue", "subagent_remove", "subagent_list"],
+		names: ["dispatch_agent", "subagent_create", "subagent_create_batch", "subagent_wait", "subagent_continue", "subagent_remove", "subagent_list"],
 		keywords: ["agent", "subagent", "dispatch", "spawn"],
 	},
 	{

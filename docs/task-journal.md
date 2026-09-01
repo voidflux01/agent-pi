@@ -76,6 +76,9 @@ Journal: /path/to/project/.pi/agent-sessions/task-journal.jsonl
 - The global summary also appends bounded per-mode metrics in the form
   `MODE:runs/ok/fail/average-seconds/tokens/cost`; rows written before mode
   attribution remain in the global totals and are omitted from the mode groups.
+- For parallel background work, `subagent_create_batch` returns IDs and
+  `subagent_wait` joins those IDs once; this prevents one automatic parent turn
+  per child while keeping the bounded RESULT available for audit.
 
 ## Retention — 7-Day Rolling Window
 
