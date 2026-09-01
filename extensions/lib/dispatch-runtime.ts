@@ -93,8 +93,18 @@ export interface DispatchRuntimeResult {
 /** Default worker wait. Pass pollTimeoutMs: 0 to disable. */
 export const DEFAULT_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 export const DEFAULT_ABORT_POLL_INTERVAL_MS = 50;
+export const MAX_DISPATCH_STDERR_CHARS = 256 * 1024;
 const FORCE_KILL_DELAY_MS = 3_000;
 const DEFAULT_HERDR_POLL_INTERVAL_MS = 3_000;
+const DISPATCH_OUTPUT_TRUNCATION_MARKER = "\n...[dispatch stderr truncated]...\n";
+
+function appendBoundedStderr(current: string, chunk: string): string {
+	const next = current + chunk;
+	if (next.length <= MAX_DISPATCH_STDERR_CHARS) return next;
+	const budget = Math.max(0, MAX_DISPATCH_STDERR_CHARS - DISPATCH_OUTPUT_TRUNCATION_MARKER.length);
+	const head = Math.ceil(budget / 2);
+	return next.slice(0, head) + DISPATCH_OUTPUT_TRUNCATION_MARKER + next.slice(-(budget - head));
+}
 
 function updateJournal(spec: DispatchRuntimeSpec, patch: Record<string, unknown>): void {
 	if (!spec.journal) return;
@@ -170,7 +180,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		});
 		childStderr?.setEncoding("utf-8");
 		childStderr?.on("data", (chunk: string) => {
-			stderr += chunk;
+			stderr = appendBoundedStderr(stderr, chunk);
 			spec.onStderr?.(chunk);
 		});
 		let settled = false;
@@ -226,7 +236,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		});
 		child.once("error", (error) => {
 			const message = error instanceof Error ? error.message : String(error);
-			stderr += message;
+			stderr = appendBoundedStderr(stderr, message);
 			spec.onStderr?.(message);
 			finish(1, "process_error");
 		});

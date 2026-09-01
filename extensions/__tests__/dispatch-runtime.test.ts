@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 
 function fakeChild() {
@@ -73,6 +73,28 @@ describe("shared dispatch runtime", () => {
 		const journal = readFileSync(join(dir, "task-journal.jsonl"), "utf8");
 		expect(journal).toContain('"status":"done"');
 		expect(journal).toContain('"pid":4242');
+	});
+
+	it("bounds captured headless stderr while retaining both ends", async () => {
+		const child = fakeChild();
+		const resultPromise = runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "task"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "stderr-cap-1",
+			transport: "headless",
+			spawnProcess: (() => child) as any,
+		}));
+		const large = "head-" + "e".repeat(MAX_DISPATCH_STDERR_CHARS * 2) + "-tail";
+		child.stderr.end(large);
+		child.emit("close", 1);
+
+		const result = await resultPromise;
+		expect(result.stderr.length).toBeLessThanOrEqual(MAX_DISPATCH_STDERR_CHARS);
+		expect(result.stderr).toContain("dispatch stderr truncated");
+		expect(result.stderr.startsWith("head-")).toBe(true);
+		expect(result.stderr.endsWith("-tail")).toBe(true);
 	});
 
 	it("kills a headless worker that exceeds pollTimeoutMs", async () => {
