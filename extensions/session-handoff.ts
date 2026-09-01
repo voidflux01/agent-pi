@@ -9,6 +9,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalPath, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
+import { isResumableRunStatus, isTerminalRunStatus } from "./lib/run-state.ts";
 import {
 	buildHandoffSnapshot,
 	handoffPath,
@@ -64,7 +65,7 @@ function readChildren(workspace: string): TaskJournalEntry[] {
 }
 
 function resumableChildren(workspace: string): TaskJournalEntry[] {
-	return readChildren(workspace).filter((child) => !["done", "completed", "success"].includes(child.status));
+	return readChildren(workspace).filter((child) => !isTerminalRunStatus(child.status));
 }
 
 function currentTasks(): Array<{ id: number; text: string; status: string }> {
@@ -85,7 +86,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 	// session's context; failed/running children remain actionable.
 	const children = resumableChildren(cwdOf(ctx));
 	const activeTask = tasks.find((task) => task.status === "inprogress");
-	const activeChild = children.find((child) => child.status === "running" || child.status === "dispatched" || child.status === "failed" || child.status === "error");
+	const activeChild = children.find((child) => isResumableRunStatus(child.status));
 	const receipt = state.verifierReceipt;
 	return buildHandoffSnapshot({
 		workspace: cwdOf(ctx),
