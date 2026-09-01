@@ -122,6 +122,7 @@ interface SubState {
 	autoRemove?: boolean;      // auto-remove widget ~30s after done (default: true)
 	model?: string;            // resolved model string for display
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
+	orchestrationRunId?: string; // persisted RunContext id for audit/recovery links
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
 	result?: string;         // bounded result retained for an explicit wait/join
@@ -361,6 +362,7 @@ export default function (pi: ExtensionAPI) {
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
 			workspaceCwd: spawnCwd,
 		});
+		state.orchestrationRunId = orchestrationRun.runId;
 		if (state.saRunId) journalUpdate(saDir, state.saRunId, { orchestrationRunId: orchestrationRun.runId });
 		orchestrationRun.consumeStep();
 		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
@@ -745,11 +747,13 @@ export default function (pi: ExtensionAPI) {
 			if (!awaitResult) {
 				return {
 					content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.` }],
+					details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId },
 				};
 			}
 			const result = await started;
 			return {
 				content: [{ type: "text", text: result || `SA${id} (${state.name}) finished with no output.` }],
+				details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId },
 			};
 		},
 	});
@@ -944,7 +948,7 @@ export default function (pi: ExtensionAPI) {
 			const waitPromises: Promise<WaitOutcome>[] = [allResults.then((value) => ({ kind: "joined" as const, value }))];
 			if (timeoutMs > 0) waitPromises.push(new Promise<WaitOutcome>((resolve) => { timer = setTimeout(() => resolve({ kind: "timedOut" }), timeoutMs); }));
 			if (signal) {
-				if (signal.aborted) return { content: [{ type: "text", text: "Wait cancelled; background subagents remain running." }], details: { joined: false, aborted: true, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) } };
+				if (signal.aborted) return { content: [{ type: "text", text: "Wait cancelled; background subagents remain running." }], details: { joined: false, aborted: true, ids: selected.map((state) => state.id), runIds: [...new Set(selected.map((state) => state.orchestrationRunId).filter(Boolean))], statuses: selected.map((state) => state.status) } };
 				waitPromises.push(new Promise<WaitOutcome>((resolve) => {
 					abortHandler = () => resolve({ kind: "aborted" });
 					signal.addEventListener("abort", abortHandler, { once: true });
@@ -956,13 +960,13 @@ export default function (pi: ExtensionAPI) {
 			if (results.kind === "timedOut") {
 				return {
 					content: [{ type: "text", text: `Wait timed out after ${timeoutMs}ms. Running: ${selected.filter((state) => state.status === "running").map((state) => `SA${state.id}`).join(", ") || "none"}.` }],
-					details: { joined: false, timedOut: true, timeoutMs, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+					details: { joined: false, timedOut: true, timeoutMs, ids: selected.map((state) => state.id), runIds: [...new Set(selected.map((state) => state.orchestrationRunId).filter(Boolean))], statuses: selected.map((state) => state.status) },
 				};
 			}
 			if (results.kind === "aborted") {
 				return {
 					content: [{ type: "text", text: "Wait cancelled; background subagents remain running." }],
-					details: { joined: false, aborted: true, timedOut: false, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+					details: { joined: false, aborted: true, timedOut: false, ids: selected.map((state) => state.id), runIds: [...new Set(selected.map((state) => state.orchestrationRunId).filter(Boolean))], statuses: selected.map((state) => state.status) },
 				};
 			}
 			for (const state of selected) {
@@ -980,7 +984,7 @@ export default function (pi: ExtensionAPI) {
 			const joined = results.value.map((result, index) => `SA${selected[index].id} ${selected[index].name}:\n${result}`).join("\n\n");
 			return {
 				content: [{ type: "text", text: joined.length > 12000 ? joined.slice(0, 11970) + "\n... [join truncated]" : joined }],
-				details: { joined: true, timedOut: false, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+				details: { joined: true, timedOut: false, ids: selected.map((state) => state.id), runIds: [...new Set(selected.map((state) => state.orchestrationRunId).filter(Boolean))], statuses: selected.map((state) => state.status) },
 			};
 		},
 	});

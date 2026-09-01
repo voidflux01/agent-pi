@@ -72,6 +72,9 @@ describe("stale session lifecycle protection", () => {
 	it("attaches NORMAL/PLAN/SPEC subagent dispatches to an auditable parent run", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("createOrchestrationRun");
+		expect(src).toContain("orchestrationRunId?: string");
+		expect(src).toContain("state.orchestrationRunId = orchestrationRun.runId");
+		expect(src).toContain("runId: state.orchestrationRunId");
 		expect(src).toContain('actor: `subagent:${state.name.toLowerCase()}`');
 		expect(src).toContain('parentRunId: orchestrationRun.runId');
 		expect(src).toContain('orchestrationRun.record("subagent.completed"');
