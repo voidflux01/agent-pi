@@ -73,6 +73,9 @@ Journal: /path/to/project/.pi/agent-sessions/task-journal.jsonl
 - **RECENT** — the last ten finished rows (`done`/`error`), oldest first as they appear in the journal.
 - **TOTAL** — aggregated tokens/cost across those finished rows.
 - Rows carry usage only when the run produced assistant messages; `$0.0021`-style costs mean under one cent (shown with 4 decimals below $0.01).
+- The global summary also appends bounded per-mode metrics in the form
+  `MODE:runs/ok/fail/average-seconds/tokens/cost`; rows written before mode
+  attribution remain in the global totals and are omitted from the mode groups.
 
 ## Retention — 7-Day Rolling Window
 

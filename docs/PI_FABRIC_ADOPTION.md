@@ -95,8 +95,9 @@ worker lifecycle boundaries.
 
 ## Next validation gates
 
-1. Add explicit end-to-end smoke coverage for NORMAL, PLAN, and SPEC worker
-   dispatches, including restart/status reconstruction.
+1. Collect repeated, task-matched runs for NORMAL, PLAN, SPEC, TEAM, CHAIN, and
+   PIPELINE; compare the shared journal's average elapsed time, success rate,
+   tokens, and cost before changing dispatch policy.
 2. Exercise `compose_exec` with mocked extension handlers and approval/security
    rejection cases before exposing more built-in capabilities.
 3. Evaluate whether built-in Pi tools should publish capability descriptors, or
