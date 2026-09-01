@@ -54,6 +54,10 @@ export interface ToolkitWorkerSpawnOptions {
 	onStderr?: (chunk: string) => void;
 	/** Called for each attempt so the caller can cancel the live child. */
 	onProcess?: (proc: any) => void;
+	/** Polled while the worker runs (session switches and user aborts). */
+	isCancelled?: () => boolean;
+	/** Injected in tests; defaults to child_process.spawn. */
+	spawnProcess?: typeof spawn;
 }
 
 interface ToolkitCliCommand {
@@ -68,6 +72,9 @@ export interface ToolkitWorkerResult {
 	elapsed: number;
 	output: string;
 }
+
+const TOOLKIT_ABORT_POLL_INTERVAL_MS = 50;
+const TOOLKIT_FORCE_KILL_DELAY_MS = 3_000;
 
 export function isToolkitCliAgent(name: string | undefined | null): boolean {
 	if (!name) return false;
@@ -243,11 +250,24 @@ export function spawnToolkitWorker(
 		let args = cliCommand
 			? (attempts.length ? attempts[attempts.length - 1] : cliCommand.args(options.task, options.cwd))
 			: (attempts.length ? attempts[attempts.length - 1] : getToolkitWorkerArgs(agentDef, options));
-		const proc = spawn(resolveCommandPath(command), args, {
-			stdio: ["ignore", "pipe", "pipe"],
-			env: childEnvironment({ ...options.env, PI_SUBAGENT: "1" }),
-			cwd: options.cwd,
-		});
+		if (options.isCancelled?.()) {
+			resolve({ exitCode: 130, elapsed: 0, output: "Toolkit worker cancelled" });
+			return;
+		}
+		let proc: ReturnType<typeof spawn>;
+		try {
+			proc = (options.spawnProcess || spawn)(resolveCommandPath(command), args, {
+				stdio: ["ignore", "pipe", "pipe"],
+				env: childEnvironment({ ...options.env, PI_SUBAGENT: "1" }),
+				cwd: options.cwd,
+			});
+		} catch (error) {
+			const msg = `CLI spawn error (${command}): ${error instanceof Error ? error.message : String(error)}`;
+			options.onStderr?.(msg);
+			options.onStdoutLine?.(msg);
+			resolve({ exitCode: 1, elapsed: 0, output: msg });
+			return;
+		}
 		options.onProcess?.(proc);
 
 		const startTime = Date.now();
@@ -275,13 +295,38 @@ export function spawnToolkitWorker(
 			}
 		});
 
+		let cancelled = false;
+		let settled = false;
+		let abortTimer: ReturnType<typeof setInterval> | undefined;
+		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 		const finishWith = (exitCode: number, outText: string) => {
+			if (settled) return;
+			settled = true;
+			if (abortTimer) clearInterval(abortTimer);
+			if (forceKillTimer) clearTimeout(forceKillTimer);
 			resolve({
-				exitCode,
+				exitCode: cancelled ? 130 : exitCode,
 				elapsed: Date.now() - startTime,
-				output: outText,
+				output: cancelled ? (outText || "Toolkit worker cancelled") : outText,
 			});
 		};
+		const cancel = () => {
+			if (cancelled || settled) return;
+			cancelled = true;
+			forceKillTimer = setTimeout(() => {
+				try { proc.kill("SIGKILL"); } catch {}
+			}, TOOLKIT_FORCE_KILL_DELAY_MS);
+			try { proc.kill("SIGTERM"); } catch {}
+		};
+		if (options.isCancelled) {
+			abortTimer = setInterval(() => {
+				try {
+					if (options.isCancelled?.()) cancel();
+				} catch {
+					cancel();
+				}
+			}, TOOLKIT_ABORT_POLL_INTERVAL_MS);
+		}
 
 		const retryWithPureArgsOr = (fallback: () => void) => {
 			if (cliCommand?.pureArgs && attempts.length === 0) {
@@ -295,6 +340,10 @@ export function spawnToolkitWorker(
 		};
 
 		proc.on("error", (err) => {
+			if (cancelled) {
+				finishWith(130, output);
+				return;
+			}
 			const msg = `CLI spawn error (${command}): ${err.message}`;
 			options.onStderr?.(msg);
 			options.onStdoutLine?.(msg);
@@ -302,6 +351,10 @@ export function spawnToolkitWorker(
 		});
 
 		proc.on("close", (code) => {
+			if (cancelled) {
+				finishWith(130, output);
+				return;
+			}
 			if (buffer.trim()) options.onStdoutLine?.(buffer);
 			if ((code ?? 1) !== 0 && attempts.length === 0 && cliCommand?.pureArgs && /server error|UnknownError/i.test(output)) {
 				retryWithPureArgsOr(() => finishWith(code ?? 1, output));
@@ -622,6 +675,7 @@ export async function runToolkitDispatch(opts: {
 		onProcess: opts.onProcess,
 		onStdoutLine: opts.onStdoutLine,
 		onStderr: opts.onStderr,
+		isCancelled: opts.isCancelled,
 	});
 	return { exitCode: result.exitCode, raw: result.output, transport: "headless" };
 }

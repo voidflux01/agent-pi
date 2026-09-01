@@ -1,6 +1,8 @@
 // ABOUTME: Tests toolkit CLI worker helpers and routing behavior.
 
 import { describe, it, expect } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { 
 	isToolkitCliAgent,
 	resolveToolkitWorkerModel,
@@ -18,6 +20,11 @@ import {
 	toolkitHasInteractiveTui,
 } from "../lib/toolkit-cli.ts";
 import { resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "../lib/agent-defs.ts";
+import { explicitDispatchHandler } from "../lib/dispatch-runtime.ts";
+
+function runExplicit<T>(operation: () => T): T {
+	return explicitDispatchHandler("agent-team", operation)();
+}
 
 describe("toolkit CLI agent detection", () => {
 	it("refuses to spawn outside an explicit dispatch context", async () => {
@@ -29,6 +36,47 @@ describe("toolkit CLI agent detection", () => {
 
 		expect(result.exitCode).toBe(126);
 		expect(result.output).toContain("explicit tool or slash command");
+	});
+
+	it("records a synchronous spawn failure instead of rejecting", async () => {
+		const result = await runExplicit(() => spawnToolkitWorker({
+			name: "codex-agent", tools: "", systemPrompt: "",
+		}, {
+			task: "fail to spawn",
+			spawnProcess: (() => { throw new Error("spawn denied"); }) as any,
+		}));
+
+		expect(result.exitCode).toBe(1);
+		expect(result.output).toContain("CLI spawn error (codex)");
+		expect(result.output).toContain("spawn denied");
+	});
+
+	it("cancels a headless toolkit worker and terminates its child", async () => {
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: PassThrough;
+			stderr: PassThrough;
+			kill: (signal?: NodeJS.Signals | number) => boolean;
+		};
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		let signal: NodeJS.Signals | number | undefined;
+		child.kill = (nextSignal) => {
+			signal = nextSignal;
+			child.emit("close", 1);
+			return true;
+		};
+		let cancelled = false;
+		const resultPromise = runExplicit(() => spawnToolkitWorker({
+			name: "codex-agent", tools: "", systemPrompt: "",
+		}, {
+			task: "cancel me",
+			isCancelled: () => cancelled,
+			spawnProcess: (() => child) as any,
+		}));
+		setTimeout(() => { cancelled = true; }, 70);
+
+		await expect(resultPromise).resolves.toMatchObject({ exitCode: 130 });
+		expect(signal).toBe("SIGTERM");
 	});
 
 
