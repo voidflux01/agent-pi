@@ -20,6 +20,8 @@ interface Env {
 }
 
 const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024;
+const MAX_RESPONSIVE_BYTES = 32 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024;
 
 // ── Helpers ──────────────────────────────────────
 
@@ -72,8 +74,27 @@ async function validateTarget(url: unknown): Promise<string | null> {
 
 async function parseBody(request: Request): Promise<Record<string, any> | null> {
 	try {
-		const raw = await request.arrayBuffer();
-		if (raw.byteLength > 1 * 1024 * 1024) return null;
+		if (!request.body) return {};
+		const reader = request.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let total = 0;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			total += value.byteLength;
+			if (total > MAX_REQUEST_BODY_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+		const raw = new Uint8Array(total);
+		let offset = 0;
+		for (const chunk of chunks) {
+			raw.set(chunk, offset);
+			offset += chunk.byteLength;
+		}
 		const parsed = JSON.parse(new TextDecoder().decode(raw));
 		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 	} catch {
@@ -237,10 +258,11 @@ async function handleResponsive(body: Record<string, any>, env: Env): Promise<Re
 	if (Array.isArray(viewports) && (viewports.length === 0 || viewports.length > 10)) return errorResponse("Viewports must contain between 1 and 10 entries");
 	const vps = Array.isArray(viewports) ? viewports : defaultViewports;
 
-	const browser = await puppeteer.launch(env.BROWSER);
+		const browser = await puppeteer.launch(env.BROWSER);
 	try {
 		const page = await browser.newPage();
 		const screenshots: Array<{ name: string; width: number; height: number; base64: string }> = [];
+		let totalScreenshotBytes = 0;
 
 		for (const vp of vps) {
 			const w = viewportDimension(vp?.width, 1280, 320, 3840);
@@ -253,6 +275,8 @@ async function handleResponsive(body: Record<string, any>, env: Env): Promise<Re
 
 			const shot = await page.screenshot();
 			if (shot.byteLength > MAX_SCREENSHOT_BYTES) return errorResponse("Screenshot is too large", 413);
+			totalScreenshotBytes += shot.byteLength;
+			if (totalScreenshotBytes > MAX_RESPONSIVE_BYTES) return errorResponse("Responsive screenshots are too large", 413);
 			// Convert ArrayBuffer/Buffer to base64
 			const bytes = new Uint8Array(shot as ArrayBuffer);
 			let binary = "";
@@ -306,7 +330,7 @@ export default {
 			return errorResponse("Method not allowed. Use POST.", 405);
 		}
 		const contentLength = Number(request.headers.get("content-length") || 0);
-		if (!Number.isFinite(contentLength) || contentLength > 1 * 1024 * 1024) {
+		if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_REQUEST_BODY_BYTES) {
 			return errorResponse("Request body too large", 413);
 		}
 

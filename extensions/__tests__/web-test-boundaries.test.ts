@@ -13,6 +13,9 @@ describe("web test network and resource boundaries", () => {
 	it("keeps worker-side SSRF and body/screenshot limits enabled", () => {
 		const source = readFileSync(new URL("../web-test-worker/src/index.ts", import.meta.url), "utf8");
 		expect(source).toContain("MAX_SCREENSHOT_BYTES");
+		expect(source).toContain("MAX_RESPONSIVE_BYTES");
+		expect(source).toContain("MAX_REQUEST_BODY_BYTES");
+		expect(source).toContain("request.body.getReader()");
 		expect(source).toContain("Request body too large");
 		expect(source).toContain("validatePublicUrl");
 		expect(source).toContain("validateResolvedHost");
