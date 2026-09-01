@@ -34,7 +34,7 @@ import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolk
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } from "./lib/agent-task-journal.ts";
+import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
@@ -163,6 +163,19 @@ export default function (pi: ExtensionAPI) {
 		return path.join(dir, `subagent-${id}-${Date.now()}.jsonl`);
 	}
 
+	function resumableJournalEntry(cwd: string, id: string): TaskJournalEntry | undefined {
+		const entry = journalList(path.join(cwd, ".pi", "agent-sessions")).find(candidate => candidate.kind === "sa" && candidate.id === id);
+		if (!entry?.sessionFile || isToolkitCliAgent(entry.agent)) return undefined;
+		const root = path.resolve(os.homedir(), ".pi", "agent", "sessions", "subagents") + path.sep;
+		const sessionFile = path.resolve(entry.sessionFile);
+		if (!sessionFile.startsWith(root)) return undefined;
+		try {
+			const stat = fs.lstatSync(sessionFile);
+			if (!stat.isFile() || stat.isSymbolicLink()) return undefined;
+		} catch { return undefined; }
+		return entry;
+	}
+
 	// ── Widget rendering ──────────────────────────────────────────────────────
 
 	// ── Dark background colors for subagent status ───────────────────────────
@@ -284,6 +297,7 @@ export default function (pi: ExtensionAPI) {
 			model: isToolkitCliAgent(state.name) ? undefined : (state.model || undefined),
 			sessionFile: isToolkitCliAgent(state.name) ? undefined : state.sessionFile,
 			status: "dispatched",
+			resumed: fs.existsSync(state.sessionFile),
 			startedAt: Date.now(),
 			updatedAt: Date.now(),
 		});
@@ -513,6 +527,7 @@ export default function (pi: ExtensionAPI) {
 				...systemPromptArgs,
 				prompt,
 			];
+			if (fs.existsSync(state.sessionFile)) argv.splice(argv.length - 1, 0, "-c");
 
 			if (isToolkitCliAgent(state.name)) {
 				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
@@ -805,6 +820,38 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	registerToolWithExecutor(pi, {
+		name: "subagent_resume",
+		description: "Resume a persisted subagent after a parent restart. Use the journal dispatch id shown by /agents-status, not the volatile SA number.",
+		parameters: Type.Object({
+			run_id: Type.String({ description: "Persisted task-journal dispatch id, for example builder-sa2-..." }),
+			prompt: Type.String({ description: "The follow-up prompt or recovery instruction" }),
+		}),
+		execute: async (_callId, args, _signal, _onUpdate, ctx) => {
+			widgetCtx = ctx;
+			const entry = resumableJournalEntry(contextCwd(ctx), args.run_id);
+			if (!entry) return { content: [{ type: "text", text: `No safe resumable subagent dispatch found for ${args.run_id}.` }] };
+			const id = nextId++;
+			const state: SubState = {
+				id,
+				status: "running",
+				name: displayAgentName(entry.agent),
+				task: args.prompt,
+				textChunks: [],
+				toolCount: 0,
+				elapsed: 0,
+				sessionFile: entry.sessionFile!,
+				turnCount: 2,
+				model: entry.model,
+				maxDurationMs: resolveTimeout(entry.agent),
+			};
+			agents.set(id, state);
+			registerWidget(state);
+			const result = await explicitDispatchHandler("subagent-resume", () => spawnAgent(state, args.prompt, ctx))();
+			return { content: [{ type: "text", text: result || `SA${id} resumed from ${args.run_id}.` }] };
+		},
+	});
+
+	registerToolWithExecutor(pi, {
 		name: "subagent_remove",
 		description: "Remove a specific subagent. Kills it if it's currently running.",
 		parameters: Type.Object({
@@ -993,6 +1040,44 @@ export default function (pi: ExtensionAPI) {
 
 			// Fire-and-forget — reuses the same sessionFile for conversation history
 			explicitDispatchHandler("subagent-command", () => spawnAgent(state, prompt, ctx))();
+		},
+	});
+
+	pi.registerCommand("subresume", {
+		description: "Resume a persisted subagent: /subresume <journal-id> <prompt>",
+		handler: async (args, ctx) => {
+			widgetCtx = ctx;
+			const trimmed = args?.trim() ?? "";
+			const spaceIdx = trimmed.indexOf(" ");
+			if (spaceIdx === -1) {
+				ctx.ui.notify("Usage: /subresume <journal-id> <prompt>", "error");
+				return;
+			}
+			const runId = trimmed.slice(0, spaceIdx);
+			const prompt = trimmed.slice(spaceIdx + 1).trim();
+			const entry = resumableJournalEntry(contextCwd(ctx), runId);
+			if (!entry || !prompt) {
+				ctx.ui.notify(`No safe resumable subagent dispatch found for ${runId}.`, "error");
+				return;
+			}
+			const id = nextId++;
+			const state: SubState = {
+				id,
+				status: "running",
+				name: displayAgentName(entry.agent),
+				task: prompt,
+				textChunks: [],
+				toolCount: 0,
+				elapsed: 0,
+				sessionFile: entry.sessionFile!,
+				turnCount: 2,
+				model: entry.model,
+				maxDurationMs: resolveTimeout(entry.agent),
+			};
+			agents.set(id, state);
+			registerWidget(state);
+			ctx.ui.notify(`Resuming ${entry.agent} from ${runId} as SA${id}…`, "info");
+			explicitDispatchHandler("subagent-command-resume", () => spawnAgent(state, prompt, ctx))();
 		},
 	});
 

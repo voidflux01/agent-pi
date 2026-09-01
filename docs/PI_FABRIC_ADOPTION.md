@@ -71,6 +71,10 @@ worker lifecycle boundaries.
 - CHAIN now writes a bounded atomic step snapshot; an interrupted chain keeps
   its worker sessions and can be continued with `/chain-resume` from the first
   unfinished step after a parent restart.
+- NORMAL, PLAN, and SPEC can now recover a finished or interrupted standalone
+  subagent from its persisted journal dispatch id via `subagent_resume` or
+  `/subresume`; the existing session is explicitly reopened with `-c` and the
+  same worker/runtime audit path is reused.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.
