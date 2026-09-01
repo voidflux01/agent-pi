@@ -136,11 +136,20 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 
 	return new Promise((resolve) => {
 		const spawnProcess = spec.spawnProcess || spawn;
-		const child = spawnProcess(executable, spec.command.slice(1), {
-			stdio: ["ignore", "pipe", "pipe"],
-			env: spec.env || childEnvironment(),
-			cwd: spec.cwd,
-		});
+		let child: ChildProcess;
+		try {
+			child = spawnProcess(executable, spec.command.slice(1), {
+				stdio: ["ignore", "pipe", "pipe"],
+				env: spec.env || childEnvironment(),
+				cwd: spec.cwd,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			updateJournal(spec, { status: "error", exitCode: 1, note: "process_error" });
+			spec.onStderr?.(message);
+			resolve({ exitCode: 1, stderr: message, failure: "process_error", transport: "headless" });
+			return;
+		}
 		spec.onProcess?.(processLike(child));
 		updateJournal(spec, { status: "running", pid: child.pid });
 

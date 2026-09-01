@@ -157,6 +157,27 @@ describe("shared dispatch runtime", () => {
 		expect(starts).toBe(0);
 	});
 
+	it("records synchronous spawn failures instead of rejecting", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "dispatch-spawn-error-"));
+		journalAppend(dir, {
+			version: 1, id: "spawn-error-1", kind: "team", agent: "builder", task: "task",
+			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
+		});
+		const result = await runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "task"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "spawn-error-1",
+			transport: "headless",
+			journal: { dir, id: "spawn-error-1" },
+			spawnProcess: (() => { throw new Error("spawn denied"); }) as any,
+		}));
+		expect(result.failure).toBe("process_error");
+		expect(result.stderr).toBe("spawn denied");
+		expect(readFileSync(join(dir, "task-journal.jsonl"), "utf8")).toContain('"status":"error"');
+	});
+
 	it("refuses a dispatch without explicit authorization before spawning anything", async () => {
 		let starts = 0;
 		const errors: string[] = [];
