@@ -4,6 +4,19 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Runtime reliability and release verification
+
+- TEAM, CHAIN, PIPELINE, and SUBAGENT workers now share lifecycle bookkeeping
+  for stale-callback invalidation, timer cleanup, and process termination.
+  Switching orchestration modes cancels workers that belong to the previous
+  mode, and subagent watchdogs are cleared across session boundaries.
+- Local viewers share one bounded HTTP request-body reader. Declared and
+  streamed payloads are both limited, rejected requests are drained, and the
+  existing per-viewer response shapes and limits are preserved.
+- Added real worker-process lifecycle coverage and CI verification on Node 20
+  and 22 with Bun, strict diagnostics, audit, package smoke tests, and an
+  install path without optional dependencies.
+
 ### Walk-through fixes (PIPELINE / TEAM / PLAN / SPEC)
 
 - `dispatch_agents` now records `phase.lastDispatchSuccess` (the previous
