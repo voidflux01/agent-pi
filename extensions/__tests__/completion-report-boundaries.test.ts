@@ -6,6 +6,9 @@ describe("completion report boundaries", () => {
 	it("passes git input as argument arrays", () => {
 		const source = readFileSync(new URL("../completion-report.ts", import.meta.url), "utf8");
 		expect(source).toContain("execFileSync(\"git\", args");
+		expect(source).toContain("MAX_COMPLETION_REQUEST_BODY_BYTES = 256 * 1024");
+		expect(source).toContain("readRequestBody(req, res");
+		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 		expect(source).not.toContain("execSync(");
 		expect(execGit(["rev-parse", "--is-inside-work-tree"], process.cwd())).toBe("true");
 	});
