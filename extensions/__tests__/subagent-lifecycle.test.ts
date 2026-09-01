@@ -31,6 +31,13 @@ describe("stale session lifecycle protection", () => {
 		expect(src).not.toContain("ctx?.cwd ?? process.cwd()");
 	});
 
+	it("installs the kill fallback before sending SIGTERM", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		const killHelper = src.slice(src.indexOf("function killGracefully"), src.indexOf("function killGracefully") + 2_000);
+		expect(killHelper.indexOf("const timer = setTimeout")).toBeGreaterThan(-1);
+		expect(killHelper.indexOf("const timer = setTimeout")).toBeLessThan(killHelper.indexOf('proc.kill("SIGTERM")'));
+	});
+
 	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("shouldAwaitSubagentResult(agentName)");

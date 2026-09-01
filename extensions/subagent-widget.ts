@@ -81,7 +81,6 @@ function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 			resolve();
 		};
 		proc.once("exit", onExit);
-		proc.kill("SIGTERM");
 		const timer = setTimeout(() => {
 			if (settled) return;
 			settled = true;
@@ -89,6 +88,9 @@ function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
 			try { proc.kill("SIGKILL"); } catch {}
 			resolve();
 		}, timeoutMs);
+		// Install the fallback before SIGTERM: some test doubles and very small
+		// children emit `exit` synchronously from kill().
+		try { proc.kill("SIGTERM"); } catch { onExit(); }
 	});
 }
 
