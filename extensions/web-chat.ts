@@ -469,9 +469,10 @@ function startChatServer(
 			const url = new URL(req.url || "/", `http://localhost`);
 			if (req.method === "POST") {
 				const contentLength = Number(req.headers["content-length"] || 0);
-				if (!Number.isFinite(contentLength) || contentLength > 64 * 1024) {
+				if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 64 * 1024) {
 					res.writeHead(413, { "Content-Type": "application/json" });
 					res.end(JSON.stringify({ error: "Request body too large" }));
+					req.resume();
 					return;
 				}
 				if (typeof req.setTimeout === "function") req.setTimeout(15_000, () => req.destroy());
