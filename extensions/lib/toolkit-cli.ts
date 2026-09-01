@@ -299,11 +299,16 @@ export function spawnToolkitWorker(
 		let settled = false;
 		let abortTimer: ReturnType<typeof setInterval> | undefined;
 		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+		const clearAttemptTimers = () => {
+			if (abortTimer) clearInterval(abortTimer);
+			if (forceKillTimer) clearTimeout(forceKillTimer);
+			abortTimer = undefined;
+			forceKillTimer = undefined;
+		};
 		const finishWith = (exitCode: number, outText: string) => {
 			if (settled) return;
 			settled = true;
-			if (abortTimer) clearInterval(abortTimer);
-			if (forceKillTimer) clearTimeout(forceKillTimer);
+			clearAttemptTimers();
 			resolve({
 				exitCode: cancelled ? 130 : exitCode,
 				elapsed: Date.now() - startTime,
@@ -330,6 +335,8 @@ export function spawnToolkitWorker(
 
 		const retryWithPureArgsOr = (fallback: () => void) => {
 			if (cliCommand?.pureArgs && attempts.length === 0) {
+				settled = true;
+				clearAttemptTimers();
 				attempts.push(cliCommand.pureArgs(options.task, options.cwd));
 				output = "";
 				buffer = "";
