@@ -4,6 +4,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+export const MAX_EVIDENCE_VALUE_CHARS = 64 * 1024;
+export const MAX_EVENT_PAYLOAD_BYTES = 64 * 1024;
+const PAYLOAD_PREVIEW_CHARS = 1024;
+
 export interface Evidence {
 	id: string;
 	type: "command" | "test" | "diff" | "file" | "review";
@@ -26,15 +30,29 @@ function appendJsonLine(path: string, value: unknown): void {
 	appendFileSync(path, JSON.stringify(value) + "\n", "utf8");
 }
 
+function boundedPayload(payload: unknown): unknown {
+	let encoded: string;
+	try { encoded = JSON.stringify(payload); } catch { return { truncated: true, serializationError: true }; }
+	if (Buffer.byteLength(encoded, "utf8") <= MAX_EVENT_PAYLOAD_BYTES) return payload;
+	return {
+		truncated: true,
+		originalBytes: Buffer.byteLength(encoded, "utf8"),
+		preview: encoded.slice(0, PAYLOAD_PREVIEW_CHARS),
+	};
+}
+
 export function evidencePath(runDir: string): string { return join(runDir, "evidence.jsonl"); }
 export function eventsPath(runDir: string): string { return join(runDir, "events.jsonl"); }
 
 export function recordEvidence(runDir: string, evidence: Evidence): void {
-	appendJsonLine(evidencePath(runDir), evidence);
+	const value = evidence.value.length > MAX_EVIDENCE_VALUE_CHARS
+		? `${evidence.value.slice(0, MAX_EVIDENCE_VALUE_CHARS)}\n[… evidence value truncated …]`
+		: evidence.value;
+	appendJsonLine(evidencePath(runDir), { ...evidence, value });
 }
 
 export function recordRunEvent(runDir: string, event: RunEvent): void {
-	appendJsonLine(eventsPath(runDir), event);
+	appendJsonLine(eventsPath(runDir), { ...event, ...(event.payload === undefined ? {} : { payload: boundedPayload(event.payload) }) });
 }
 
 function readJsonLines<T>(path: string): T[] {
