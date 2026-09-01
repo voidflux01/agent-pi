@@ -86,6 +86,7 @@ export function reconcileJournal(sessionDir: string, activeWindowMs: number = RE
 					const done = classifyCrashedRun(sessionDir, e, activeWindowMs);
 					if (done !== undefined) {
 						e.status = done ? "done" : "error";
+						e.runStatus = normalizeRunStatus(e.status);
 						if (!done && e.exitCode == null) e.exitCode = null;
 						if (!done) e.note = `reconciled after restart (${e.note ?? "no evidence of completion"})`;
 						e.updatedAt = Date.now();

@@ -68,6 +68,7 @@ describe("reconcileJournal", () => {
 		reconcileJournal(dir);
 		const e2 = JSON.parse(readJournal().split("\n")[0]);
 		expect(e2.status).toBe("done");
+		expect(e2.runStatus).toBe("succeeded");
 		expect(e2.note).toBeUndefined();
 	});
 
@@ -100,8 +101,10 @@ describe("reconcileJournal", () => {
 		const a = lines.find((e) => e.id === "dead-a-1");
 		const b = lines.find((e) => e.id === "dead-b-1");
 		expect(a?.status).toBe("error");
+		expect(a?.runStatus).toBe("failed");
 		expect(a?.note).toContain("reconciled after restart");
 		expect(b?.status).toBe("error");
+		expect(b?.runStatus).toBe("failed");
 	});
 
 	it("never touches terminal or unparseable rows", () => {
