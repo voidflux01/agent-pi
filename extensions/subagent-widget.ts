@@ -128,6 +128,7 @@ interface SubState {
 	maxDurationMs: number;     // watchdog timeout — kills agent after this duration
 	resultBudgetChars?: number; // parent-visible result budget, scaled by context usage
 	watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
+	elapsedTimer?: ReturnType<typeof setInterval>; // live widget timer, cleared on lifecycle changes
 	/** When true, the parent tool waits for RESULT and skips the follow-up turn. */
 	awaitResult?: boolean;
 }
@@ -374,6 +375,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				invalidateWidget(state.id);
 			}, 1000);
+			state.elapsedTimer = timer;
 
 			// ── Watchdog: kill agent if it exceeds maxDurationMs ──────────
 			if (state.maxDurationMs > 0) {
@@ -394,6 +396,7 @@ export default function (pi: ExtensionAPI) {
 				if (finished) return;
 				finished = true;
 				clearInterval(timer);
+				if (state.elapsedTimer === timer) state.elapsedTimer = undefined;
 				// Clear watchdog — agent exited normally before timeout
 				if (state.watchdogTimer) {
 					clearTimeout(state.watchdogTimer);
@@ -1101,6 +1104,10 @@ export default function (pi: ExtensionAPI) {
 		widgetCtx = undefined;
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
+			if (state.elapsedTimer) {
+				clearInterval(state.elapsedTimer);
+				state.elapsedTimer = undefined;
+			}
 			if (state.watchdogTimer) {
 				clearTimeout(state.watchdogTimer);
 				state.watchdogTimer = undefined;
@@ -1129,6 +1136,10 @@ export default function (pi: ExtensionAPI) {
 		reconcileJournal(path.join(startCwd, ".pi", "agent-sessions"));
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
+			if (state.elapsedTimer) {
+				clearInterval(state.elapsedTimer);
+				state.elapsedTimer = undefined;
+			}
 			if (state.proc && state.status === "running") {
 				killPromises.push(killGracefully(state.proc));
 			}
@@ -1181,6 +1192,10 @@ export default function (pi: ExtensionAPI) {
 		// Kill running subagents and clear all widgets
 		const killPromises: Promise<void>[] = [];
 		for (const [id, state] of Array.from(agents.entries())) {
+			if (state.elapsedTimer) {
+				clearInterval(state.elapsedTimer);
+				state.elapsedTimer = undefined;
+			}
 			if (state.proc && state.status === "running") {
 				killPromises.push(killGracefully(state.proc));
 			}
