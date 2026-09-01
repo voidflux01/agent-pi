@@ -995,6 +995,63 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	registerToolWithExecutor(pi, {
+		name: "dispatch_team_batch",
+		label: "Dispatch Team Batch",
+		description: "Dispatch multiple independent TEAM tasks concurrently and return bounded summaries in one call. Use only when tasks have separate owners and neither depends on another result; use dispatch_agent for sequential work.",
+		parameters: Type.Object({
+			jobs: Type.Array(Type.Object({
+				agent: Type.String({ description: "Team member name (case-insensitive)" }),
+				task: Type.String({ description: "Independent task for this team member" }),
+			}), { description: "Independent jobs to run concurrently (maximum 8)" }),
+		}),
+
+		execute: explicitDispatchHandler("agent-team-batch", async (_toolCallId, params, signal, onUpdate, ctx) => {
+			const requested = Array.isArray((params as any)?.jobs) ? (params as any).jobs : [];
+			if (requested.length === 0) {
+				return { content: [{ type: "text", text: "Error: jobs must contain at least one independent team task." }] };
+			}
+			const jobs = requested.slice(0, 8) as Array<{ agent: string; task: string }>;
+			if (signal?.aborted) {
+				return { content: [{ type: "text", text: "Team batch cancelled before dispatch." }], details: { status: "cancelled", jobs: 0 } };
+			}
+			const orchestrationRun = createOrchestrationRun({
+				context: ctx,
+				actor: "agent-team-batch",
+				mode: "TEAM",
+				budget: { maxSteps: jobs.length },
+				workspaceCwd: ctx?.cwd,
+			});
+			orchestrationRun.record("team.batch.started", { jobs: jobs.map((job) => job.agent) });
+			onUpdate?.({ content: [{ type: "text", text: `Dispatching ${jobs.length} independent TEAM tasks concurrently...` }] });
+			const results = await Promise.all(jobs.map(async (job) => {
+				orchestrationRun.consumeStep();
+				try {
+					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, signal);
+					return { agent: job.agent, task: job.task, status: result.exitCode === 0 ? "done" : "error", ...result };
+				} catch (error: any) {
+					return { agent: job.agent, task: job.task, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };
+				}
+			}));
+			const failed = results.filter((result) => result.status !== "done").length;
+			const cancelled = signal?.aborted || results.some((result) => result.exitCode === 130);
+			orchestrationRun.record("team.batch.completed", { total: results.length, failed, cancelled });
+			orchestrationRun.finish(cancelled ? "cancelled" : failed > 0 ? "failed" : "succeeded", { total: results.length, failed });
+			const summary = results.map((result) => {
+				const label = `[${result.agent}] ${result.status} in ${Math.round(result.elapsed / 1000)}s`;
+				return `${label}\n${result.output}`;
+			}).join("\n\n");
+			return {
+				content: [{ type: "text", text: summary }],
+				details: {
+					runId: orchestrationRun.runId,
+					status: cancelled ? "cancelled" : failed > 0 ? "failed" : "succeeded",
+					jobs: results.map(({ agent, task, status, elapsed, exitCode, fullOutputPath, model }) => ({ agent, task, status, elapsed, exitCode, fullOutputPath, model })),
+				},
+			};
+		}),
+	});
+
 	// ── Commands ─────────────────────────────────
 
 	registerTaskStatusCommand(pi, () => sessionDir);
@@ -1396,6 +1453,9 @@ ${scoutSection}
 
 ## Dispatch rules
 - Keep each dispatch focused on one outcome.
+- When two or more tasks have independent owners and do not need each other's
+  intermediate result, use \`dispatch_team_batch\` to run them concurrently in
+  one bounded call. Keep dependent work sequential with \`dispatch_agent\`.
 - Use Builder agents for changes and Reviewer agents for verification/testing; the
   current TEAM roster has no separate Tester role.
 - Do not dispatch merely to add ceremony.
