@@ -132,6 +132,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		return { exitCode: 1, stderr: "No child command supplied", transport: "headless" };
 	}
 	if (isAborted(spec)) {
+		updateJournal(spec, { status: "error", runStatus: "cancelled", exitCode: 130, note: "aborted" });
 		return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "headless" };
 	}
 
@@ -234,7 +235,11 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 
 async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult | null> {
 	if (!spec.herdrDoneExtPath || !(await herdrEnabledAsync())) return null;
-	if (isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
+	const abortedResult = (): DispatchRuntimeResult => {
+		updateJournal(spec, { status: "error", runStatus: "cancelled", exitCode: 130, note: "aborted" });
+		return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
+	};
+	if (isAborted(spec)) return abortedResult();
 
 	let tab: HerdrTabRef | null = null;
 	let ownedByHerdr = false;
@@ -280,11 +285,11 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		updateJournal(spec, { status: "running" });
 		const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
 		if (!sent) {
-			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
+			if (aborted || isAborted(spec)) return abortedResult();
 			return null;
 		}
 		if (!(await waitForLaunchStart(refs.startedPath, 5_000, () => aborted || isAborted(spec)))) {
-			if (aborted || isAborted(spec)) return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
+			if (aborted || isAborted(spec)) return abortedResult();
 			return null;
 		}
 

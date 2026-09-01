@@ -142,6 +142,11 @@ describe("shared dispatch runtime", () => {
 
 	it("does not spawn when already aborted", async () => {
 		let starts = 0;
+		const dir = mkdtempSync(join(tmpdir(), "dispatch-abort-before-start-"));
+		journalAppend(dir, {
+			version: 1, id: "abort-before-start", kind: "team", agent: "builder", task: "task",
+			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
+		});
 		const result = await runExplicit("agent-team", () => run({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
@@ -150,11 +155,13 @@ describe("shared dispatch runtime", () => {
 			launchId: "abort-before-start",
 			transport: "headless",
 			isAborted: () => true,
+			journal: { dir, id: "abort-before-start" },
 			spawnProcess: (() => { starts += 1; return fakeChild(); }) as any,
 		}));
 		expect(result.exitCode).toBe(130);
 		expect(result.failure).toBe("aborted");
 		expect(starts).toBe(0);
+		expect(readFileSync(join(dir, "task-journal.jsonl"), "utf8")).toContain('"runStatus":"cancelled"');
 	});
 
 	it("records synchronous spawn failures instead of rejecting", async () => {
