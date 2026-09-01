@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 169 Bun passed; 947 Vitest passed; 13 skipped.
+- Full repository tests: 170 Bun passed; 947 Vitest passed; 13 skipped.
 - Orchestration budget regression coverage confirms concurrent admission
   reservations are atomic, visible in status, released on actual usage, and
   explicitly releasable when a worker produces no usage; expired reservations
@@ -122,6 +122,8 @@ the authoritative fixture command is `node --test`.
   require or persist raw tool arguments.
 - Query/dashboard coverage confirms tool name and terminal tool status are
   promoted into bounded run summaries for direct and blocked tool executions.
+- Parent-topology coverage confirms a worker's direct tool run inherits the
+  validated parent RunContext id and remains queryable as a child edge.
 - Orchestration query regression coverage confirms a successful run without a
   verification receipt is explicitly projected as `UNVERIFIED`.
 - `compose_exec` regression coverage confirms a slow step receives an abort

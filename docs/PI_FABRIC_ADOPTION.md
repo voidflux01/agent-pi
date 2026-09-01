@@ -197,6 +197,9 @@ worker lifecycle boundaries.
   identity and lifecycle status into each tool run summary, with a rejection
   category when available. Operators can answer which tool was involved before
   opening the full event timeline.
+- Direct tool RunContexts inherit a validated `PI_AGENT_PI_RUN_ID` when they
+  execute inside a worker, rebuilding the Agent → tool topology after restart
+  without trusting arbitrary environment values or creating orphan edges.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

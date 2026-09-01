@@ -4,8 +4,9 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import orchestrationToolAudit, { recordBlockedToolCall } from "../orchestration-tool-audit.ts";
-import { readOrchestrationEvents } from "../lib/orchestration-query.ts";
+import { readOrchestrationEvents, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 import { setCoordinationMode } from "../lib/coordination-state.ts";
+import { createOrchestrationRun } from "../lib/orchestration-run.ts";
 
 describe("native tool execution audit", () => {
 	const roots: string[] = [];
@@ -77,5 +78,26 @@ describe("native tool execution audit", () => {
 		const events = readOrchestrationEvents(join(cwd, ".pi", "agent-sessions", "compositions", first!));
 		expect(events.filter((event) => event.type === "tool.blocked")).toHaveLength(1);
 		expect(events.find((event) => event.type === "tool.blocked")?.payload).toMatchObject({ data: { category: "approval" } });
+	});
+
+	test("links a worker's direct tool run to its inherited parent", async () => {
+		const handlers = new Map<string, Function>();
+		const pi: any = { on(event: string, handler: Function) { handlers.set(event, handler); } };
+		orchestrationToolAudit(pi);
+		const cwd = join(tmpdir(), `pi-tool-audit-parent-${process.pid}`);
+		roots.push(cwd);
+		const parent = createOrchestrationRun({ eventDir: join(cwd, "parent"), actor: "dispatch-runtime", mode: "TEAM" });
+		const previousParent = process.env.PI_AGENT_PI_RUN_ID;
+		process.env.PI_AGENT_PI_RUN_ID = parent.runId;
+		try {
+			await handlers.get("tool_execution_start")?.({ type: "tool_execution_start", toolCallId: "child-1", toolName: "read", args: {} }, { cwd });
+			await handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolCallId: "child-1", toolName: "read", result: { content: [] }, isError: false });
+		} finally {
+			if (previousParent === undefined) delete process.env.PI_AGENT_PI_RUN_ID;
+			else process.env.PI_AGENT_PI_RUN_ID = previousParent;
+		}
+		const runRoot = join(cwd, ".pi", "agent-sessions", "compositions");
+		const childRunId = readdirSync(runRoot)[0];
+		expect(summarizeOrchestrationRun(join(runRoot, childRunId))).toMatchObject({ parentRunId: parent.runId, toolName: "read" });
 	});
 });

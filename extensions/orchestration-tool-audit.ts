@@ -10,6 +10,11 @@ type PendingExecution = { toolName: string; run: OrchestrationRun };
 
 const BLOCKED_CALLS_KEY = "__piAuditedBlockedToolCalls";
 
+function inheritedParentRunId(): string | undefined {
+	const value = process.env.PI_AGENT_PI_RUN_ID;
+	return typeof value === "string" && /^[A-Za-z0-9-]{1,80}$/.test(value) ? value : undefined;
+}
+
 /** Persist one bounded rejection without letting stacked gates double-count it. */
 export function recordBlockedToolCall(input: {
 	toolCallId: string;
@@ -28,6 +33,7 @@ export function recordBlockedToolCall(input: {
 	}
 	const run = createOrchestrationRun({
 		context: input.context,
+		parentRunId: inheritedParentRunId(),
 		actor: "tool-gate",
 		mode: coordinationState().mode,
 		budget: { maxSteps: 1 },
@@ -59,6 +65,7 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName === "call_tool") return;
 		const run = createOrchestrationRun({
 			context: ctx,
+			parentRunId: inheritedParentRunId(),
 			actor: "tool-runtime",
 			mode: coordinationState().mode,
 			budget: { maxSteps: 1 },
