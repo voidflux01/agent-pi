@@ -178,10 +178,10 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		let abortTimer: ReturnType<typeof setInterval> | undefined;
 		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 		const terminateChild = () => {
-			try { child.kill("SIGTERM"); } catch {}
 			forceKillTimer = setTimeout(() => {
 				try { child.kill("SIGKILL"); } catch {}
 			}, FORCE_KILL_DELAY_MS);
+			try { child.kill("SIGTERM"); } catch {}
 		};
 		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
