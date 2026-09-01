@@ -6,14 +6,16 @@
 
 import { probeNestedPiLaunch } from "./lib/delegation-guard.ts";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 
 export default function delegationGuard(pi: ExtensionAPI) {
-	pi.on("tool_call", async (event) => {
+	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_DELEGATION_GUARD === "0") return { block: false };
 		if (event.toolName !== "bash") return { block: false };
 		const params = event.arguments || event.params || event.input || {};
 		const cmd = String(params.command || params.cmd || "");
 		if (!cmd || !probeNestedPiLaunch(cmd)) return { block: false };
+		recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "delegation_guard", reason: "nested pi launch", context: ctx });
 		return {
 			block: true,
 			reason: [

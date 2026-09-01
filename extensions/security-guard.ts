@@ -25,6 +25,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -285,6 +286,7 @@ export default function securityGuard(pi: ExtensionAPI) {
 				if (budgetResult.severity === "block") {
 					stats.blocked++;
 					emitGuardCard("budget exceeded", budgetResult.matched);
+					recordBlockedToolCall({ toolCallId: event.toolCallId, toolName, category: "security_budget", reason: budgetResult.description, context: ctx });
 					return { block: true, reason: formatThreatsForBlock([budgetResult], policy.settings.verbose_blocks) };
 				}
 				stats.warned++;
@@ -411,6 +413,7 @@ export default function securityGuard(pi: ExtensionAPI) {
 			const reason = formatThreatsForBlock(blockThreats, policy.settings.verbose_blocks);
 			const summary = blockThreats.map(t => t.description).join("; ");
 			emitGuardCard("action blocked", truncate(summary, 80));
+			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName, category: "security_policy", reason: summary, context: ctx });
 			return { block: true, reason };
 		}
 

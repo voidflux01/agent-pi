@@ -16,6 +16,7 @@ import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetAp
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 import { createNormalEscalationState, normalEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
+import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 
 const MODE_FILE = "/tmp/pi-current-mode.txt";
 
@@ -218,16 +219,21 @@ export default function (pi: ExtensionAPI) {
 		} else {
 			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.arguments || event.params || event.input);
 			if (escalation.block) {
+				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason: normalEscalationReason(escalation.count), context: ctx });
 				return { block: true, reason: normalEscalationReason(escalation.count) };
 			}
 		}
-		return decideApprovalGate({
+		const decision = decideApprovalGate({
 			mode,
 			approved: approvalStateForMode(mode),
 			toolName: event.toolName,
 			args: event.arguments || event.params || event.input,
 			cwd: ctx?.cwd,
 		});
+		if (decision.block) {
+			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "approval", reason: decision.reason, context: ctx });
+		}
+		return decision;
 	});
 
 	// A follow-up user request starts a fresh reconnaissance decision. Without

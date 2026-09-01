@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import orchestrationToolAudit from "../orchestration-tool-audit.ts";
+import orchestrationToolAudit, { recordBlockedToolCall } from "../orchestration-tool-audit.ts";
 import { readOrchestrationEvents } from "../lib/orchestration-query.ts";
 import { setCoordinationMode } from "../lib/coordination-state.ts";
 
@@ -64,5 +64,18 @@ describe("native tool execution audit", () => {
 		const runId = readdirSync(runRoot)[0];
 		const changed = readOrchestrationEvents(join(runRoot, runId)).find((event) => event.type === "workspace.changed");
 		expect(changed?.payload).toMatchObject({ data: { changedFiles: ["after.txt"] } });
+	});
+
+	test("deduplicates blocked decisions from stacked gates", () => {
+		const cwd = join(tmpdir(), `pi-tool-audit-blocked-${process.pid}`);
+		roots.push(cwd);
+		const toolCallId = `blocked-${process.pid}-${Date.now()}`;
+		const first = recordBlockedToolCall({ toolCallId, toolName: "bash", category: "approval", reason: "approval required", context: { cwd } });
+		const duplicate = recordBlockedToolCall({ toolCallId, toolName: "bash", category: "security_policy", reason: "security policy", context: { cwd } });
+		expect(first).toMatch(/^[A-Za-z0-9-]+$/);
+		expect(duplicate).toBeUndefined();
+		const events = readOrchestrationEvents(join(cwd, ".pi", "agent-sessions", "compositions", first!));
+		expect(events.filter((event) => event.type === "tool.blocked")).toHaveLength(1);
+		expect(events.find((event) => event.type === "tool.blocked")?.payload).toMatchObject({ data: { category: "approval" } });
 	});
 });

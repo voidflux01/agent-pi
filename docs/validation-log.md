@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 168 Bun passed; 947 Vitest passed; 13 skipped.
+- Full repository tests: 169 Bun passed; 947 Vitest passed; 13 skipped.
 - Orchestration budget regression coverage confirms concurrent admission
   reservations are atomic, visible in status, released on actual usage, and
   explicitly releasable when a worker produces no usage; expired reservations
@@ -117,6 +117,9 @@ the authoritative fixture command is `node --test`.
 - Native tool audit coverage confirms direct tool lifecycles persist in
   NORMAL, PLAN, and SPEC with success/failure terminal states, while
   `call_tool` is excluded from duplicate outer accounting.
+- Gate audit coverage confirms stacked native-tool rejection decisions are
+  deduplicated by `toolCallId`, persist a bounded category/reason, and do not
+  require or persist raw tool arguments.
 - Orchestration query regression coverage confirms a successful run without a
   verification receipt is explicitly projected as `UNVERIFIED`.
 - `compose_exec` regression coverage confirms a slow step receives an abort

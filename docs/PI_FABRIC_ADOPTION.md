@@ -189,6 +189,10 @@ worker lifecycle boundaries.
   NORMAL, PLAN, and SPEC therefore have queryable RunContexts too. Mutating
   capabilities capture the bounded workspace delta, while `call_tool` keeps
   its nested audit as the single source for proxied execution.
+- Native pre-execution rejects from security, approval, task-discipline,
+  NORMAL escalation, and delegation gates use an idempotent `toolCallId`
+  boundary audit. Stacked gates cannot double-count one denied call, and the
+  rejection reason is bounded without persisting raw arguments.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

@@ -8,6 +8,42 @@ import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestrati
 
 type PendingExecution = { toolName: string; run: OrchestrationRun };
 
+const BLOCKED_CALLS_KEY = "__piAuditedBlockedToolCalls";
+
+/** Persist one bounded rejection without letting stacked gates double-count it. */
+export function recordBlockedToolCall(input: {
+	toolCallId: string;
+	toolName: string;
+	reason?: string;
+	category: string;
+	context?: any;
+}): string | undefined {
+	const g = globalThis as any;
+	const seen: Set<string> = g[BLOCKED_CALLS_KEY] instanceof Set ? g[BLOCKED_CALLS_KEY] : (g[BLOCKED_CALLS_KEY] = new Set<string>());
+	if (seen.has(input.toolCallId)) return undefined;
+	seen.add(input.toolCallId);
+	if (seen.size > 2048) {
+		const oldest = seen.values().next().value;
+		if (typeof oldest === "string") seen.delete(oldest);
+	}
+	const run = createOrchestrationRun({
+		context: input.context,
+		actor: "tool-gate",
+		mode: coordinationState().mode,
+		budget: { maxSteps: 1 },
+		workspaceCwd: undefined,
+	});
+	run.consumeStep();
+	run.record("tool.blocked", {
+		toolName: input.toolName,
+		toolCallId: input.toolCallId,
+		category: input.category,
+		reason: typeof input.reason === "string" ? input.reason.slice(0, 512) : undefined,
+	});
+	run.finish("failed", { toolName: input.toolName, toolCallId: input.toolCallId, category: input.category });
+	return run.runId;
+}
+
 function shouldCaptureWorkspace(toolName: string): boolean {
 	const capability = getCapabilityForTool(toolName);
 	return toolName === "write" || toolName === "edit" || toolName === "bash"

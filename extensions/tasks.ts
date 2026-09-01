@@ -34,6 +34,7 @@ import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskLis
 import { padRight } from "./lib/ui-helpers.ts";
 import { isPlanningArtifactWrite, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
@@ -360,6 +361,10 @@ export default function (pi: ExtensionAPI) {
 		if (!Array.isArray(tasks)) return { block: false };
 
 		const decision = decideGateClaim(tasks, requiredMode);
+		if (decision.block && (requiredMode || taskGateStrict())) {
+			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "task_gate", reason: decision.reason, context: _ctx });
+			return decision;
+		}
 		if (!decision.block || requiredMode || taskGateStrict()) return decision;
 
 		// NORMAL with PI_TASKS_STRICT=0 stays advisory so small work is not
