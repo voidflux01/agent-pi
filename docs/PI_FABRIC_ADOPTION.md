@@ -35,6 +35,9 @@ worker lifecycle boundaries.
   reports `running` only while that process is alive and otherwise reports
   `stale`, making crashed runs visible without silently rewriting their event
   history.
+- PIPELINE now writes an atomic versioned workflow snapshot; `/pipeline-resume`
+  restores the phase, accumulated context, plan/review output, and review-loop
+  counters only when the current config still matches the snapshot.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.

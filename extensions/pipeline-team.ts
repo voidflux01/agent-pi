@@ -12,6 +12,7 @@
  *
  * Commands:
  *   /pipeline            — select pipeline config from YAML (opt-in activation)
+ *   /pipeline-resume     — restore the last durable pipeline snapshot
  *   /pipeline-status     — full pipeline state notification
  *   /pipeline-reset      — reset pipeline to phase 1
  *   /pipeline-clear      — clear pipeline widget from screen (keeps pipeline active)
@@ -69,6 +70,7 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
+import { clearPipelineSnapshot, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -224,6 +226,53 @@ export default function (pi: ExtensionAPI) {
 	let reviewOutput = "";   // $REVIEW — from phase 5 (when looping)
 	let reviewLoopCount = 0;
 
+	function persistPipelineState(): void {
+		if (!sessionDir || !activeConfig || phaseStates.length === 0) return;
+		try {
+			writePipelineSnapshot(sessionDir, {
+				pipeline: activeConfig.name,
+				currentPhaseIndex,
+				taskSummary,
+				accContext: truncateContext(accContext),
+				planOutput: truncateContext(planOutput),
+				reviewOutput: truncateContext(reviewOutput),
+				reviewLoopCount,
+				phases: phaseStates.map((phase) => ({
+					name: phase.def.name,
+					status: phase.status,
+					summary: phase.summary.slice(0, 4_000),
+					dispatchCount: phase.dispatchCount,
+					lastDispatchSuccess: phase.lastDispatchSuccess,
+				})),
+			});
+		} catch {}
+	}
+
+	function restorePipelineState(): boolean {
+		const snapshot = readPipelineSnapshot(sessionDir);
+		if (!snapshot) return false;
+		const config = pipelineConfigs.find((candidate) => candidate.name === snapshot.pipeline);
+		if (!config || config.phases.length !== snapshot.phases.length || config.phases.some((phase, index) => phase.name !== snapshot.phases[index]?.name)) return false;
+		activeConfig = config;
+		setActivePipeline(config.name);
+		currentPhaseIndex = snapshot.currentPhaseIndex;
+		taskSummary = snapshot.taskSummary;
+		accContext = snapshot.accContext;
+		planOutput = snapshot.planOutput;
+		reviewOutput = snapshot.reviewOutput;
+		reviewLoopCount = snapshot.reviewLoopCount;
+		phaseStates = config.phases.map((def, index) => ({
+			def,
+			status: snapshot.phases[index]!.status,
+			summary: snapshot.phases[index]!.summary,
+			agents: [],
+			dispatchCount: snapshot.phases[index]!.dispatchCount,
+			lastDispatchSuccess: snapshot.phases[index]!.lastDispatchSuccess,
+		}));
+		updateWidget();
+		return true;
+	}
+
 	// ── Load Config ──────────────────────────────
 
 	function loadConfig(cwd: string) {
@@ -294,6 +343,7 @@ export default function (pi: ExtensionAPI) {
 			phaseStates[0].status = "active";
 		}
 
+		persistPipelineState();
 		updateWidget();
 	}
 
@@ -619,6 +669,7 @@ export default function (pi: ExtensionAPI) {
 		if (agentDefs.length > 0) {
 			phaseState.dispatchCount = (phaseState.dispatchCount || 0) + 1;
 		}
+		persistPipelineState();
 		updateWidget();
 
 		const outputs: string[] = [];
@@ -687,6 +738,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
+		persistPipelineState();
 		return { outputs, fullOutputs, fullOutputPaths, success: allSuccess };
 	}
 
@@ -870,6 +922,7 @@ export default function (pi: ExtensionAPI) {
 						gate = pipelineCompleteDecision(planOutput, receipt, hash);
 					} else {
 						phaseStates[currentPhaseIndex].status = "active";
+						persistPipelineState();
 						return { content: [{ type: "text", text: `Verifier could not complete: ${verification.error || "unknown error"}` }], details: { error: true, phase: "verification" } };
 					}
 				}
@@ -884,14 +937,17 @@ export default function (pi: ExtensionAPI) {
 							phaseStates[executeIndex].status = "active";
 							phaseStates[executeIndex].summary = `Verifier feedback (attempt ${attempt}): ${receipt?.results.map(r => `${r.raw}: ${r.status}`).join("; ") || gate.reason}`;
 							currentPhaseIndex = executeIndex;
+							persistPipelineState();
 							updateWidget();
 							return { content: [{ type: "text", text: `Verifier FAIL (attempt ${attempt}/${DEFAULT_VERIFIER_ATTEMPTS}). Returned to ${phaseStates[executeIndex].def.name.toUpperCase()}; dispatch a builder with the verifier feedback.` }], details: { phase: phaseStates[executeIndex].def.name, verifier: receipt } };
 						}
 					}
 					phaseStates[currentPhaseIndex].status = "active";
+					persistPipelineState();
 					return { content: [{ type: "text", text: gate.reason || "Pipeline cannot complete without an independent verifier PASS." }], details: { error: true, phase: "verification", verifier: receipt } };
 				}
 				activeConfig = null;
+				clearPipelineSnapshot(sessionDir);
 				updateWidget();
 				return {
 					content: [{ type: "text", text: "Pipeline complete! All phases finished." }],
@@ -901,6 +957,7 @@ export default function (pi: ExtensionAPI) {
 
 			currentPhaseIndex = nextIndex;
 			phaseStates[currentPhaseIndex].status = "active";
+			persistPipelineState();
 			updateWidget();
 
 			const phase = phaseStates[currentPhaseIndex].def;
@@ -1165,6 +1222,22 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("pipeline-resume", {
+		description: "Resume the last durable pipeline snapshot",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			if (!restorePipelineState()) {
+				ctx.ui.notify("No compatible pipeline snapshot found.", "warning");
+				return;
+			}
+			const applyMode = (globalThis as any).__piSetMode as undefined | ((mode: string, nextCtx?: typeof ctx) => void);
+			if (typeof applyMode === "function") applyMode("PIPELINE", ctx);
+			else setCoordinationMode("PIPELINE");
+			updateStatus();
+			ctx.ui.notify(`Resumed pipeline ${activeConfig!.name} at ${phaseStates[currentPhaseIndex]!.def.name.toUpperCase()}.`, "info");
+		},
+	});
+
 	pi.registerCommand("pipeline-status", {
 		description: "Show full pipeline state",
 		handler: async (_args, ctx) => {
@@ -1204,6 +1277,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			activeConfig = null;
+			clearPipelineSnapshot(sessionDir);
 			setActivePipeline(null);
 			phaseStates = [];
 			clearPipelineUI();
