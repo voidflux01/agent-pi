@@ -69,7 +69,7 @@ import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
 import { clearPipelineSnapshot, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 
 // ── Types ────────────────────────────────────────
@@ -591,6 +591,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: journalId,
 				parentRunId,
 				mode: "PIPELINE",
+				pollTimeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),

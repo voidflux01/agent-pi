@@ -76,6 +76,8 @@ the authoritative fixture command is `node --test`.
 - Subagent lifecycle regression coverage confirms omitted timeouts use the
   shared 15-minute safety deadline while explicit zero still disables the
   watchdog for intentional long-running work.
+- Static mode-path coverage confirms TEAM, CHAIN, and PIPELINE standard worker
+  dispatches pass the shared 15-minute deadline into the transport runtime.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

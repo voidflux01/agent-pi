@@ -15,6 +15,9 @@ export interface RunBudget {
 	maxCostUsd?: number;
 }
 
+/** Shared default deadline for mode-owned worker executions. */
+export const DEFAULT_ORCHESTRATION_TIMEOUT_MS = 15 * 60_000;
+
 export interface RunUsage {
 	totalTokens: number;
 	costUsd: number;

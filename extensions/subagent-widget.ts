@@ -40,7 +40,7 @@ import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
 
@@ -92,7 +92,7 @@ function scheduleUnrefCleanup(callback: () => void, delayMs: number): void {
 
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const TIMEOUT_KILL_GRACE_MS = 30_000;
-export const DEFAULT_SUBAGENT_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_SUBAGENT_TIMEOUT_MS = DEFAULT_ORCHESTRATION_TIMEOUT_MS;
 
 /** Use the shared RunContext deadline by default; explicit zero disables it. */
 export function resolveTimeout(_name: string, explicitTimeout?: number): number {

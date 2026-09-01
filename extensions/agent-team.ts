@@ -54,7 +54,7 @@ import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTask
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -851,6 +851,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: journalId,
 				parentRunId,
 				mode: "TEAM",
+				pollTimeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: paneTitle,

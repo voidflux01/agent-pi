@@ -54,7 +54,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -483,6 +483,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: journalId,
 				parentRunId,
 				mode: "CHAIN",
+				pollTimeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),
