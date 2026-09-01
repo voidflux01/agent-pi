@@ -82,9 +82,9 @@ describe("stale session lifecycle protection", () => {
 });
 
 describe("timeout resolution", () => {
-	it("does not apply a role default", () => {
-		expect(resolveTimeout("SCOUT")).toBe(0);
-		expect(resolveTimeout("BUILDER")).toBe(0);
+	it("uses the shared safety deadline by default", () => {
+		expect(resolveTimeout("SCOUT")).toBe(15 * 60_000);
+		expect(resolveTimeout("BUILDER")).toBe(15 * 60_000);
 	});
 
 	it("honors an explicit timeout and explicit zero", () => {

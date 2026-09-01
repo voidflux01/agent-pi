@@ -105,6 +105,10 @@ worker lifecycle boundaries.
 - When the live dashboard is filtered to one mode, it surfaces that mode's
   compact metrics in the widget header, so operators can notice regressions in
   speed, reliability, or spend during a run rather than after the session.
+- NORMAL/PLAN/SPEC subagent calls now get a 15-minute watchdog when `timeout`
+  is omitted, aligned with the default RunContext deadline. Explicit
+  `timeout: 0` remains available for intentionally unbounded work and is
+  reported through the existing lifecycle/journal path.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

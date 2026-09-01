@@ -92,11 +92,12 @@ function scheduleUnrefCleanup(callback: () => void, delayMs: number): void {
 
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const TIMEOUT_KILL_GRACE_MS = 30_000;
+export const DEFAULT_SUBAGENT_TIMEOUT_MS = 15 * 60_000;
 
-/** Optional explicit timeout only. 0 / omitted means no watchdog kill. */
+/** Use the shared RunContext deadline by default; explicit zero disables it. */
 export function resolveTimeout(_name: string, explicitTimeout?: number): number {
 	if (explicitTimeout !== undefined && explicitTimeout >= 0) return explicitTimeout;
-	return 0;
+	return DEFAULT_SUBAGENT_TIMEOUT_MS;
 }
 
 /** Toolkit harnesses keep lowercase names so herdr labels match `omp-agent`. */
@@ -641,7 +642,7 @@ export default function (pi: ExtensionAPI) {
 			summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
-			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit or 0 to run until the agent finishes." })),
+			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 		}),
 		execute: async (callId, args, signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
@@ -697,7 +698,7 @@ export default function (pi: ExtensionAPI) {
 				model: Type.Optional(Type.String({ description: "Model override. Only set to override the agent definition's default model." })),
 			}), { description: "Array of agent definitions to spawn" }),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
-			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit or 0 to run until each agent finishes." })),
+			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
 			join: Type.Optional(Type.Boolean({ description: "Wait for all spawned agents and return bounded summaries in this call (default: false)" })),
 		}),
