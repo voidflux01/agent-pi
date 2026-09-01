@@ -26,6 +26,8 @@ describe("web chat boundaries", () => {
 		expect(source).not.toContain("This fires for every message (including tool-use)");
 		expect(source).toContain('execFileSync("which", ["cloudflared"]');
 		expect(source).toContain("env: childEnvironment()");
+		expect(source).toContain("MAX_TUNNEL_STDERR_CHARS");
+		expect(source).not.toContain("stderrBuf += chunk");
 		expect(source).not.toContain("execSync(");
 	});
 });

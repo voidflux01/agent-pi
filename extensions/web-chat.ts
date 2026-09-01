@@ -63,6 +63,7 @@ function isCloudflaredAvailable(): boolean {
 
 function startTunnel(localPort: number): Promise<{ url: string; proc: ChildProcess }> {
 	return new Promise((resolve, reject) => {
+		const MAX_TUNNEL_STDERR_CHARS = 64 * 1024;
 		const proc = spawn("cloudflared", [
 			"tunnel",
 			"--url", `http://127.0.0.1:${localPort}`,
@@ -83,7 +84,7 @@ function startTunnel(localPort: number): Promise<{ url: string; proc: ChildProce
 		let stderrBuf = "";
 		proc.stderr!.setEncoding("utf-8");
 		proc.stderr!.on("data", (chunk: string) => {
-			stderrBuf += chunk;
+			stderrBuf = (stderrBuf + chunk).slice(-MAX_TUNNEL_STDERR_CHARS);
 			const match = stderrBuf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
 			if (match && !resolved) {
 				resolved = true;
