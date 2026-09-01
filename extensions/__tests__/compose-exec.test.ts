@@ -61,4 +61,41 @@ describe("compose_exec", () => {
 		expect(result.details.failed).toBe(2);
 		expect(result.details.results[0].error).toContain("parallel effect conflict");
 	});
+
+	test("passes compact prior output through sequential step references", async () => {
+		const registered: any[] = [];
+		let received: any;
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, { name: "compose_source", description: "Source", async execute() { return { content: [{ type: "text", text: "compact answer" }], details: { value: 7 } }; } });
+		registerToolWithExecutor(fakePi, { name: "compose_consumer", description: "Consumer", async execute(_id, args) { received = args; return { content: [{ type: "text", text: "consumed" }] }; } });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [
+			{ tool: "compose_source" },
+			{ tool: "compose_consumer", arguments: { answer: "$STEP_0_TEXT", number: "$STEP_0_DETAILS.value" } },
+		] }, undefined, undefined, { cwd: process.cwd() });
+		expect(received).toEqual({ answer: "compact answer", number: 7 });
+		expect(result.details).toMatchObject({ completed: 2, failed: 0 });
+	});
+
+	test("supports safe conditional skips and blocks references in parallel mode", async () => {
+		const registered: any[] = [];
+		const calls: string[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, { name: "compose_gate", description: "Gate", async execute() { calls.push("gate"); throw new Error("gate failed"); } });
+		registerToolWithExecutor(fakePi, { name: "compose_after", description: "After", async execute() { calls.push("after"); return { content: [{ type: "text", text: "after" }] }; } });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const sequential = await tool.execute("outer", { stop_on_error: false, steps: [
+			{ tool: "compose_gate" },
+			{ tool: "compose_after", when: { step: 0, status: "failed" } },
+		] }, undefined, undefined, { cwd: process.cwd() });
+		expect(calls).toEqual(["gate", "after"]);
+		expect(sequential.details.results[1].status).toBe("completed");
+		const parallel = await tool.execute("outer", { parallel: true, steps: [
+			{ tool: "compose_after", arguments: { value: "$STEP_0_TEXT" } },
+		] }, undefined, undefined, { cwd: process.cwd() });
+		expect(parallel.details.results[0].status).toBe("blocked");
+		expect(parallel.details.results[0].error).toContain("sequential mode");
+	});
 });

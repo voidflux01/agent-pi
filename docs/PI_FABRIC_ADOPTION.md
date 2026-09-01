@@ -23,11 +23,18 @@ worker lifecycle boundaries.
   new workers after the ceiling is reached.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
+- `subagent_create` and its standard background dispatch path now create a
+  parent orchestration run, so NORMAL, PLAN, and SPEC scouts/builders appear in
+  the same parent/child topology as TEAM, CHAIN, and PIPELINE workers.
+- Sequential composition supports bounded `$STEP_n_TEXT` and
+  `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
+  and conditions are rejected in parallel mode instead of creating implicit
+  races.
 - `orchestration_status` and `/orchestration-status` read the same persisted
   run events used by dispatch, toolkit, and composition paths.
-- TEAM, CHAIN, and PIPELINE now emit parent orchestration runs; their child
-  dispatch records carry `parentRunId`, so the execution graph can be rebuilt
-  after a restart.
+- All six modes now use parent orchestration runs for their supported worker
+  dispatch paths; child dispatch records carry `parentRunId`, so the execution
+  graph can be rebuilt after a restart.
 - The query layer exposes a bounded topology read model with explicit edges and
   orphan/cycle diagnostics; `/orchestration-status tree` renders it without
   recursively trusting persisted data.
@@ -54,6 +61,10 @@ worker lifecycle boundaries.
 
 ## Next validation gates
 
-1. Extend RunContext events to TEAM, CHAIN, and PIPELINE dispatch.
+1. Add explicit end-to-end smoke coverage for NORMAL, PLAN, and SPEC worker
+   dispatches, including restart/status reconstruction.
 2. Exercise `compose_exec` with mocked extension handlers and approval/security
-   rejection cases before exposing more capabilities.
+   rejection cases before exposing more built-in capabilities.
+3. Evaluate whether built-in Pi tools should publish capability descriptors, or
+   remain on the native tool path until their security and schema contracts are
+   equally explicit.

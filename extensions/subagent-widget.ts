@@ -40,6 +40,7 @@ import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
+import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -284,6 +285,13 @@ export default function (pi: ExtensionAPI) {
 			startedAt: Date.now(),
 			updatedAt: Date.now(),
 		});
+		const orchestrationRun: OrchestrationRun = createOrchestrationRun({
+			context: ctx,
+			actor: `subagent:${state.name.toLowerCase()}`,
+			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
+		});
+		orchestrationRun.consumeStep();
+		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
 
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -365,6 +373,8 @@ export default function (pi: ExtensionAPI) {
 				// The child belongs to the replaced session. Finish timer cleanup,
 				// then stop before mutating its state or touching any session-bound UI.
 				if (spawnEpoch !== sessionEpoch) {
+					orchestrationRun.record("subagent.completed", { agent: state.name, exitCode: code ?? 130, cancelled: true });
+					orchestrationRun.finish("cancelled", { agent: state.name, exitCode: code ?? 130 });
 					const staleJournalDir = path.join(spawnCwd, ".pi", "agent-sessions");
 					try {
 						journalUpdate(staleJournalDir, state.saRunId ?? "", {
@@ -405,6 +415,16 @@ export default function (pi: ExtensionAPI) {
 						result,
 					);
 				} catch {}
+				orchestrationRun.record("subagent.completed", {
+					agent: state.name,
+					exitCode: code,
+					failure,
+					outputFile: fullOutputPath || undefined,
+				});
+				orchestrationRun.finish(code === 0 && !failure ? "succeeded" : code === 130 ? "cancelled" : "failed", {
+					agent: state.name,
+					exitCode: code,
+				});
 				const toolkitRun = isToolkitCliAgent(state.name);
 				let contractProblems: string[] = [];
 				if (!toolkitRun) {
@@ -495,6 +515,7 @@ export default function (pi: ExtensionAPI) {
 					env: spawnEnv,
 					sessionDir: saDir,
 					runId: state.saRunId ?? `sa${state.id}`,
+					parentRunId: orchestrationRun.runId,
 					paneTitle,
 					onProcess: (proc: any) => {
 						if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(proc);
@@ -533,6 +554,7 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: paneTitle,
 				herdrPaneKey: `sa-${state.id}`,
 				journal: { dir: saDir, id: state.saRunId ?? "" },
+				parentRunId: orchestrationRun.runId,
 				isAborted: () => spawnEpoch !== sessionEpoch,
 				onProcess: (child) => {
 					if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(child as any);
