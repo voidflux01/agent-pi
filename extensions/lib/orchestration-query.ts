@@ -16,6 +16,10 @@ export interface OrchestrationRunSummary {
 	durationMs?: number;
 	eventCount: number;
 	eventDir: string;
+	verificationStatus?: "PASS" | "FAIL" | "BLOCKED";
+	verificationPassed?: number;
+	verificationFailed?: number;
+	changedFiles?: string[];
 }
 
 export interface OrchestrationTopology {
@@ -62,6 +66,10 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const finish = [...events].reverse().find((event) => event.type.startsWith("run.") && event.type !== "run.started");
 	const startData = start ? payloadData(start) : {};
 	const finishData = finish ? payloadData(finish) : {};
+	const verification = [...events].reverse().find((event) => event.type === "verification.completed");
+	const verificationData = verification ? payloadData(verification) : {};
+	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
+	const workspaceData = workspace ? payloadData(workspace) : {};
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
@@ -73,6 +81,10 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		...(durationMs === undefined ? {} : { durationMs }),
 		eventCount: events.length,
 		eventDir,
+		...(verificationData.status === "PASS" || verificationData.status === "FAIL" || verificationData.status === "BLOCKED" ? { verificationStatus: verificationData.status } : {}),
+		...(typeof verificationData.passed === "number" ? { verificationPassed: verificationData.passed } : {}),
+		...(typeof verificationData.failed === "number" ? { verificationFailed: verificationData.failed } : {}),
+		...(Array.isArray(workspaceData.changedFiles) ? { changedFiles: workspaceData.changedFiles.filter((path): path is string => typeof path === "string").slice(0, 100) } : {}),
 	};
 }
 

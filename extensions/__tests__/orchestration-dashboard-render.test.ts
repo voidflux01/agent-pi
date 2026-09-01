@@ -15,12 +15,14 @@ describe("orchestration dashboard renderer", () => {
 		const lines = renderOrchestrationDashboard({
 			limit: 2,
 			runs: [
-				{ runId: "run-success", actor: "dispatch-runtime", status: "succeeded", durationMs: 3200, eventCount: 4, eventDir: "/tmp/run-success" },
+				{ runId: "run-success", actor: "dispatch-runtime", status: "succeeded", durationMs: 3200, eventCount: 4, eventDir: "/tmp/run-success", verificationStatus: "PASS", changedFiles: ["src/a.ts"] },
 				{ runId: "run-failed", actor: "toolkit:builder", status: "failed", durationMs: 800, eventCount: 3, eventDir: "/tmp/run-failed" },
 			],
 		}, 80, theme);
 		expect(lines).toHaveLength(4);
 		expect(lines[2]).toContain("✓");
+		expect(lines[2]).toContain("PASS");
+		expect(lines[2]).toContain("Δ1");
 		expect(lines[3]).toContain("✗");
 		expect(lines[2].length).toBeLessThanOrEqual(80);
 	});
