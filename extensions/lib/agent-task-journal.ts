@@ -293,7 +293,15 @@ function journalUpdateUnlocked(sessionDir: string, id: string, patch: Partial<Ta
 		}
 	}
 	try {
-		writeFileSync(p, out.join(""), "utf8");
+		const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
+		try {
+			writeFileSync(tmp, out.join(""), "utf8");
+			renameSync(tmp, p);
+		} finally {
+			try {
+				if (existsSync(tmp)) unlinkSync(tmp);
+			} catch {}
+		}
 	} catch {}
 }
 
