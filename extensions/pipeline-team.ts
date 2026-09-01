@@ -53,7 +53,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -1089,7 +1089,7 @@ export default function (pi: ExtensionAPI) {
 					phase: phase.def.name,
 					agents: agents.map(a => a.role),
 					status,
-					fullOutput: mergedFull,
+					outputPreview: boundedOutputPreview(mergedFull),
 					fullOutputPath: mergedPaths,
 					reviewLoop: reviewLoopCount,
 				},
@@ -1129,10 +1129,8 @@ export default function (pi: ExtensionAPI) {
 			const header = statusBtn +
 				theme.fg("dim", ` ${(details.agents || []).length} agents`);
 
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
+			if (options.expanded && details.outputPreview) {
+				const output = details.outputPreview;
 				const mdTheme = getPiMdTheme();
 				const container = new Container();
 				container.addChild(new Text(outputLine(theme, bar, header), 0, 0));

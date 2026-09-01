@@ -152,3 +152,5 @@ the authoritative fixture command is `node --test`.
 - Batch lifecycle regression coverage confirms a synchronous `join: true` cancellation propagates the parent abort signal to every worker, while non-joined batches remain detachable background work.
 - Full repository tests after the cancellation-boundary change: 172 Bun passed; 947 Vitest passed; 13 skipped. `doctor:strict`: 14 passed, 0 warnings/failures.
 - Detached subagent lifecycle coverage now returns the persisted RunContext id from `subagent_create` and `subagent_wait`, keeping later audit and recovery queries linked to the original worker or batch.
+- Team, Chain, and Pipeline structured results now retain only a bounded `outputPreview`; full worker transcripts remain on disk behind `fullOutputPath`, preventing large `details` payloads from re-entering the parent context.
+- Full repository tests after structured-output bounding: 174 Bun passed; 948 Vitest passed; 13 skipped.

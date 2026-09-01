@@ -42,7 +42,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -715,7 +715,7 @@ export default function (pi: ExtensionAPI) {
 					task,
 					status,
 					elapsed: result.elapsed,
-					fullOutput: result.fullOutput ?? "",
+					outputPreview: boundedOutputPreview(result.fullOutput ?? ""),
 					fullOutputPath: result.fullOutputPath ?? "",
 				},
 			};
@@ -752,10 +752,8 @@ export default function (pi: ExtensionAPI) {
 			const header = statusBtn +
 				theme.fg("dim", ` ${elapsed}s`);
 
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
+			if (options.expanded && details.outputPreview) {
+				const output = details.outputPreview;
 				const mdTheme = getPiMdTheme();
 				const container = new Container();
 				container.addChild(new Text(outputLine(theme, bar, header), 0, 0));

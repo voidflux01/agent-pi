@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	checkResultCompliance,
+	boundedOutputPreview,
 	composeAgentResult,
 	contractGateEnabled,
 } from "../lib/agent-result-contract.ts";
@@ -108,5 +109,17 @@ describe("composeAgentResult contract gate", () => {
 		} finally {
 			delete process.env.PI_RESULT_CONTRACT_GATE;
 		}
+	});
+});
+
+describe("bounded structured-output previews", () => {
+	test("preserves short previews exactly", () => {
+		expect(boundedOutputPreview("short")).toBe("short");
+	});
+
+	test("caps long previews while pointing to the archived transcript", () => {
+		const preview = boundedOutputPreview("x".repeat(10_000), 120);
+		expect(preview.length).toBeLessThanOrEqual(120);
+		expect(preview).toContain("preview truncated");
 	});
 });

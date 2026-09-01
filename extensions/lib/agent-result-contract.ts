@@ -17,6 +17,17 @@ export const FALLBACK_TAIL_CHARS = 2000;
 export const FALLBACK_HEAD_CHARS = 1000;
 /** Hard cap for an extracted ## RESULT block (rarely hit). */
 export const MAX_RESULT_CHARS = 3500;
+/** Maximum transcript preview retained in structured tool details. */
+export const MAX_OUTPUT_PREVIEW_CHARS = 4000;
+
+/** Keep UI previews useful without putting the archived transcript in context. */
+export function boundedOutputPreview(text: string, maxChars = MAX_OUTPUT_PREVIEW_CHARS): string {
+	const value = String(text || "");
+	if (value.length <= maxChars) return value;
+	const marker = "\n... [preview truncated; full transcript preserved on disk]";
+	const limit = Math.max(0, maxChars - marker.length);
+	return value.slice(0, limit) + marker;
+}
 
 /**
  * System-prompt text appended to EVERY sub-agent, unconditionally.

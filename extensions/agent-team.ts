@@ -43,7 +43,7 @@ import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, pars
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
-import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
@@ -929,7 +929,7 @@ export default function (pi: ExtensionAPI) {
 						status,
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
-						fullOutput: result.fullOutput,
+						outputPreview: boundedOutputPreview(result.fullOutput),
 						fullOutputPath: result.fullOutputPath,
 						model: result.model,
 					},
@@ -939,7 +939,7 @@ export default function (pi: ExtensionAPI) {
 				orchestrationRun.finish("failed", { agent });
 				return {
 					content: [{ type: "text", text: `Error dispatching to ${agent}: ${err?.message || err}` }],
-					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, fullOutput: "", fullOutputPath: "", model: defModel },
+					details: { agent, task, status: "error", elapsed: 0, exitCode: 1, outputPreview: "", fullOutputPath: "", model: defModel },
 				};
 			}
 		}),
@@ -980,10 +980,8 @@ export default function (pi: ExtensionAPI) {
 			const box = new Box(1, 1, bgFn);
 			box.addChild(new Text(rendered.lines.join("\n"), 0, 0));
 
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
+			if (options.expanded && details.outputPreview) {
+				const output = details.outputPreview;
 				const mdTheme = getPiMdTheme();
 				const container = new Container();
 				container.addChild(box);

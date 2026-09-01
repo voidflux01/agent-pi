@@ -78,6 +78,13 @@ describe("orchestrator RESULT trust", () => {
 });
 
 describe("source wiring", () => {
+	it("keeps full worker transcripts out of structured team/chain/pipeline details", () => {
+		for (const file of ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"]) {
+			const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");
+			expect(source).toContain("outputPreview");
+			expect(source).not.toContain("details.fullOutput");
+		}
+	});
 	it("gates advance_phase on dispatchCount", () => {
 		const src = readFileSync(join(__dirname, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("phaseRequiresAgentDispatch");
