@@ -18,7 +18,7 @@ export interface OrchestrationRunSummary {
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	recovery?: "active" | "stale" | "terminal" | "unknown";
 	/** Safe, user-facing next action for a stale run; never an executable command. */
-	recoveryAction?: "chain-resume" | "pipeline-resume" | "subagent-resume" | "inspect";
+	recoveryAction?: "chain-resume" | "pipeline-resume" | "compose-resume" | "subagent-resume" | "inspect";
 	recoveryDispatchId?: string;
 	failureCause?: "aborted" | "cancelled" | "timeout" | "authentication" | "process_error" | "exit_code";
 	lastEventType?: string;
@@ -83,10 +83,11 @@ function payloadData(event: RunEvent): Record<string, unknown> {
 		: payload;
 }
 
-function recoveryForRun(status: OrchestrationRunSummary["status"], mode: unknown, events: RunEvent[]): Pick<OrchestrationRunSummary, "recoveryAction" | "recoveryDispatchId"> {
+function recoveryForRun(status: OrchestrationRunSummary["status"], mode: unknown, actor: string | undefined, events: RunEvent[]): Pick<OrchestrationRunSummary, "recoveryAction" | "recoveryDispatchId"> {
 	if (status !== "stale") return {};
 	if (mode === "CHAIN") return { recoveryAction: "chain-resume" };
 	if (mode === "PIPELINE") return { recoveryAction: "pipeline-resume" };
+	if (actor === "compose_exec") return { recoveryAction: "compose-resume" };
 	const dispatch = [...events].reverse().map(payloadData).find(data => typeof data.dispatchId === "string" && /^[A-Za-z0-9_.-]{1,160}$/.test(data.dispatchId as string));
 	if (dispatch && typeof dispatch.dispatchId === "string") return { recoveryAction: "subagent-resume", recoveryDispatchId: dispatch.dispatchId };
 	return { recoveryAction: "inspect" };
@@ -141,7 +142,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		...(typeof toolData.category === "string" ? { toolBlockCategory: toolData.category } : {}),
 		status,
 		recovery: status === "running" ? "active" : status === "stale" ? "stale" : status === "unknown" ? "unknown" : "terminal",
-		...recoveryForRun(status, startData.mode, events),
+		...recoveryForRun(status, startData.mode, start?.actor, events),
 		...(failureCause ? { failureCause } : {}),
 		lastEventType: events.at(-1)?.type,
 		startedAt: start?.timestamp,

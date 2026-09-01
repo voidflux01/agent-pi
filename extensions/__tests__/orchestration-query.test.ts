@@ -82,6 +82,7 @@ describe("orchestration query", () => {
 		};
 		expect(stale("CHAIN")).toMatchObject({ status: "stale", recoveryAction: "chain-resume" });
 		expect(stale("PIPELINE")).toMatchObject({ status: "stale", recoveryAction: "pipeline-resume" });
+		expect(stale("NORMAL")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 		expect(stale("PLAN", "builder-sa1-resume")).toMatchObject({ status: "stale", recoveryAction: "subagent-resume", recoveryDispatchId: "builder-sa1-resume" });
 		expect(stale("PLAN", "../unsafe")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 	});

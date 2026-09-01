@@ -15,6 +15,9 @@ const Params = Type.Object({
 	tree: Type.Optional(Type.Boolean({ description: "Render parent-child relationships" })),
 	include_events: Type.Optional(Type.Boolean({ description: "For an exact run_id, include the last bounded event records" })),
 });
+const RecoveryParams = Type.Object({
+	run_id: Type.String({ description: "Exact persisted RunContext id to inspect for safe recovery" }),
+});
 
 function renderSummary(run: any): string {
 	const duration = run.durationMs === undefined ? "running" : `${Math.round(run.durationMs / 1000)}s`;
@@ -90,6 +93,39 @@ export default function (pi: ExtensionAPI) {
 		},
 		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_status ")) + theme.fg("accent", args.run_id || `${args.mode || "all"} ${args.limit || 25}`), 0, 0); },
 		renderResult(result, _opts, theme) { return new Text(theme.fg("muted", `${result.details?.count ?? 0} orchestration run(s)`), 0, 0); },
+	});
+
+	registerToolWithExecutor(pi, {
+		name: "orchestration_recover",
+		label: "Orchestration Recover",
+		description: "Inspect one persisted orchestration run and return a bounded, read-only recovery plan. It never replays or mutates work.",
+		parameters: RecoveryParams,
+		capabilityRisk: "read",
+		capabilityEffect: { ordering: "commutative" },
+		async execute(_id, params, _signal, _update, ctx) {
+			const run = listOrchestrationRuns(ctx?.cwd || process.cwd(), { runId: params.run_id, limit: 1 })[0];
+			if (!run) return { content: [{ type: "text" as const, text: `No persisted orchestration run found for ${params.run_id}.` }], details: { found: false, runId: params.run_id } };
+			if (run.status !== "stale") {
+				return { content: [{ type: "text" as const, text: `Run ${run.runId} is ${run.status}; automatic recovery is not applicable.` }], details: { found: true, recoverable: false, run } };
+			}
+			const action = run.recoveryAction || "inspect";
+			const target = run.recoveryDispatchId || run.runId;
+			const instruction = action === "chain-resume"
+				? "Inspect the saved chain snapshot, then use /chain-resume."
+				: action === "pipeline-resume"
+					? "Inspect the saved pipeline snapshot, then use /pipeline-resume."
+					: action === "compose-resume"
+						? `Re-run compose_exec with resume_run_id=${target} after reviewing its persisted step events.`
+						: action === "subagent-resume"
+							? `Use subagent_resume with run_id=${target} and an explicit bounded prompt that re-checks the current workspace first.`
+							: `Inspect orchestration_status for run_id=${run.runId} with include_events=true before choosing a safe re-dispatch.`;
+			return {
+				content: [{ type: "text" as const, text: `Run ${run.runId} is stale (${run.mode || "unknown mode"}). Recovery action: ${action}.\n${instruction}` }],
+				details: { found: true, recoverable: true, action, target, instruction, run },
+			};
+		},
+		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_recover ")) + theme.fg("accent", args.run_id || "?"), 0, 0); },
+		renderResult(result, _opts, theme) { return new Text(theme.fg(result.details?.recoverable ? "warning" : "muted", result.content[0]?.type === "text" ? result.content[0].text : ""), 0, 0); },
 	});
 
 	pi.registerCommand("orchestration-status", {

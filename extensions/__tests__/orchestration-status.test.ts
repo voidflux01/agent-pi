@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, renameSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import orchestrationStatus from "../orchestration-status.ts";
@@ -43,5 +43,26 @@ describe("orchestration status inspection", () => {
 		expect(notices.at(-1)).toContain("PLAN");
 		await command.handler("mode SPEC", { cwd, ui: { notify(message: string) { notices.push(message); } } });
 		expect(notices.at(-1)).toContain("No persisted SPEC");
+	});
+
+	test("returns a safe recovery plan without replaying stale compose work", async () => {
+		const tools: any[] = [];
+		const fakePi: any = {
+			registerTool(definition: any) { tools.push(definition); },
+			registerCommand() {},
+			on() {},
+		};
+		const cwd = mkdtempSync(join(tmpdir(), "orchestration-recover-"));
+		const root = join(cwd, ".pi", "agent-sessions", "compositions");
+		mkdirSync(root, { recursive: true });
+		const seed = join(root, "seed");
+		const run = createOrchestrationRun({ eventDir: seed, actor: "compose_exec", mode: "NORMAL" });
+		writeFileSync(join(seed, "active.json"), JSON.stringify({ pid: 2147483647 }));
+		renameSync(seed, join(root, run.runId));
+		orchestrationStatus(fakePi);
+		const recover = tools.find((entry) => entry.name === "orchestration_recover");
+		const result = await recover.execute("recover", { run_id: run.runId }, undefined, undefined, { cwd });
+		expect(result.details).toMatchObject({ found: true, recoverable: true, action: "compose-resume", target: run.runId });
+		expect(result.content[0].text).toContain("resume_run_id");
 	});
 });

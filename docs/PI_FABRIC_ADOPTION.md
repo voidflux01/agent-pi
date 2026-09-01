@@ -200,6 +200,10 @@ worker lifecycle boundaries.
 - Direct tool RunContexts inherit a validated `PI_AGENT_PI_RUN_ID` when they
   execute inside a worker, rebuilding the Agent → tool topology after restart
   without trusting arbitrary environment values or creating orphan edges.
+- `orchestration_recover` provides one bounded, read-only recovery projection
+  across CHAIN, PIPELINE, compose, and subagent runs. It returns the safe
+  action and target without replaying work; stale compose runs are correctly
+  identified as resumable instead of falling back to generic inspection.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore
