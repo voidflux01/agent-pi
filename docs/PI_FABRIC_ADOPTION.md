@@ -23,6 +23,11 @@ worker lifecycle boundaries.
   new workers after the ceiling is reached.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
+- `orchestration_status` and `/orchestration-status` read the same persisted
+  run events used by dispatch, toolkit, and composition paths.
+- `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
+  recent run status and shared budget consumption; it refreshes in place and
+  stops its timer on session lifecycle changes.
 
 ## Deliberately deferred
 
@@ -30,9 +35,9 @@ worker lifecycle boundaries.
   runs already registered extension handlers.
 - Built-in Pi tool proxying: built-ins continue through Pi's native path until
   their schemas and executors can be exposed through the same registry.
-- Actors, councils, recursive workers, and a cross-process topology: the
-  existing journal, mailbox, evidence, and worker lifecycle need a shared
-  `RunContext` first.
+- Actors, councils, recursive workers, and a full cross-process topology: the
+  current dashboard is a stable read model, but the underlying worker graph
+  still needs every actor to emit the same `RunContext` events.
 
 ## Next validation gates
 
