@@ -42,6 +42,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { withSessionResume } from "./lib/subagent-recovery.ts";
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -518,7 +519,7 @@ export default function (pi: ExtensionAPI) {
 
 			// argv for the headless path. The visible herdr transport derives its
 			// watchable variant from `["pi", ...argv]` via visiblePiTuiCommand().
-			const argv = [
+			const argv = withSessionResume([
 				"--mode", "json",
 				"-p",
 				"--session", state.sessionFile,
@@ -526,8 +527,7 @@ export default function (pi: ExtensionAPI) {
 				"--tools", tools,
 				...systemPromptArgs,
 				prompt,
-			];
-			if (fs.existsSync(state.sessionFile)) argv.splice(argv.length - 1, 0, "-c");
+			], state.sessionFile);
 
 			if (isToolkitCliAgent(state.name)) {
 				const extTask0 = mailboxPreambleEnabled() ? `${buildMailboxPreamble(mailboxAgent, spawnCwd)}\n\n---\n\n${prompt}` : prompt;
