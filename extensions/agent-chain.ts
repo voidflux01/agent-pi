@@ -51,6 +51,7 @@ import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { normalizeRunStatus } from "./lib/run-state.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -665,12 +666,13 @@ export default function (pi: ExtensionAPI) {
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
 			}
 
-			if (options.isPartial || details.status === "running") {
+			const normalizedStatus = normalizeRunStatus(details.status || "done");
+			if (options.isPartial || normalizedStatus === "running" || normalizedStatus === "queued") {
 				const runningBtn = statusButton("running", details.chain || "chain", theme);
 				return new Text(outputLine(theme, "accent", runningBtn), 0, 0);
 			}
 
-			const status = details.status === "done" ? "done" : "error";
+			const status = normalizedStatus === "succeeded" ? "done" : "error";
 			const bar = status === "done" ? "success" : "error";
 			const statusBtn = statusButton(status, details.chain, theme);
 			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;

@@ -54,6 +54,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { preClaimTask, postCompleteTask, postFailTask } from "./lib/commander-lifecycle.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
+import { normalizeRunStatus } from "./lib/run-state.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -988,9 +989,10 @@ export default function (pi: ExtensionAPI) {
 			const model = details.model || "";
 			const elapsed = typeof details.elapsed === "number" ? details.elapsed : 0;
 			const rawStatus = details.status || "done";
-			const status: "running" | "done" | "error" = rawStatus === "dispatching"
+			const normalizedStatus = normalizeRunStatus(rawStatus);
+			const status: "running" | "done" | "error" = normalizedStatus === "running" || normalizedStatus === "queued"
 				? "running"
-				: rawStatus === "error"
+				: normalizedStatus === "failed"
 					? "error"
 					: "done";
 

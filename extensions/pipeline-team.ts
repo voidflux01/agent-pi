@@ -67,6 +67,7 @@ import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-po
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
 import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
+import { normalizeRunStatus } from "./lib/run-state.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -1029,14 +1030,15 @@ export default function (pi: ExtensionAPI) {
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
 			}
 
-			if (options.isPartial || details.status === "dispatching") {
+			const normalizedStatus = normalizeRunStatus(details.status || "done");
+			if (options.isPartial || normalizedStatus === "running" || normalizedStatus === "queued") {
 				const runningBtn = statusButton("active", details.phase || "?", theme);
 				const content = runningBtn +
 					theme.fg("dim", ` dispatching ${(details.agents || []).length} agents...`);
 				return new Text(outputLine(theme, "accent", content), 0, 0);
 			}
 
-			const status = details.status === "done" ? "done" : "error";
+			const status = normalizedStatus === "succeeded" ? "done" : "error";
 			const bar = status === "done" ? "success" : "error";
 			const statusBtn = statusButton(status, details.phase, theme);
 			const header = statusBtn +
