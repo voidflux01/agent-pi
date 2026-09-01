@@ -2,13 +2,15 @@
   "name": "agent-pi",
   "private": true,
   "version": "2.2.0",
-  "description": "Multi-agent orchestration suite for Pi — 6 modes, 48 extensions, 11 themes",
+  "description": "Multi-agent orchestration suite for Pi — 6 modes with extensible agents and themes",
   "keywords": [
     "pi-package"
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
-    "check": "npm test && npm audit --omit=dev --audit-level=high"
+    "check": "npm test && npm audit --omit=dev --audit-level=high",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:strict": "node scripts/doctor.mjs --strict"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

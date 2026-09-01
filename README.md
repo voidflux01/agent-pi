@@ -234,6 +234,14 @@ Run the full local check, including the production dependency audit:
 npm run check
 ```
 
+Check package paths, runtime imports, YAML files, dependencies, and local Pi
+registration:
+
+```bash
+npm run doctor
+npm run doctor:strict   # treat warnings as failures
+```
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [CHANGELOG.md](CHANGELOG.md) for project history.
 
 ## Troubleshooting
