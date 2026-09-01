@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { existsSync, writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createOrchestrationRun, RunBudgetError } from "../lib/orchestration-run.ts";
@@ -30,5 +30,14 @@ describe("orchestration run context", () => {
 		writeFileSync(activeRunMarkerPath(eventDir), JSON.stringify({ pid: 2147483647, startedAt: Date.now(), runId: run.runId }));
 		expect(summarizeOrchestrationRun(eventDir)?.status).toBe("stale");
 		run.finish("cancelled");
+	});
+
+	test("finishes exactly once and removes the active lease", () => {
+		const eventDir = join(mkdtempSync(join(tmpdir(), "agent-pi-run-")), "run");
+		const run = createOrchestrationRun({ eventDir, actor: "test" });
+		run.finish("succeeded");
+		run.finish("failed");
+		expect(run.events.map((event) => event.type)).toEqual(["run.started", "run.succeeded"]);
+		expect(existsSync(activeRunMarkerPath(eventDir))).toBe(false);
 	});
 });

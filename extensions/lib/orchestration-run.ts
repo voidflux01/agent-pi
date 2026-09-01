@@ -68,6 +68,7 @@ export function createOrchestrationRun(options: {
 	const eventDir = eventDirFromContext(options.context, runId, options.sessionFile, options.eventDir);
 	const activeMarker = eventDir ? activeRunMarkerPath(eventDir) : undefined;
 	const events: RunEventRecord[] = [];
+	let finished = false;
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
 		const event: RunEventRecord = { id: randomUUID(), runId, type, actor, timestamp: new Date().toISOString(), ...(payload === undefined ? {} : { payload }) };
@@ -89,6 +90,8 @@ export function createOrchestrationRun(options: {
 		},
 		record,
 		finish(status, payload) {
+			if (finished) return;
+			finished = true;
 			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, ...(payload === undefined ? {} : { result: payload }) });
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
 		},
