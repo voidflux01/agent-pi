@@ -20,6 +20,8 @@ export interface OrchestrationRunSummary {
 	startedAt?: string;
 	finishedAt?: string;
 	durationMs?: number;
+	totalTokens?: number;
+	costUsd?: number;
 	eventCount: number;
 	eventDir: string;
 	verificationStatus?: "PASS" | "FAIL" | "BLOCKED";
@@ -86,6 +88,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
 	const workspaceData = workspace ? payloadData(workspace) : {};
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
+	const usage = finishData.usage && typeof finishData.usage === "object" ? finishData.usage as Record<string, unknown> : {};
 	const status = statusFromEvents(events, eventDir);
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
@@ -99,6 +102,8 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		startedAt: start?.timestamp,
 		finishedAt: finish?.timestamp,
 		...(durationMs === undefined ? {} : { durationMs }),
+		...(typeof usage.totalTokens === "number" ? { totalTokens: usage.totalTokens } : {}),
+		...(typeof usage.costUsd === "number" ? { costUsd: usage.costUsd } : {}),
 		eventCount: events.length,
 		eventDir,
 		...(verificationData.status === "PASS" || verificationData.status === "FAIL" || verificationData.status === "BLOCKED" ? { verificationStatus: verificationData.status } : {}),

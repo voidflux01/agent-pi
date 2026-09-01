@@ -25,6 +25,16 @@ describe("orchestration run context", () => {
 		expect(run.stepsUsed).toBe(1);
 	});
 
+	test("records measured usage and emits an explicit budget breach", () => {
+		const run = createOrchestrationRun({ budget: { maxSteps: 2, maxTokens: 100, maxCostUsd: 1 }, actor: "test" });
+		expect(run.recordUsage({ totalTokens: 40, costUsd: 0.25 })).toBe(true);
+		expect(run.recordUsage({ totalTokens: 70, costUsd: 0.8 })).toBe(false);
+		run.finish("failed");
+		expect(run.usage).toEqual({ totalTokens: 110, costUsd: 1.05 });
+		expect(run.events.map((event) => event.type)).toEqual(["run.started", "usage.updated", "usage.updated", "budget.exceeded", "run.failed"]);
+		expect(run.events.at(-1)?.payload).toMatchObject({ usage: { totalTokens: 110, costUsd: 1.05 } });
+	});
+
 	test("marks a non-terminal run stale when its active process is gone", () => {
 		const eventDir = join(mkdtempSync(join(tmpdir(), "agent-pi-run-")), "run");
 		const run = createOrchestrationRun({ eventDir, actor: "test" });

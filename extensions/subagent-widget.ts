@@ -317,6 +317,9 @@ export default function (pi: ExtensionAPI) {
 		orchestrationRun.consumeStep();
 		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
 		const settleOrchestration = (status: "succeeded" | "failed" | "cancelled", payload: Record<string, unknown>) => {
+			if (payload.usage && typeof payload.usage === "object") {
+				orchestrationRun.recordUsage(payload.usage as { totalTokens?: number; costUsd?: number });
+			}
 			orchestrationRun.record("subagent.completed", payload);
 			if (ownsOrchestrationRun) {
 				orchestrationRun.finish(status, { agent: state.name, exitCode: payload.exitCode });
@@ -434,6 +437,18 @@ export default function (pi: ExtensionAPI) {
 				invalidateWidget(state.id);
 
 				const result = externalFull ?? state.textChunks.join("");
+				let measuredUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
+				try {
+					const usage = externalUsage ?? sessionUsage(state.sessionFile);
+					if (usage.totalTokens > 0) measuredUsage = {
+						input: usage.input,
+						output: usage.output,
+						cacheRead: usage.cacheRead,
+						cacheWrite: usage.cacheWrite,
+						totalTokens: usage.totalTokens,
+						costUsd: Math.round(usage.costUsd * 1e6) / 1e6,
+					};
+				} catch {}
 
 				// Archive the FULL transcript like team/chain/pipeline runs do,
 				// so long results survive the 8k follow-up message cap.
@@ -451,6 +466,7 @@ export default function (pi: ExtensionAPI) {
 					exitCode: code,
 					failure,
 					outputFile: fullOutputPath || undefined,
+					usage: measuredUsage,
 				});
 				const toolkitRun = isToolkitCliAgent(state.name);
 				let contractProblems: string[] = [];
@@ -461,7 +477,6 @@ export default function (pi: ExtensionAPI) {
 					} catch {}
 				}
 				try {
-					const saUsage = externalUsage ?? sessionUsage(state.sessionFile);
 					journalUpdate(saOutDir, state.saRunId ?? "", {
 						status: code === 0 && !failure ? "done" : "error",
 						exitCode: code,
@@ -469,14 +484,7 @@ export default function (pi: ExtensionAPI) {
 						model: state.model || undefined,
 						outputFile: fullOutputPath || undefined,
 						note: [failure ? `dispatch: ${failure}` : "", contractProblems.length > 0 ? `result contract: ${contractProblems.join("; ")}` : ""].filter(Boolean).join("; ") || undefined,
-						usage: (externalUsage ?? saUsage).totalTokens > 0 ? {
-							input: saUsage.input,
-							output: saUsage.output,
-							cacheRead: saUsage.cacheRead,
-							cacheWrite: saUsage.cacheWrite,
-							totalTokens: saUsage.totalTokens,
-							costUsd: Math.round(saUsage.costUsd * 1e6) / 1e6,
-						} : undefined,
+						usage: measuredUsage,
 					});
 				} catch {}
 

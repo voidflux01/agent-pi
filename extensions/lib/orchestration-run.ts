@@ -15,6 +15,11 @@ export interface RunBudget {
 	maxCostUsd?: number;
 }
 
+export interface RunUsage {
+	totalTokens: number;
+	costUsd: number;
+}
+
 export interface OrchestrationRun {
 	runId: string;
 	parentRunId?: string;
@@ -22,9 +27,12 @@ export interface OrchestrationRun {
 	startedAt: number;
 	budget: RunBudget;
 	stepsUsed: number;
+	usage: RunUsage;
 	eventDir?: string;
 	events: RunEventRecord[];
 	consumeStep(): void;
+	/** Add measured provider usage and return whether the run remains within its optional ceiling. */
+	recordUsage(usage: Partial<RunUsage>): boolean;
 	record(type: string, payload?: unknown): void;
 	finish(status: "succeeded" | "failed" | "cancelled", payload?: unknown): void;
 }
@@ -91,7 +99,9 @@ export function createOrchestrationRun(options: {
 	const workspaceBefore = workspaceSnapshot(options.workspaceCwd);
 	const activeMarker = eventDir ? activeRunMarkerPath(eventDir) : undefined;
 	const events: RunEventRecord[] = [];
+	const usage: RunUsage = { totalTokens: 0, costUsd: 0 };
 	let finished = false;
+	let budgetExceeded = false;
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
 		const event: RunEventRecord = { id: randomUUID(), runId, type, actor, timestamp: new Date().toISOString(), ...(payload === undefined ? {} : { payload }) };
@@ -105,12 +115,28 @@ export function createOrchestrationRun(options: {
 		startedAt,
 		budget,
 		stepsUsed: 0,
+		usage,
 		...(eventDir ? { eventDir } : {}),
 		events,
 		consumeStep() {
 			if (this.stepsUsed >= budget.maxSteps) throw new RunBudgetError(`Run ${runId} exceeded maxSteps=${budget.maxSteps}`);
 			if (Date.now() - startedAt > budget.maxDurationMs) throw new RunBudgetError(`Run ${runId} exceeded maxDurationMs=${budget.maxDurationMs}`);
 			this.stepsUsed += 1;
+		},
+		recordUsage(delta) {
+			const tokens = Number(delta.totalTokens ?? 0);
+			const costUsd = Number(delta.costUsd ?? 0);
+			if (!Number.isFinite(tokens) || !Number.isFinite(costUsd) || tokens < 0 || costUsd < 0) return false;
+			this.usage.totalTokens += Math.floor(tokens);
+			this.usage.costUsd = Math.round((this.usage.costUsd + costUsd) * 1e6) / 1e6;
+			record("usage.updated", { totalTokens: this.usage.totalTokens, costUsd: this.usage.costUsd, delta: { totalTokens: Math.floor(tokens), costUsd } });
+			const within = (budget.maxTokens === undefined || this.usage.totalTokens <= budget.maxTokens)
+				&& (budget.maxCostUsd === undefined || this.usage.costUsd <= budget.maxCostUsd);
+			if (!within && !budgetExceeded) {
+				budgetExceeded = true;
+				record("budget.exceeded", { usage: this.usage, budget });
+			}
+			return within;
 		},
 		record,
 		finish(status, payload) {
@@ -124,7 +150,7 @@ export function createOrchestrationRun(options: {
 					changedFiles: changedWorkspaceFiles(workspaceBefore, workspaceAfter),
 				});
 			}
-			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, ...(payload === undefined ? {} : { result: payload }) });
+			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, usage, ...(payload === undefined ? {} : { result: payload }) });
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
 		},
 	};

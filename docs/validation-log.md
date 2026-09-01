@@ -23,7 +23,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 143 Bun passed; 943 Vitest passed; 13 skipped.
+- Full repository tests: 144 Bun passed; 943 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -37,6 +37,10 @@ the authoritative fixture command is `node --test`.
 - `compose_exec` can execute built-in `bash` with a bounded timeout schema;
   invalid timeouts are rejected and bash is not parallelized with workspace
   file operations.
+- RunContext usage accounting persists token/cost deltas and a single
+  `budget.exceeded` event; orchestration query summaries recover final usage
+  after restart, and standard subagent completion feeds measured session usage
+  into the owning run.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

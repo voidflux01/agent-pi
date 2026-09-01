@@ -29,6 +29,10 @@ worker lifecycle boundaries.
 - `/budget <max_tokens> <max_cost_usd>` enables an opt-in shared JSONL ledger;
   journaled worker usage is deduplicated into it, and dispatch preflight blocks
   new workers after the ceiling is reached.
+- `RunContext` now records measured token/cost deltas as `usage.updated`, emits
+  one durable `budget.exceeded` event when an optional per-run ceiling is
+  crossed, and includes the final usage in the terminal run event. Standard
+  subagent and batch dispatches feed their session usage into this parent run.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and
