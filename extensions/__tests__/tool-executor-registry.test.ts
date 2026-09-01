@@ -52,4 +52,25 @@ describe("extension tool executor registry", () => {
 		expect(result.details).toMatchObject({ tool_name: "registry_call_tool_target", proxied: true, originalDetails: { ok: true } });
 		expect(calls).toHaveLength(1);
 	});
+
+	test("refreshes the executor cache when an extension loads after session_start", async () => {
+		let callTool: any;
+		const lateExecute = async () => ({ content: [{ type: "text" as const, text: "late extension executed" }] });
+		const handlers = new Map<string, Function[]>();
+		const tools: any[] = [];
+		const pi: any = {
+			registerTool(definition: any) { if (definition.name === "call_tool") callTool = definition; tools.push({ name: definition.name, description: definition.description }); },
+			getAllTools: () => tools,
+			on(event: string, handler: Function) { handlers.set(event, [...(handlers.get(event) || []), handler]); },
+		};
+		toolCaller(pi);
+		for (const handler of handlers.get("session_start") || []) await handler({}, {});
+		registerToolWithExecutor({ registerTool: (definition) => tools.push({ name: definition.name, description: definition.description }) }, {
+			name: "registry_late_target", execute: lateExecute,
+		});
+
+		const result = await callTool.execute("outer", { tool_name: "registry_late_target", arguments: {} }, undefined, undefined, { cwd: process.cwd() });
+		expect(result.content[0].text).toBe("late extension executed");
+		expect(result.details.proxied).toBe(true);
+	});
 });

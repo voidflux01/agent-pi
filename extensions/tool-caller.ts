@@ -88,6 +88,10 @@ export default function (pi: ExtensionAPI) {
 			const { tool_name, arguments: toolArgs, reason } = params;
 			// Keep dynamic MCP/extension loads visible without weakening execution gates.
 			refreshToolRegistry(pi);
+			// The executor registry can also change after session_start. Rebuild this
+			// local cache per call so discovery and invocation never diverge.
+			toolExecutors.clear();
+			for (const [name, executor] of Object.entries(getRegisteredToolExecutors())) toolExecutors.set(name, executor);
 
 			// Prevent self-referential calls
 			if (BLOCKED_TOOLS.has(tool_name)) {

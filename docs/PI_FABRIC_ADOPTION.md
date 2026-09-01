@@ -164,7 +164,9 @@ worker lifecycle boundaries.
 - The shared tool registry now refreshes immediately before `tool_search` and
   `call_tool`, so MCP or optional extension tools loaded during a session are
   discoverable without restarting Pi; refresh does not bypass nested security,
-  approval, or executor checks.
+  approval, or executor checks. `call_tool` refreshes its executor cache at the
+  same boundary, so a dynamically loaded extension is not merely discoverable
+  but also invokable in-process.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.
