@@ -716,6 +716,18 @@ function startChatServer(
 			});
 		});
 
+		server.on("close", () => {
+			if (shutdownTimer) {
+				clearTimeout(shutdownTimer);
+				shutdownTimer = null;
+			}
+			for (const client of wsClients.values()) {
+				try { client.ws.close(1001, "Server shutting down"); } catch {}
+			}
+			wsClients.clear();
+			try { wss.close(); } catch {}
+		});
+
 		server.listen(0, "0.0.0.0", () => {
 			// Start the idle timer even if the browser never completes its WebSocket handshake.
 			resetShutdownTimer();

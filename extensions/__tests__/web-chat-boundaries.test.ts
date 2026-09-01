@@ -31,6 +31,8 @@ describe("web chat boundaries", () => {
 		expect(source).toContain("req.resume()");
 		expect(source).toContain("MAX_AUTH_FAILURE_ENTRIES = 256");
 		expect(source).toContain("getAuthFailure(ip, now)");
+		expect(source).toContain('client.ws.close(1001, "Server shutting down")');
+		expect(source).toContain("try { wss.close(); } catch {}");
 		expect(source).not.toContain("stderrBuf += chunk");
 		expect(source).not.toContain("execSync(");
 	});
