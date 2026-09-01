@@ -14,6 +14,9 @@ describe("board viewer boundaries", () => {
 		const source = readFileSync(new URL("../board-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("authorizeLocalServerRequest");
 		expect(source).not.toContain('Access-Control-Allow-Origin\": \"*');
+		expect(source).toContain("MAX_BOARD_REQUEST_BODY_BYTES = 256 * 1024");
+		expect(source).toContain("readRequestBody(req, res");
+		expect(source).not.toContain('req.on("data", (chunk: string) => { body += chunk; });');
 	});
 
 	it("provides an explicit stop path for the persistent server", () => {
