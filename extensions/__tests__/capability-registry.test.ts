@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { getCapability, listCapabilities, registerCapability, resetCapabilitiesForTests, searchCapabilities } from "../lib/capability-registry.ts";
+import { Type } from "@sinclair/typebox";
+import { getCapability, listCapabilities, registerCapability, resetCapabilitiesForTests, searchCapabilities, validateCapabilityArguments } from "../lib/capability-registry.ts";
 
 afterEach(() => resetCapabilitiesForTests());
 
@@ -17,5 +18,11 @@ describe("capability registry", () => {
 		registerCapability({ name: "dispatch_agent", description: "Run an agent" });
 		expect(searchCapabilities("agent").map((entry) => entry.ref)).toEqual(["extensions.dispatch_agent"]);
 		expect(listCapabilities().map((entry) => entry.ref)).toEqual(["extensions.dispatch_agent", "extensions.read_report"]);
+	});
+
+	test("validates nested arguments against the registered schema", () => {
+		const descriptor = registerCapability({ name: "schema_target", inputSchema: Type.Object({ required: Type.String() }) });
+		expect(validateCapabilityArguments(descriptor, { required: "ok" })).toEqual([]);
+		expect(validateCapabilityArguments(descriptor, { required: 42 })[0]).toContain("/required");
 	});
 });

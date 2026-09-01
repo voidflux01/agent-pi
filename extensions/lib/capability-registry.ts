@@ -1,6 +1,8 @@
 // ABOUTME: Fabric-inspired capability catalog for executable extension tools.
 // ABOUTME: Keeps discovery metadata, risk, effects, and executable handlers together.
 
+import { Value } from "@sinclair/typebox/value";
+
 export type CapabilityRisk = "read" | "write" | "execute" | "network" | "agent";
 export type CapabilityOrdering = "commutative" | "ordered" | "unknown";
 
@@ -44,6 +46,14 @@ export function registerCapability(input: { name: string; description?: string; 
 
 export function getCapability(ref: string): CapabilityDescriptor | undefined { return store().get(ref); }
 export function listCapabilities(): CapabilityDescriptor[] { return [...store().values()].sort((a, b) => a.ref.localeCompare(b.ref)); }
+export function validateCapabilityArguments(capability: CapabilityDescriptor, value: unknown): string[] {
+	if (!capability.inputSchema || typeof capability.inputSchema !== "object") return [];
+	try {
+		return [...Value.Errors(capability.inputSchema as any, value)].slice(0, 8).map((error) => `${error.path || "/arguments"}: ${error.message}`);
+	} catch (error) {
+		return [`schema validation unavailable: ${error instanceof Error ? error.message : String(error)}`];
+	}
+}
 export function searchCapabilities(query: string): CapabilityDescriptor[] {
 	const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 	if (terms.length === 0) return listCapabilities();

@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
-import { getCapability, listCapabilities } from "./lib/capability-registry.ts";
+import { getCapability, listCapabilities, validateCapabilityArguments } from "./lib/capability-registry.ts";
 import { nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
@@ -59,6 +59,8 @@ export default function (pi: ExtensionAPI) {
 				const executor = executors[name];
 				if (!capability || !executor) return { index, tool: name, status: "blocked", error: "capability is not registered for in-process execution" };
 				const args = step.arguments ?? {};
+				const schemaErrors = validateCapabilityArguments(capability, args);
+				if (schemaErrors.length > 0) return { index, tool: name, status: "blocked", error: `invalid arguments: ${schemaErrors.join("; ")}` };
 				const securityBlock = nestedSecurityBlock(name, args, cwd);
 				if (securityBlock) return { index, tool: name, status: "blocked", error: `security: ${securityBlock}` };
 				const approvalBlock = nestedApprovalBlock(name, args, cwd);
