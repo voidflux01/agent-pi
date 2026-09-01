@@ -44,6 +44,7 @@ import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
+import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
@@ -172,6 +173,7 @@ export default function (pi: ExtensionAPI) {
 	// Per-step state for the active chain
 	let stepStates: StepState[] = [];
 	let pendingReset = false;
+	let resumeAvailable: ChainSnapshot | undefined;
 	let selectedStepIndex = -1;
 
 	// Track the currently running chain subprocess for cancellation
@@ -536,6 +538,7 @@ export default function (pi: ExtensionAPI) {
 	async function runChain(
 		task: string,
 		ctx: any,
+		resume = false,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; success: boolean; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return { output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
@@ -555,29 +558,47 @@ export default function (pi: ExtensionAPI) {
 
 		const chainStart = Date.now();
 
-		// Reset all steps to pending
+		const saved = resume ? resumeAvailable : undefined;
+		if (saved && (saved.chain !== activeChain.name || saved.steps.length !== activeChain.steps.length)) {
+			return { output: "Saved chain state does not match the active chain", fullOutput: "", fullOutputPath: "", success: false, elapsed: 0 };
+		}
+		if (!resume) clearChainSnapshot(sessionDir);
+
+		// Reset all steps to pending, or restore the bounded state captured before a restart.
 		selectedStepIndex = -1;
-		stepStates = activeChain.steps.map(s => {
+		stepStates = activeChain.steps.map((s, index) => {
 			const agentDef = allAgents.get(s.agent.toLowerCase());
+			const restored = saved?.steps[index];
 			return {
 				agent: s.agent,
 				description: agentDef?.description || "",
-				status: "pending" as const,
-				elapsed: 0,
-				lastWork: "",
+				status: (restored?.status === "running" ? "pending" : restored?.status || "pending") as StepState["status"],
+				elapsed: restored?.elapsed || 0,
+				lastWork: restored?.lastWork || "",
+				toolCount: restored?.toolCount,
 			};
 		});
 		updateWidget();
 
-		let input = task;
-		const originalPrompt = task;
-		const stepOutputs: string[] = [];
+		let input = saved?.stepOutputs.at(-1) || task;
+		const originalPrompt = saved?.originalTask || task;
+		const stepOutputs: string[] = saved ? [...saved.stepOutputs] : [];
 		let lastFullOutput = "";
 		let lastFullOutputPath = "";
+		const startIndex = saved?.currentStepIndex || 0;
+		const persistState = (currentStepIndex: number) => writeChainSnapshot(sessionDir, {
+			chain: activeChain!.name,
+			originalTask,
+			currentStepIndex,
+			stepOutputs,
+			steps: stepStates.map(({ agent, status, elapsed, lastWork, toolCount }) => ({ agent, status, elapsed, lastWork, toolCount })),
+		});
+		persistState(startIndex);
 
-		for (let i = 0; i < activeChain.steps.length; i++) {
+		for (let i = startIndex; i < activeChain.steps.length; i++) {
 			const step = activeChain.steps[i];
 			stepStates[i].status = "running";
+			persistState(i);
 			updateWidget();
 
 			// Resolve prompt: $INPUT (previous step), $ORIGINAL (original task), $INPUT_N (step N output, 1-indexed)
@@ -604,6 +625,7 @@ export default function (pi: ExtensionAPI) {
 					elapsed: Date.now() - chainStart,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, reason: "agent_not_found" });
+				persistState(i);
 				orchestrationRun.finish("failed", { step: i + 1 });
 				return failed;
 			}
@@ -622,6 +644,7 @@ export default function (pi: ExtensionAPI) {
 					elapsed: Date.now() - chainStart,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, exitCode: result.exitCode });
+				persistState(i);
 				orchestrationRun.finish("failed", { step: i + 1 });
 				return failed;
 			}
@@ -633,11 +656,13 @@ export default function (pi: ExtensionAPI) {
 			input = result.output;
 			lastFullOutput = result.fullOutput || "";
 			lastFullOutputPath = result.fullOutputPath || "";
+			persistState(i + 1);
 		}
 
 		const completed = { output: input, fullOutput: lastFullOutput, fullOutputPath: lastFullOutputPath, success: true, elapsed: Date.now() - chainStart };
 		orchestrationRun.record("chain.completed", { steps: activeChain.steps.length });
 		orchestrationRun.finish("succeeded", { steps: activeChain.steps.length });
+		clearChainSnapshot(sessionDir);
 		return completed;
 	}
 
@@ -797,6 +822,29 @@ export default function (pi: ExtensionAPI) {
 			selectedStepIndex = -1;
 
 			ctx.ui.notify("Chain widget cleared.", "info");
+		},
+	});
+
+	pi.registerCommand("chain-resume", {
+		description: "Resume the last interrupted chain from its durable snapshot",
+		handler: async (_args, ctx) => {
+			widgetCtx = ctx;
+			const snapshot = readChainSnapshot(sessionDir);
+			if (!snapshot) {
+				ctx.ui.notify("No resumable chain state found.", "info");
+				return;
+			}
+			const chain = chains.find(candidate => candidate.name === snapshot.chain);
+			if (!chain || chain.steps.length !== snapshot.steps.length) {
+				ctx.ui.notify("Saved chain state no longer matches the configured chain.", "error");
+				return;
+			}
+			activateChain(chain);
+			resumeAvailable = snapshot;
+			ctx.ui.notify(`Resuming ${chain.name} from step ${Math.min(snapshot.currentStepIndex + 1, chain.steps.length)}...`, "info");
+			const result = await explicitDispatchHandler("agent-chain", async () => runChain(snapshot.originalTask, ctx, true))();
+			resumeAvailable = undefined;
+			ctx.ui.notify(result.success ? `Chain ${chain.name} resumed successfully.` : `Chain resume failed: ${result.output.slice(0, 200)}`, result.success ? "success" : "error");
 		},
 	});
 
@@ -1393,9 +1441,12 @@ ${agentCatalog}
 		selectedStepIndex = -1;
 		pendingReset = true;
 
-		// Wipe chain session files — reset agent context on /new and launch
 		const sessDir = join(_ctx.cwd, ".pi", "agent-sessions");
-		if (existsSync(sessDir)) {
+		const savedChain = readChainSnapshot(sessDir);
+		resumeAvailable = savedChain;
+		// A durable snapshot means an interrupted chain can be resumed; preserve
+		// its worker sessions until the user explicitly starts a fresh chain.
+		if (!savedChain && existsSync(sessDir)) {
 			for (const f of readdirSync(sessDir)) {
 				if (f.startsWith("chain-") && f.endsWith(".json")) {
 					try { unlinkSync(join(sessDir, f)); } catch {}
@@ -1412,7 +1463,11 @@ ${agentCatalog}
 		}
 
 		// Default to first chain — use /chain to switch
-		activateChain(chains[0]);
+		const savedChainDef = savedChain && chains.find(chain => chain.name === savedChain.chain && chain.steps.length === savedChain.steps.length);
+		activateChain(savedChainDef || chains[0]);
+		if (savedChainDef) {
+			_ctx.ui.notify(`Interrupted chain ${savedChainDef.name} is resumable. Use /chain-resume to continue.`, "warning");
+		}
 
 		// ── Expose global hooks for escape-cancel integration ────────────
 		(globalThis as any).__piKillChainProc = (): boolean => {

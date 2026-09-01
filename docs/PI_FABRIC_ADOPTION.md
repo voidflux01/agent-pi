@@ -68,6 +68,9 @@ worker lifecycle boundaries.
 - PIPELINE now writes an atomic versioned workflow snapshot; `/pipeline-resume`
   restores the phase, accumulated context, plan/review output, and review-loop
   counters only when the current config still matches the snapshot.
+- CHAIN now writes a bounded atomic step snapshot; an interrupted chain keeps
+  its worker sessions and can be continued with `/chain-resume` from the first
+  unfinished step after a parent restart.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.
