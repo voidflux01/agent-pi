@@ -800,7 +800,7 @@ export default function (pi: ExtensionAPI) {
 			ids: Type.Optional(Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 16, description: "Subagent IDs to join. Omit to join all currently tracked subagents." })),
 			timeout_ms: Type.Optional(Type.Integer({ minimum: 0, maximum: 900000, description: "Maximum wait in milliseconds. 0 means wait until all selected agents finish." })),
 		}),
-		execute: async (_callId, args) => {
+		execute: async (_callId, args, signal) => {
 			const requested: number[] = Array.isArray(args.ids) ? args.ids : Array.from(agents.keys());
 			const missing = requested.filter((id) => !agents.has(id));
 			if (missing.length > 0) {
@@ -816,17 +816,30 @@ export default function (pi: ExtensionAPI) {
 			const allResults = Promise.all(selected.map(waitFor));
 			const timeoutMs = args.timeout_ms && args.timeout_ms > 0 ? args.timeout_ms : 0;
 			let timer: ReturnType<typeof setTimeout> | undefined;
-			const results = timeoutMs > 0
-				? await Promise.race([
-					allResults.then((value) => ({ timedOut: false as const, value })),
-					new Promise<{ timedOut: true; value?: string[] }>((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), timeoutMs); }),
-				])
-				: { timedOut: false as const, value: await allResults };
+			let abortHandler: (() => void) | undefined;
+			type WaitOutcome = { kind: "joined"; value: string[] } | { kind: "timedOut" } | { kind: "aborted" };
+			const waitPromises: Promise<WaitOutcome>[] = [allResults.then((value) => ({ kind: "joined" as const, value }))];
+			if (timeoutMs > 0) waitPromises.push(new Promise<WaitOutcome>((resolve) => { timer = setTimeout(() => resolve({ kind: "timedOut" }), timeoutMs); }));
+			if (signal) {
+				if (signal.aborted) return { content: [{ type: "text", text: "Wait cancelled; background subagents remain running." }], details: { joined: false, aborted: true, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) } };
+				waitPromises.push(new Promise<WaitOutcome>((resolve) => {
+					abortHandler = () => resolve({ kind: "aborted" });
+					signal.addEventListener("abort", abortHandler, { once: true });
+				}));
+			}
+			const results = await Promise.race(waitPromises);
 			if (timer) clearTimeout(timer);
-			if (results.timedOut) {
+			if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
+			if (results.kind === "timedOut") {
 				return {
 					content: [{ type: "text", text: `Wait timed out after ${timeoutMs}ms. Running: ${selected.filter((state) => state.status === "running").map((state) => `SA${state.id}`).join(", ") || "none"}.` }],
 					details: { joined: false, timedOut: true, timeoutMs, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+				};
+			}
+			if (results.kind === "aborted") {
+				return {
+					content: [{ type: "text", text: "Wait cancelled; background subagents remain running." }],
+					details: { joined: false, aborted: true, timedOut: false, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
 				};
 			}
 			for (const state of selected) {

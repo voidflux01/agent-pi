@@ -78,7 +78,9 @@ Journal: /path/to/project/.pi/agent-sessions/task-journal.jsonl
   attribution remain in the global totals and are omitted from the mode groups.
 - For parallel background work, `subagent_create_batch` returns IDs and
   `subagent_wait` joins those IDs once; this prevents one automatic parent turn
-  per child while keeping the bounded RESULT available for audit.
+  per child while keeping the bounded RESULT available for audit. Cancelling
+  the parent wait returns `aborted: true` and leaves workers running so their
+  durable journal state remains recoverable.
 
 ## Retention — 7-Day Rolling Window
 

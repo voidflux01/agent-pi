@@ -29,6 +29,8 @@ the authoritative fixture command is `node --test`.
   path boundary.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
+- `subagent_wait` cancellation returns structured `aborted` state without
+  killing workers, preserving their journal entries for recovery.
 - PLAN, SPEC, TEAM, CHAIN, and PIPELINE each completed a real Herdr smoke.
 - SPEC completed through `show_spec` approval, `verify_execution PASS`, and `show_report` Done.
 - PIPELINE completed `UNDERSTAND → PLAN → BUILD → REVIEW`, with `verify_execution PASS`.
