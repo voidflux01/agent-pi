@@ -14,4 +14,10 @@ describe("toolkit worker environment boundaries", () => {
 		expect(source).toContain("outputTruncated");
 		expect(source).not.toContain("output += chunk;");
 	});
+
+	it("caps team stderr buffers through the shared bounded appender", () => {
+		const source = readFileSync(new URL("../agent-team.ts", import.meta.url), "utf8");
+		expect(source).toContain("appendBoundedOutput");
+		expect(source).not.toContain("stderrBuf += chunk");
+	});
 });

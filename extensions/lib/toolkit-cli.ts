@@ -78,7 +78,7 @@ const TOOLKIT_FORCE_KILL_DELAY_MS = 3_000;
 export const MAX_TOOLKIT_OUTPUT_CHARS = 256 * 1024;
 const TOOLKIT_OUTPUT_TRUNCATION_MARKER = "\n...[toolkit output truncated]...\n";
 
-function appendBoundedOutput(current: string, chunk: string): string {
+export function appendBoundedOutput(current: string, chunk: string): string {
 	const next = current + chunk;
 	if (next.length <= MAX_TOOLKIT_OUTPUT_CHARS) return next;
 	const budget = Math.max(0, MAX_TOOLKIT_OUTPUT_CHARS - TOOLKIT_OUTPUT_TRUNCATION_MARKER.length);

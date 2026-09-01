@@ -39,7 +39,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
-import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
+import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
@@ -872,7 +872,7 @@ export default function (pi: ExtensionAPI) {
 					isCancelled: () => runEpoch !== sessionEpoch,
 					onProcess: (proc: any) => { state.proc = proc; },
 					onStdoutLine: handleStdoutLine,
-					onStderr: (chunk: string) => { stderrBuf += chunk; },
+					onStderr: (chunk: string) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
 				}).then(({ exitCode, raw }) => {
 					const parsed = parseToolkitResult(state.def.name, raw);
 					toolkitUsage = parsed.usage;
@@ -903,7 +903,7 @@ export default function (pi: ExtensionAPI) {
 				isAborted: () => runEpoch !== sessionEpoch,
 				onProcess: (child) => { state.proc = child as any; },
 				onStdoutLine: handleStdoutLine,
-				onStderr: (chunk) => { stderrBuf += chunk; },
+				onStderr: (chunk) => { stderrBuf = appendBoundedOutput(stderrBuf, chunk); },
 				onHerdrUpdate: () => {
 					if (runEpoch !== sessionEpoch) return;
 					try {
