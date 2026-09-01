@@ -218,6 +218,9 @@ function startFileViewerServer(opts: {
 			res.writeHead(404);
 			res.end("Not found");
 		});
+		server.on("close", () => {
+			resolveResult!({ action: "done", modified: false, content: initialContent });
+		});
 
 		server.listen(0, "127.0.0.1", () => {
 			const addr = server.address() as any;

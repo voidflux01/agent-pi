@@ -14,6 +14,7 @@ describe("file viewer boundaries", () => {
 		expect(source).toContain("authorizeLocalServerRequest");
 		expect(source).toContain("Unsupported editor");
 		expect(source).toContain("MAX_FILE_VIEWER_REQUEST_BODY_BYTES = 256 * 1024");
+		expect(source).toContain('server.on("close"');
 		expect(source).toContain("readRequestBody(req, res");
 		expect(source).toContain('pi.on("session_shutdown"');
 		expect(source).toContain("cleanupServer();");

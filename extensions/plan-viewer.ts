@@ -189,6 +189,9 @@ function startViewerServer(
 			res.writeHead(404);
 			res.end("Not found");
 		});
+		server.on("close", () => {
+			resolveResult!({ action: "declined", markdown, modified: false, comments: existingComments });
+		});
 
 		// Listen on random port
 		server.listen(0, "127.0.0.1", () => {
