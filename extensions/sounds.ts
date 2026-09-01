@@ -267,6 +267,7 @@ function startSoundsServer(
 			res.writeHead(404);
 			res.end("Not found");
 		});
+		server.on("close", () => clearInterval(heartbeatCheck));
 
 		server.listen(0, "127.0.0.1", () => {
 			const addr = server.address() as any;

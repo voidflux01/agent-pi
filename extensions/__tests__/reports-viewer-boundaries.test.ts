@@ -22,6 +22,7 @@ describe("reports viewer boundaries", () => {
 		expect(source).toContain('spawn("pi", [route, path]');
 		expect(source).toContain("MAX_REPORTS_REQUEST_BODY_BYTES = 64 * 1024");
 		expect(source).toContain("readRequestBody(req, res");
+		expect(source).toContain("server.on(\"close\", () => clearInterval(heartbeatCheck))");
 		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 	});
 });

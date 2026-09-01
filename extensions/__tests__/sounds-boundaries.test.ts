@@ -21,6 +21,7 @@ describe("sound viewer boundaries", () => {
 		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).toContain("MAX_SOUND_FEED_BYTES");
 		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).toContain("MAX_SOUND_REQUEST_BODY_BYTES = 8 * 1024 * 1024");
 		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).toContain("readRequestBody(req, res");
+		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).toContain("server.on(\"close\", () => clearInterval(heartbeatCheck))");
 		expect(readFileSync(new URL("../sounds.ts", import.meta.url), "utf8")).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 		const player = readFileSync(new URL("../lib/sounds-player.ts", import.meta.url), "utf8");
 		expect(player).toContain('execFileSync("which", [cmd]');
