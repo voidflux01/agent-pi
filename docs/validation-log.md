@@ -169,3 +169,4 @@ the authoritative fixture command is `node --test`.
 - TEAM now supports bounded concurrent independent dispatch through `dispatch_team_batch`, preserving one parent RunContext and per-worker audit links while retaining sequential `dispatch_agent` for dependent work.
 - TEAM batch results now return only one-line worker summaries plus bounded archive pointers (hard cap 8,000 characters); full worker transcripts remain in the runtime archive.
 - TEAM batch recovery now has a read-only `team_batch_recover` projection; stale TEAM batch RunContexts identify it through `orchestration_recover`, and only existing in-session worker files become explicit resume candidates.
+- TEAM recovery candidate classification is now covered by fixture tests for completed, missing, out-of-root, and oversized-task journal rows rather than only source wiring.

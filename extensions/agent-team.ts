@@ -55,6 +55,7 @@ import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
+import { projectTeamBatchRecovery } from "./lib/team-batch-recovery.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -1075,12 +1076,7 @@ export default function (pi: ExtensionAPI) {
 			if (entries.length === 0) {
 				return { content: [{ type: "text", text: `No TEAM batch workers found for ${runId}.` }], details: { found: false, runId } };
 			}
-			const candidates = entries.map((entry) => {
-				const sessionFile = typeof entry.sessionFile === "string" ? resolve(entry.sessionFile) : "";
-				const inSessionRoot = sessionFile === sessionRoot || sessionFile.startsWith(sessionRoot + "/");
-				const canResume = entry.status !== "done" && inSessionRoot && existsSync(sessionFile);
-				return { id: entry.id, agent: entry.agent, status: entry.status, task: entry.task.slice(0, 240), canResume, ...(canResume ? { sessionFile } : {}) };
-			});
+			const candidates = projectTeamBatchRecovery(entries, sessionRoot);
 			const resumable = candidates.filter((candidate) => candidate.canResume);
 			const lines = [
 				`TEAM batch ${runId}: ${resumable.length}/${candidates.length} worker(s) have a safe persisted session to resume.`,
