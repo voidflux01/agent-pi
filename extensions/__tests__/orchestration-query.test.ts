@@ -75,4 +75,15 @@ describe("orchestration query", () => {
 		expect(stale("PLAN", "builder-sa1-resume")).toMatchObject({ status: "stale", recoveryAction: "subagent-resume", recoveryDispatchId: "builder-sa1-resume" });
 		expect(stale("PLAN", "../unsafe")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 	});
+
+	test("recovers measured usage from an interrupted run's last usage event", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-interrupted-"));
+		const eventDir = join(dir, "stale-run");
+		const run = createOrchestrationRun({ eventDir, actor: "test", mode: "NORMAL" });
+		run.recordUsage({ totalTokens: 321, costUsd: 0.0456 });
+		writeFileSync(join(eventDir, "active.json"), JSON.stringify({ pid: 2147483647 }));
+		const summary = summarizeOrchestrationRun(eventDir)!;
+		expect(summary.status).toBe("stale");
+		expect(summary).toMatchObject({ totalTokens: 321, costUsd: 0.0456 });
+	});
 });

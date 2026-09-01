@@ -118,6 +118,9 @@ worker lifecycle boundaries.
 - Toolkit dispatch results and `dispatch.completed` events now carry a bounded
   failure cause (`timeout`, `cancelled`, or `process_error`), closing the gap
   between a numeric exit code and an actionable recovery decision.
+- Orchestration summaries now recover usage from the last `usage.updated`
+  event when a worker dies before its terminal event, so stale-run audit and
+  mode metrics retain already-confirmed Token/cost consumption.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

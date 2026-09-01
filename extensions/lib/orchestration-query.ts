@@ -100,7 +100,11 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
 	const workspaceData = workspace ? payloadData(workspace) : {};
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
-	const usage = finishData.usage && typeof finishData.usage === "object" ? finishData.usage as Record<string, unknown> : {};
+	const usageEvent = [...events].reverse().find((event) => event.type === "usage.updated");
+	const usageData = usageEvent ? payloadData(usageEvent) : {};
+	const usage = finishData.usage && typeof finishData.usage === "object"
+		? finishData.usage as Record<string, unknown>
+		: usageData;
 	const status = statusFromEvents(events, eventDir);
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
