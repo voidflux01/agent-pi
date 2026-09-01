@@ -310,9 +310,10 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 export function sumJournalUsage(entries: TaskJournalEntry[]): { totalTokens: number; costUsd: number; runs: number } {
 	const acc = { totalTokens: 0, costUsd: 0, runs: 0 };
 	for (const e of entries) {
-		if (!e.usage || e.usage.totalTokens <= 0) continue;
-		acc.totalTokens += e.usage.totalTokens;
-		acc.costUsd += e.usage.costUsd ?? 0;
+		const totalTokens = e.usage?.totalTokens;
+		if (!Number.isFinite(totalTokens) || totalTokens <= 0) continue;
+		acc.totalTokens += totalTokens;
+		acc.costUsd += Number.isFinite(e.usage?.costUsd) ? (e.usage?.costUsd ?? 0) : 0;
 		acc.runs += 1;
 	}
 	return acc;
@@ -352,9 +353,9 @@ export function summarizeJournal(entries: TaskJournalEntry[]): JournalSummary {
 		if (status === "succeeded") summary.succeededRuns += 1;
 		if (status === "failed") summary.failedRuns += 1;
 		if (status === "cancelled") summary.cancelledRuns += 1;
-		const elapsedMs = typeof entry.elapsedMs === "number" && entry.elapsedMs > 0 ? entry.elapsedMs : 0;
-		const totalTokens = entry.usage?.totalTokens || 0;
-		const costUsd = entry.usage?.costUsd || 0;
+		const elapsedMs = Number.isFinite(entry.elapsedMs) && (entry.elapsedMs ?? 0) > 0 ? entry.elapsedMs ?? 0 : 0;
+		const totalTokens = Number.isFinite(entry.usage?.totalTokens) && (entry.usage?.totalTokens ?? 0) > 0 ? entry.usage?.totalTokens ?? 0 : 0;
+		const costUsd = Number.isFinite(entry.usage?.costUsd) && (entry.usage?.costUsd ?? 0) > 0 ? entry.usage?.costUsd ?? 0 : 0;
 		summary.totalElapsedMs += elapsedMs;
 		summary.totalTokens += totalTokens;
 		summary.costUsd += costUsd;

@@ -102,6 +102,19 @@ describe("journal usage rendering", () => {
 		expect(summary.byKind.chain.failed).toBe(1);
 	});
 
+	test("ignores non-finite journal metrics", () => {
+		const malformed = {
+			...base,
+			elapsedMs: Number.POSITIVE_INFINITY,
+			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: Number.NaN, costUsd: Number.NaN },
+		};
+		const summary = summarizeJournal([malformed]);
+		expect(summary.totalElapsedMs).toBe(0);
+		expect(summary.totalTokens).toBe(0);
+		expect(summary.costUsd).toBe(0);
+		expect(sumJournalUsage([malformed]).runs).toBe(0);
+	});
+
 	test("summary rendering includes cancelled runs", () => {
 		const summary = summarizeJournal([{ ...base, status: "done", runStatus: "cancelled" }]);
 		expect(summary.cancelledRuns).toBe(1);
