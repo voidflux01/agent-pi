@@ -76,6 +76,25 @@ function compactResult(value: any): unknown {
 	return { ...(text === undefined ? {} : { text }), ...(value.details === undefined ? {} : { details: value.details }) };
 }
 
+/** Keep restart evidence useful without letting arbitrary tool details fill an event payload. */
+function compactEventResult(value: any): unknown {
+	const compact = compactResult(value);
+	if (!compact || typeof compact !== "object") return compact;
+	try {
+		if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= 8 * 1024) return compact;
+	} catch {}
+	const record = compact as Record<string, unknown>;
+	const details = record.details && typeof record.details === "object" ? record.details as Record<string, unknown> : undefined;
+	const safeDetails = details
+		? Object.fromEntries(Object.entries(details).filter(([key, item]) => key === "path" || key === "outputFile" || ["string", "number", "boolean"].includes(typeof item)).slice(0, 24))
+		: undefined;
+	return {
+		...(typeof record.text === "string" ? { text: record.text.slice(0, 4000) } : {}),
+		...(safeDetails ? { details: safeDetails } : {}),
+		truncated: true,
+	};
+}
+
 const BUILTIN_READ_SCHEMA = Type.Object({
 	path: Type.String({ minLength: 1 }),
 	offset: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -142,7 +161,7 @@ export default function (pi: ExtensionAPI) {
 					run.consumeStep();
 					run.record("step.started", { index, tool: name, risk: capability.risk, parallel });
 					const result = await executor(`${toolCallId}-compose-${index}`, args, signal, onUpdate, ctx);
-					run.record("step.completed", { index, tool: name });
+					run.record("step.completed", { index, tool: name, result: compactEventResult(result) });
 					return { index, tool: name, status: "completed", result: compactResult(result), risk: capability.risk };
 				} catch (error) {
 					run.record("step.failed", { index, tool: name, error: error instanceof Error ? error.message : String(error) });

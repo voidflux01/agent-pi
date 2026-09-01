@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
 import { registerDiscoveredCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
+import { listRunEvents } from "../lib/evidence-store.ts";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,5 +132,22 @@ describe("compose_exec", () => {
 		const result = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt", offset: 0 } }] }, undefined, undefined, { cwd: process.cwd() });
 		expect(result.details.results[0].status).toBe("blocked");
 		expect(result.details.results[0].error).toContain("invalid arguments");
+	});
+
+	test("persists a bounded completed-step handoff for restart inspection", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-events-"));
+		writeFileSync(join(cwd, "input.txt"), "recoverable", "utf8");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const sessionFile = join(cwd, ".pi", "agent-sessions", "parent.jsonl");
+		const result = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt" } }] }, undefined, undefined, {
+			cwd,
+			sessionManager: { getSessionFile: () => sessionFile },
+		});
+		const events = listRunEvents(join(cwd, ".pi", "agent-sessions", "compositions", result.details.runId));
+		const completed = events.find((event) => event.type === "step.completed");
+		expect(completed?.payload).toMatchObject({ data: { result: { text: "recoverable" } } });
 	});
 });

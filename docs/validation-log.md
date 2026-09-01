@@ -24,6 +24,7 @@ the authoritative fixture command is `node --test`.
 ## Current evidence
 
 - Full repository tests: 137 Bun passed; 943 Vitest passed; 13 skipped.
+- `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
   path boundary.
