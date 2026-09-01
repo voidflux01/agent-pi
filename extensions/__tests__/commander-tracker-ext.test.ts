@@ -2,6 +2,7 @@
 // ABOUTME: Verifies activation via onReady, reconcile interval, heartbeat, and deactivation.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { addCommanderReadyCallback, commanderGate, commanderState, drainCommanderReadyCallbacks, resolveCommanderGate, setCommanderClient, setCommanderGate, setCommanderState } from "../lib/coordination-state.ts";
 
 // Minimal mock for the extension's dependencies
@@ -63,6 +64,14 @@ describe("commander-tracker extension behavior", () => {
 			resolveCommanderGate(false);
 
 			expect(commanderGate()?.state).toBe("unavailable");
+		});
+
+		it("invalidates pending activation callbacks after shutdown", () => {
+			const source = readFileSync(new URL("../commander-tracker.ts", import.meta.url), "utf8");
+			expect(source).toContain("let lifecycleEpoch = 0");
+			expect(source).toContain("if (epoch !== lifecycleEpoch) return");
+			expect(source).toContain("const startEpoch = ++lifecycleEpoch");
+			expect(source).toContain("lifecycleEpoch++");
 		});
 	});
 

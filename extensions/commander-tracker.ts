@@ -21,6 +21,7 @@ export default function (pi: ExtensionAPI) {
 	let reconcileTimer: ReturnType<typeof setInterval> | undefined;
 	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 	let trackerState: TrackerState = createTrackerState();
+	let lifecycleEpoch = 0;
 
 	// Publish tracker on globalThis so tasks.ts can push retries
 	const tracker = {
@@ -30,7 +31,8 @@ export default function (pi: ExtensionAPI) {
 	};
 	g.__piCommanderTracker = tracker;
 
-	function activate() {
+	function activate(epoch = lifecycleEpoch) {
+		if (epoch !== lifecycleEpoch) return;
 		if (tracker.active) return;
 		tracker.active = true;
 
@@ -118,19 +120,21 @@ export default function (pi: ExtensionAPI) {
 	// ── Lifecycle ────────────────────────────────────────────────────
 
 	pi.on("session_start", async () => {
+		const startEpoch = ++lifecycleEpoch;
 		const gate = commanderGate();
 		if (!gate) return;
 
 		if (gate.state === "available") {
-			activate();
+			activate(startEpoch);
 		} else if (gate.state === "pending") {
 			// Push callback to fire when Commander probe succeeds
-			addCommanderReadyCallback(() => activate());
+			addCommanderReadyCallback(() => activate(startEpoch));
 		}
 		// If unavailable, stay dormant
 	});
 
 	pi.on("session_shutdown", async () => {
+		lifecycleEpoch++;
 		deactivate();
 		g.__piCommanderTracker = null;
 	});
