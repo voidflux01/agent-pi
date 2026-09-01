@@ -171,7 +171,9 @@ worker lifecycle boundaries.
   `tool.started`/`tool.completed` events and return its run id; workspace
   manifests continue to capture changed files without persisting full tool
   payloads, giving NORMAL/PLAN/SPEC dynamic calls the same audit navigation as
-  worker dispatches.
+  worker dispatches. An aborted call is recorded as `cancelled` even if a
+  cooperative boundary returns a late result, preserving the distinction
+  between user cancellation and tool failure.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.

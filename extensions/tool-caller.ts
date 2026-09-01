@@ -152,7 +152,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			orchestrationRun.consumeStep();
 			orchestrationRun.record("tool.started", { toolName: tool_name, reason });
-			const finishAudit = (status: "succeeded" | "failed") => {
+			const finishAudit = (status: "succeeded" | "failed" | "cancelled") => {
 				orchestrationRun.record("tool.completed", { toolName: tool_name, status });
 				orchestrationRun.finish(status, { toolName: tool_name, reason });
 			};
@@ -181,7 +181,7 @@ export default function (pi: ExtensionAPI) {
 						onUpdate,
 						ctx,
 					);
-					finishAudit(result?.details?.error ? "failed" : "succeeded");
+					finishAudit(signal?.aborted ? "cancelled" : result?.details?.error ? "failed" : "succeeded");
 					return {
 						content: result.content || [{ type: "text" as const, text: "Tool returned no content" }],
 						details: {
@@ -199,7 +199,7 @@ export default function (pi: ExtensionAPI) {
 				// But for built-in tools, we can import and call them directly
 				const builtinResult = await executeBuiltinTool(tool_name, toolArgs, ctx, signal, pi);
 				if (builtinResult) {
-					finishAudit(builtinResult.details?.error ? "failed" : "succeeded");
+					finishAudit(signal?.aborted ? "cancelled" : builtinResult.details?.error ? "failed" : "succeeded");
 					return {
 						content: builtinResult.content || [{ type: "text" as const, text: "Tool returned no content" }],
 						details: {
@@ -214,7 +214,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Last resort: report that programmatic execution isn't available for this tool
-				finishAudit("failed");
+				finishAudit(signal?.aborted ? "cancelled" : "failed");
 				return {
 					content: [{
 						type: "text" as const,
@@ -224,7 +224,7 @@ export default function (pi: ExtensionAPI) {
 					details: { tool_name, runId: orchestrationRun.runId, reason, error: "no_executor" },
 				};
 			} catch (err: any) {
-				finishAudit("failed");
+				finishAudit(signal?.aborted ? "cancelled" : "failed");
 				return {
 					content: [{
 						type: "text" as const,

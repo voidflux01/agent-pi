@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 159 Bun passed; 946 Vitest passed; 13 skipped.
+- Full repository tests: 160 Bun passed; 946 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -105,6 +105,8 @@ the authoritative fixture command is `node --test`.
   session start is both discoverable and invokable through `call_tool`.
 - `call_tool` audit regression coverage confirms actual dynamic executions
   persist bounded tool lifecycle events and return a navigable RunContext id.
+- The same audit coverage confirms an already-aborted call closes as
+  `cancelled`, rather than being misclassified as a successful late result.
 - `compose_exec` regression coverage confirms a slow step receives an abort
   signal at its bounded `timeout_ms` and becomes a failed step. A deliberately
   uncooperative executor is not retried after timeout, preventing duplicate

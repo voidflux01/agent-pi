@@ -82,4 +82,29 @@ describe("extension tool executor registry", () => {
 		expect(result.details.proxied).toBe(true);
 		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
 	});
+
+	test("records an aborted proxied call as cancelled", async () => {
+		let callTool: any;
+		const handlers = new Map<string, Function[]>();
+		const tools: any[] = [];
+		registerToolWithExecutor({ registerTool: (definition) => tools.push({ name: definition.name, description: definition.description }) }, {
+			name: "registry_cancel_target",
+			execute: async () => ({ content: [{ type: "text" as const, text: "completed after cancellation" }] }),
+		});
+		const pi: any = {
+			registerTool(definition: any) { if (definition.name === "call_tool") callTool = definition; },
+			getAllTools: () => [...tools, { name: "call_tool", description: "proxy" }],
+			on(event: string, handler: Function) { handlers.set(event, [...(handlers.get(event) || []), handler]); },
+		};
+		toolCaller(pi);
+		for (const handler of handlers.get("session_start") || []) await handler({}, {});
+		const controller = new AbortController();
+		controller.abort();
+		const result = await callTool.execute("outer", { tool_name: "registry_cancel_target", arguments: {} }, controller.signal, undefined, { cwd: process.cwd() });
+		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
+		const eventDir = join(process.cwd(), ".pi", "agent-sessions", "compositions", result.details.runId);
+		const completed = readOrchestrationEvents(eventDir).find((event) => event.type === "tool.completed");
+		expect(completed?.payload).toMatchObject({ data: { status: "cancelled" } });
+		rmSync(eventDir, { recursive: true, force: true });
+	});
 });
