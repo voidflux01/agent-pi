@@ -75,6 +75,16 @@ export interface ToolkitWorkerResult {
 
 const TOOLKIT_ABORT_POLL_INTERVAL_MS = 50;
 const TOOLKIT_FORCE_KILL_DELAY_MS = 3_000;
+export const MAX_TOOLKIT_OUTPUT_CHARS = 256 * 1024;
+const TOOLKIT_OUTPUT_TRUNCATION_MARKER = "\n...[toolkit output truncated]...\n";
+
+function appendBoundedOutput(current: string, chunk: string): string {
+	const next = current + chunk;
+	if (next.length <= MAX_TOOLKIT_OUTPUT_CHARS) return next;
+	const budget = Math.max(0, MAX_TOOLKIT_OUTPUT_CHARS - TOOLKIT_OUTPUT_TRUNCATION_MARKER.length);
+	const head = Math.ceil(budget / 2);
+	return next.slice(0, head) + TOOLKIT_OUTPUT_TRUNCATION_MARKER + next.slice(-(budget - head));
+}
 
 export function isToolkitCliAgent(name: string | undefined | null): boolean {
 	if (!name) return false;
@@ -276,7 +286,7 @@ export function spawnToolkitWorker(
 
 		proc.stdout?.setEncoding("utf-8");
 		proc.stdout?.on("data", (chunk: string) => {
-			output += chunk;
+			output = appendBoundedOutput(output, chunk);
 			buffer += chunk;
 			const lines = buffer.split("\n");
 			buffer = lines.pop() || "";
@@ -287,7 +297,7 @@ export function spawnToolkitWorker(
 
 		proc.stderr?.setEncoding("utf-8");
 		proc.stderr?.on("data", (chunk: string) => {
-			output += chunk;
+			output = appendBoundedOutput(output, chunk);
 			if (chunk) options.onStderr?.(chunk);
 			const lines = chunk.split("\n");
 			for (const line of lines) {

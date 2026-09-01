@@ -12,6 +12,7 @@ import {
 	toolkitRuntimeName,
 	toolkitVisibleCommandLine,
 	spawnToolkitWorker,
+	MAX_TOOLKIT_OUTPUT_CHARS,
 	toolkitBareMode,
 	toolkitHerdrAgent,
 	toolkitHerdrLabel,
@@ -77,6 +78,30 @@ describe("toolkit CLI agent detection", () => {
 
 		await expect(resultPromise).resolves.toMatchObject({ exitCode: 130 });
 		expect(signal).toBe("SIGTERM");
+	});
+
+	it("bounds captured toolkit output while retaining both ends", async () => {
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: PassThrough;
+			stderr: PassThrough;
+		};
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		const resultPromise = runExplicit(() => spawnToolkitWorker({
+			name: "codex-agent", tools: "", systemPrompt: "",
+		}, {
+			task: "large output",
+			spawnProcess: (() => child) as any,
+		}));
+		const large = "head-" + "x".repeat(MAX_TOOLKIT_OUTPUT_CHARS * 2) + "-tail";
+		child.stdout.end(large);
+		child.emit("close", 0);
+
+		const result = await resultPromise;
+		expect(result.output.length).toBeLessThanOrEqual(MAX_TOOLKIT_OUTPUT_CHARS);
+		expect(result.output).toContain("toolkit output truncated");
+		expect(result.output.startsWith("head-")).toBe(true);
+		expect(result.output.endsWith("-tail")).toBe(true);
 	});
 
 
