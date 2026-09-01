@@ -558,6 +558,7 @@ export default function (pi: ExtensionAPI) {
 					sessionDir: saDir,
 					runId: state.saRunId ?? `sa${state.id}`,
 					parentRunId: orchestrationRun.runId,
+					mode: coordinationState().mode,
 					paneTitle,
 					onProcess: (proc: any) => {
 						if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(proc);
@@ -597,6 +598,7 @@ export default function (pi: ExtensionAPI) {
 				herdrPaneKey: `sa-${state.id}`,
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				parentRunId: orchestrationRun.runId,
+				mode: coordinationState().mode,
 				isAborted: () => spawnEpoch !== sessionEpoch,
 				onProcess: (child) => {
 					if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(child as any);

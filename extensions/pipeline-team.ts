@@ -590,6 +590,7 @@ export default function (pi: ExtensionAPI) {
 				launchDir: sessionDir,
 				launchId: journalId,
 				parentRunId,
+				mode: "PIPELINE",
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),

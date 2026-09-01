@@ -59,6 +59,8 @@ export interface DispatchRuntimeSpec {
 	launchId: string;
 	/** Optional orchestration run that owns this child dispatch. */
 	parentRunId?: string;
+	/** Operational mode that initiated this child, propagated for audit/query. */
+	mode?: string;
 	/** Session JSONL used as the authoritative result for a visible run. */
 	sessionFile?: string;
 	herdrDoneExtPath?: string;
@@ -394,6 +396,7 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		sessionFile: spec.sessionFile,
 		parentRunId: spec.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: "dispatch-runtime",
+		mode: spec.mode,
 		budget: { maxSteps: 1 },
 	});
 	orchestrationRun.record("dispatch.started", { launchId: spec.launchId, cwd: spec.cwd });

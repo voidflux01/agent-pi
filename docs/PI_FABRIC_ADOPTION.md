@@ -92,6 +92,9 @@ worker lifecycle boundaries.
 - Run summaries carry the initiating operational mode explicitly, so NORMAL,
   PLAN, SPEC, TEAM, CHAIN, and PIPELINE executions can be compared without
   inferring mode from actor names.
+- The same mode metadata now propagates to standard and toolkit child runs,
+  so mode-filtered status and parent/child audit graphs retain the initiating
+  mode at the leaf worker instead of only on the coordinator.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

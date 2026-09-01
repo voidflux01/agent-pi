@@ -578,6 +578,7 @@ export async function runToolkitDispatch(opts: {
 	sessionDir: string;
 	runId: string;
 	parentRunId?: string;
+	mode?: string;
 	paneTitle: string;
 	onProcess?: (proc: any) => void;
 	onStdoutLine?: (line: string) => void;
@@ -595,6 +596,7 @@ export async function runToolkitDispatch(opts: {
 		eventDir: join(opts.sessionDir, "compositions", opts.runId),
 		parentRunId: opts.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: `toolkit:${opts.agentName}`,
+		mode: opts.mode,
 		budget: { maxSteps: 1 },
 	});
 	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName });

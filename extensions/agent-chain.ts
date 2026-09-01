@@ -482,6 +482,7 @@ export default function (pi: ExtensionAPI) {
 				launchDir: sessionDir,
 				launchId: journalId,
 				parentRunId,
+				mode: "CHAIN",
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),

@@ -55,6 +55,7 @@ describe("shared dispatch runtime", () => {
 			launchId: "runtime-1",
 			sessionFile: join(dir, "parent.jsonl"),
 			transport: "headless",
+			mode: "PLAN",
 			journal: { dir, id: "runtime-1" },
 			spawnProcess: (() => child) as any,
 			onProcess: (process) => { captured = process; },
@@ -79,6 +80,7 @@ describe("shared dispatch runtime", () => {
 		expect(journal).toContain('"pid":4242');
 		const events = listRunEvents(join(dir, "compositions", result.runId!));
 		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
+		expect((events[0].payload as any)?.data?.mode).toBe("PLAN");
 	});
 
 	it("authorizes every mode-specific dispatch origin through the same runtime", async () => {

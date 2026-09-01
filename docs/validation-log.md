@@ -63,6 +63,9 @@ the authoritative fixture command is `node --test`.
 - Mode-filter regression coverage confirms the query layer, status tool,
   slash command, and dashboard renderer agree on case-insensitive NORMAL,
   PLAN, SPEC, TEAM, CHAIN, and PIPELINE filtering.
+- Dispatch-runtime regression coverage confirms a child run persists its
+  initiating mode in the event journal; all standard and toolkit call sites
+  now pass that metadata for leaf-level audit and filtering.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
