@@ -86,6 +86,10 @@ worker lifecycle boundaries.
 - `subagent_create_batch` gives a parallel batch one bounded parent run and
   aggregates child success/failure/cancellation before closing it, preserving
   one auditable unit for independent work.
+- `subagent_create` now accepts optional `join: true` for planner/builder/
+  reviewer-style workers whose result is needed immediately; default background
+  behavior is unchanged, while joined calls reuse the same bounded result,
+  timeout, cancellation, journal, and RunContext paths.
 - TEAM now exposes the same one-call parallel shape as `dispatch_team_batch` for
   its selected roster. Independent specialist jobs share one bounded TEAM
   parent RunContext, propagate cancellation to every child, and return a hard-

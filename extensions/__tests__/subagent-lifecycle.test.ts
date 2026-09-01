@@ -56,6 +56,8 @@ describe("stale session lifecycle protection", () => {
 	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("shouldAwaitSubagentResult(agentName)");
+		expect(src).toContain("args.join === true");
+		expect(src).toContain('description: "Wait for this worker and return its bounded result in this call');
 		expect(src).toContain("if (!awaitResult)");
 		expect(src).toContain("const result = await started");
 		expect(src).toContain("if (!state.awaitResult)");
