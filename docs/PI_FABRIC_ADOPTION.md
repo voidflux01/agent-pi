@@ -42,6 +42,9 @@ worker lifecycle boundaries.
 - Run summaries carry the initiating operational mode explicitly, so NORMAL,
   PLAN, SPEC, TEAM, CHAIN, and PIPELINE executions can be compared without
   inferring mode from actor names.
+- Non-terminal summaries expose `recovery: "stale"` and the last persisted
+  event type, making a post-restart run actionable: inspect the bounded event
+  timeline before deciding whether to resume or re-dispatch.
 - Sequential composition supports bounded `$STEP_n_TEXT` and
   `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
   and conditions are rejected in parallel mode instead of creating implicit

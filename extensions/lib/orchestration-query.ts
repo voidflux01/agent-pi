@@ -12,6 +12,8 @@ export interface OrchestrationRunSummary {
 	mode?: string;
 	actor: string;
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
+	recovery?: "active" | "stale" | "terminal" | "unknown";
+	lastEventType?: string;
 	startedAt?: string;
 	finishedAt?: string;
 	durationMs?: number;
@@ -72,12 +74,15 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
 	const workspaceData = workspace ? payloadData(workspace) : {};
 	const durationMs = typeof finishData.durationMs === "number" ? finishData.durationMs : undefined;
+	const status = statusFromEvents(events, eventDir);
 	return {
 		runId: typeof startData.runId === "string" ? startData.runId : eventDir.split("/").pop() || "unknown",
 		...(typeof startData.parentRunId === "string" ? { parentRunId: startData.parentRunId } : {}),
 		...(typeof startData.mode === "string" ? { mode: startData.mode } : {}),
 		actor: start?.actor || events[0]?.actor || "unknown",
-		status: statusFromEvents(events, eventDir),
+		status,
+		recovery: status === "running" ? "active" : status === "stale" ? "stale" : status === "unknown" ? "unknown" : "terminal",
+		lastEventType: events.at(-1)?.type,
 		startedAt: start?.timestamp,
 		finishedAt: finish?.timestamp,
 		...(durationMs === undefined ? {} : { durationMs }),

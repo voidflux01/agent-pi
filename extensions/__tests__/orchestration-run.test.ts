@@ -29,7 +29,7 @@ describe("orchestration run context", () => {
 		const eventDir = join(mkdtempSync(join(tmpdir(), "agent-pi-run-")), "run");
 		const run = createOrchestrationRun({ eventDir, actor: "test" });
 		writeFileSync(activeRunMarkerPath(eventDir), JSON.stringify({ pid: 2147483647, startedAt: Date.now(), runId: run.runId }));
-		expect(summarizeOrchestrationRun(eventDir)?.status).toBe("stale");
+		expect(summarizeOrchestrationRun(eventDir)).toMatchObject({ status: "stale", recovery: "stale", lastEventType: "run.started" });
 		run.finish("cancelled");
 	});
 
