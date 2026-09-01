@@ -78,6 +78,7 @@ describe("shared dispatch runtime", () => {
 		const journal = readFileSync(join(dir, "task-journal.jsonl"), "utf8");
 		expect(journal).toContain('"status":"done"');
 		expect(journal).toContain('"pid":4242');
+		expect(journal).toContain('"orchestrationRunId":"' + result.runId + '"');
 		const events = listRunEvents(join(dir, "compositions", result.runId!));
 		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
 		expect((events[0].payload as any)?.data?.mode).toBe("PLAN");

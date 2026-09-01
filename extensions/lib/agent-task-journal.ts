@@ -18,6 +18,8 @@ export interface TaskJournalEntry {
 	version: 1;
 	/** Stable per-run id, matching the persisted output file base name. */
 	id: string;
+	/** Persisted RunContext id for direct status/event inspection. */
+	orchestrationRunId?: string;
 	kind: "team" | "chain" | "pipeline" | "sa";
 	agent: string;
 	/** Initiating coordination mode; optional for backward-compatible old rows. */
@@ -376,7 +378,8 @@ export function formatJournalEntry(e: TaskJournalEntry): string {
 		usage = ` ${u.totalTokens.toLocaleString()}tok (${cachePct}% cached) ${cost}`;
 	}
 	const runtime = e.runtime ? ` [${e.runtime}]` : "";
-	return `${statusLabel.toUpperCase().padEnd(10)} ${e.id}${runtime}${alive}${elapsed}${usage}${resumed}${session}${note}`;
+	const orchestration = e.orchestrationRunId ? ` orchestration:${e.orchestrationRunId}` : "";
+	return `${statusLabel.toUpperCase().padEnd(10)} ${e.id}${runtime}${alive}${elapsed}${usage}${resumed}${session}${orchestration}${note}`;
 }
 
 /** Aggregate usage across finished rows — the fleet total under /agents-status. */

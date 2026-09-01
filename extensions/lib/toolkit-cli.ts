@@ -10,6 +10,7 @@ import { isExplicitDispatchActive } from "./dispatch-gate.ts";
 import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
 import { budgetBlockReason } from "./orchestration-budget.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./orchestration-run.ts";
+import { journalUpdate } from "./agent-task-journal.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -613,6 +614,7 @@ export async function runToolkitDispatch(opts: {
 	parentRunId?: string;
 	mode?: string;
 	timeoutMs?: number;
+	journal?: { dir: string; id: string };
 	paneTitle: string;
 	onProcess?: (proc: any) => void;
 	onStdoutLine?: (line: string) => void;
@@ -633,6 +635,7 @@ export async function runToolkitDispatch(opts: {
 		mode: opts.mode,
 		budget: { maxSteps: 1 },
 	});
+	if (opts.journal) journalUpdate(opts.journal.dir, opts.journal.id, { orchestrationRunId: orchestrationRun.runId });
 	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName });
 	const settleRun = (result: ToolkitDispatchResult): ToolkitDispatchResult => {
 		const status = result.exitCode === 130 ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";

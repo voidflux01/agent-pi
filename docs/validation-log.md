@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 153 Bun passed; 944 Vitest passed; 13 skipped.
+- Full repository tests: 154 Bun passed; 944 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -87,6 +87,8 @@ the authoritative fixture command is `node --test`.
   Token/cost usage from its last persisted `usage.updated` event.
 - Orchestration status/dashboard regression coverage confirms dispatch failure
   causes are projected into the read model and remain bounded for display.
+- Journal rendering regression coverage confirms each linked task row exposes
+  its persisted RunContext id for post-restart audit navigation.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without

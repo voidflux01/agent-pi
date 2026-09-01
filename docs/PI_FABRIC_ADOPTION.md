@@ -121,6 +121,9 @@ worker lifecycle boundaries.
 - Orchestration summaries now recover usage from the last `usage.updated`
   event when a worker dies before its terminal event, so stale-run audit and
   mode metrics retain already-confirmed Token/cost consumption.
+- Task journal rows now persist and display their owning RunContext id, making
+  `/agents-status` a direct navigation point into `/orchestration-status` and
+  its bounded event timeline after a restart.
 - Run summaries now project bounded dispatch failure causes into status rows
   and dashboard entries, preserving the distinction between timeout,
   cancellation, authentication, process, and exit-code failures.

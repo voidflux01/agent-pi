@@ -321,6 +321,7 @@ export default function (pi: ExtensionAPI) {
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
 			workspaceCwd: spawnCwd,
 		});
+		if (state.saRunId) journalUpdate(saDir, state.saRunId, { orchestrationRunId: orchestrationRun.runId });
 		orchestrationRun.consumeStep();
 		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
 		const settleOrchestration = (status: "succeeded" | "failed" | "cancelled", payload: Record<string, unknown>) => {
@@ -561,6 +562,7 @@ export default function (pi: ExtensionAPI) {
 					parentRunId: orchestrationRun.runId,
 					mode: coordinationState().mode,
 					timeoutMs: state.maxDurationMs,
+					journal: { dir: saDir, id: state.saRunId ?? "" },
 					paneTitle,
 					onProcess: (proc: any) => {
 						if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(proc);

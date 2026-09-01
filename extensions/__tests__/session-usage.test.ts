@@ -86,6 +86,10 @@ describe("journal usage rendering", () => {
 		expect(formatJournalEntry(base).includes("tok")).toBe(false);
 	});
 
+	test("renders the RunContext link for audit navigation", () => {
+		expect(formatJournalEntry({ ...base, orchestrationRunId: "orchestration-123" })).toContain("orchestration:orchestration-123");
+	});
+
 	test("sumJournalUsage aggregates runs with usage only", () => {
 		const sums = sumJournalUsage([
 			{ ...base, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 100, costUsd: 0.01 } },

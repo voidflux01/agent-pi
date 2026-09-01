@@ -399,6 +399,7 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 		mode: spec.mode,
 		budget: { maxSteps: 1 },
 	});
+	if (spec.journal) updateJournal(spec, { orchestrationRunId: orchestrationRun.runId });
 	orchestrationRun.record("dispatch.started", { launchId: spec.launchId, cwd: spec.cwd });
 	const settleRun = (result: DispatchRuntimeResult): DispatchRuntimeResult => {
 		const status = result.failure === "aborted" ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
