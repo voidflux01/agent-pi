@@ -62,6 +62,13 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain('deliverAs: "steer"');
 	});
 
+	it("propagates synchronous tool cancellation into the worker abort boundary", () => {
+		const widget = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(widget).toContain("signal: awaitResult ? signal : undefined");
+		expect(widget).toContain("spawnEpoch !== sessionEpoch || !!options.signal?.aborted");
+		expect(widget).toContain("signal?: AbortSignal");
+	});
+
 	it("attaches NORMAL/PLAN/SPEC subagent dispatches to an auditable parent run", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("createOrchestrationRun");

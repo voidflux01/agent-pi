@@ -261,7 +261,7 @@ export default function (pi: ExtensionAPI) {
 		state: SubState,
 		prompt: string,
 		ctx: any,
-		options: { orchestrationRun?: OrchestrationRun; onSettled?: (status: "succeeded" | "failed" | "cancelled") => void } = {},
+		options: { orchestrationRun?: OrchestrationRun; onSettled?: (status: "succeeded" | "failed" | "cancelled") => void; signal?: AbortSignal } = {},
 	): Promise<string> {
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
@@ -577,7 +577,7 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-					isCancelled: () => spawnEpoch !== sessionEpoch,
+				isCancelled: () => spawnEpoch !== sessionEpoch || !!options.signal?.aborted,
 				}).then(({ exitCode, raw }) => {
 					const parsed = parseToolkitResult(state.name, raw);
 					if (parsed.model) state.model = parsed.model;
@@ -603,7 +603,7 @@ export default function (pi: ExtensionAPI) {
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
-				isAborted: () => spawnEpoch !== sessionEpoch,
+				isAborted: () => spawnEpoch !== sessionEpoch || !!options.signal?.aborted,
 				onProcess: (child) => {
 					if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(child as any);
 				},
@@ -676,7 +676,7 @@ export default function (pi: ExtensionAPI) {
 			agents.set(id, state);
 			registerWidget(state);
 
-			const started = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx))();
+			const started = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, args.task, ctx, { signal: awaitResult ? signal : undefined }))();
 			state.completion = started;
 			if (!awaitResult) {
 				return {
@@ -982,7 +982,7 @@ export default function (pi: ExtensionAPI) {
 			};
 			agents.set(id, state);
 			registerWidget(state);
-			const result = await explicitDispatchHandler("subagent-resume", () => spawnAgent(state, args.prompt, ctx))();
+			const result = await explicitDispatchHandler("subagent-resume", () => spawnAgent(state, args.prompt, ctx, { signal }))();
 			return { content: [{ type: "text", text: result || `SA${id} resumed from ${args.run_id}.` }] };
 		},
 	});

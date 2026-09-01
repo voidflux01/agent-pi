@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 157 Bun passed; 944 Vitest passed; 13 skipped.
+- Full repository tests: 157 Bun passed; 945 Vitest passed; 13 skipped.
 - `compose_exec` now persists a bounded `step.completed` handoff payload, so a restarted parent can inspect completed-step output from the composition journal.
 - `compose_exec` can execute the workspace-bounded built-in `read` with schema
   validation; traversal and symlink-escape attempts are rejected by the shared
@@ -83,6 +83,9 @@ the authoritative fixture command is `node --test`.
   failure rather than cancellation.
 - Toolkit-worker regression coverage also confirms timeout and cancellation
   return distinct structured failure causes for audit consumers.
+- Subagent lifecycle regression coverage confirms synchronous scout/resume
+  cancellation reaches the shared worker abort boundary, while detached batch
+  joins retain their workers for later collection.
 - Orchestration query regression coverage confirms an interrupted run retains
   Token/cost usage from its last persisted `usage.updated` event.
 - `compose_exec` regression coverage confirms transient step errors retry at

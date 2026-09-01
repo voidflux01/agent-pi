@@ -120,6 +120,11 @@ worker lifecycle boundaries.
   is omitted, aligned with the default RunContext deadline. Explicit
   `timeout: 0` remains available for intentionally unbounded work and is
   reported through the existing lifecycle/journal path.
+- Synchronous NORMAL/PLAN/SPEC scout and resume calls now propagate tool
+  cancellation into the shared worker transport, so cancelling the call also
+  terminates the worker and records a cancelled run. Background batch joins
+  remain detachable: cancelling the wait leaves already-started workers
+  running for a later bounded join or recovery.
 - TEAM, CHAIN, and PIPELINE standard Pi workers now pass the same 15-minute
   orchestration deadline into the shared transport, keeping all six modes'
   standard worker paths aligned on timeout and cancellation behavior.
