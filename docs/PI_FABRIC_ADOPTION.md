@@ -204,6 +204,9 @@ worker lifecycle boundaries.
   across CHAIN, PIPELINE, compose, and subagent runs. It returns the safe
   action and target without replaying work; stale compose runs are correctly
   identified as resumable instead of falling back to generic inspection.
+- Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
+  session switch, fork, and tree boundaries clear request ids and pending
+  executions so audit records cannot be lost across session reuse.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

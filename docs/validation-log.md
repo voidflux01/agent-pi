@@ -25,7 +25,7 @@ the authoritative fixture command is `node --test`.
 
 ## Current evidence
 
-- Full repository tests: 171 Bun passed; 947 Vitest passed; 13 skipped.
+- Full repository tests: 172 Bun passed; 947 Vitest passed; 13 skipped.
 - Orchestration budget regression coverage confirms concurrent admission
   reservations are atomic, visible in status, released on actual usage, and
   explicitly releasable when a worker produces no usage; expired reservations
@@ -127,6 +127,8 @@ the authoritative fixture command is `node --test`.
 - Recovery projection coverage confirms stale compose runs return
   `compose-resume` through the read-only `orchestration_recover` tool without
   replaying or mutating the source run.
+- Session-boundary coverage confirms blocked-call de-duplication resets on a
+  new session, preventing reused request ids from suppressing fresh audit rows.
 - Orchestration query regression coverage confirms a successful run without a
   verification receipt is explicitly projected as `UNVERIFIED`.
 - `compose_exec` regression coverage confirms a slow step receives an abort

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import orchestrationToolAudit, { recordBlockedToolCall } from "../orchestration-tool-audit.ts";
+import orchestrationToolAudit, { recordBlockedToolCall, resetBlockedToolAudit } from "../orchestration-tool-audit.ts";
 import { readOrchestrationEvents, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 import { setCoordinationMode } from "../lib/coordination-state.ts";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
@@ -78,6 +78,18 @@ describe("native tool execution audit", () => {
 		const events = readOrchestrationEvents(join(cwd, ".pi", "agent-sessions", "compositions", first!));
 		expect(events.filter((event) => event.type === "tool.blocked")).toHaveLength(1);
 		expect(events.find((event) => event.type === "tool.blocked")?.payload).toMatchObject({ data: { category: "approval" } });
+	});
+
+	test("resets blocked-call de-duplication at a session boundary", () => {
+		const cwd = join(tmpdir(), `pi-tool-audit-session-${process.pid}`);
+		roots.push(cwd);
+		const toolCallId = `session-boundary-${process.pid}-${Date.now()}`;
+		const first = recordBlockedToolCall({ toolCallId, toolName: "write", category: "task_gate", context: { cwd } });
+		resetBlockedToolAudit();
+		const second = recordBlockedToolCall({ toolCallId, toolName: "write", category: "approval", context: { cwd } });
+		expect(first).toMatch(/^[A-Za-z0-9-]+$/);
+		expect(second).toMatch(/^[A-Za-z0-9-]+$/);
+		expect(second).not.toBe(first);
 	});
 
 	test("links a worker's direct tool run to its inherited parent", async () => {

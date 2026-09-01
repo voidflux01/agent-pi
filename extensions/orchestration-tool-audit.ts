@@ -10,6 +10,12 @@ type PendingExecution = { toolName: string; run: OrchestrationRun };
 
 const BLOCKED_CALLS_KEY = "__piAuditedBlockedToolCalls";
 
+/** Reset request-scoped de-duplication when Pi starts or changes sessions. */
+export function resetBlockedToolAudit(): void {
+	const seen = (globalThis as any)[BLOCKED_CALLS_KEY];
+	if (seen instanceof Set) seen.clear();
+}
+
 function inheritedParentRunId(): string | undefined {
 	const value = process.env.PI_AGENT_PI_RUN_ID;
 	return typeof value === "string" && /^[A-Za-z0-9-]{1,80}$/.test(value) ? value : undefined;
@@ -58,6 +64,14 @@ function shouldCaptureWorkspace(toolName: string): boolean {
 
 export default function (pi: ExtensionAPI) {
 	const pending = new Map<string, PendingExecution>();
+	const resetSessionAudit = () => {
+		pending.clear();
+		resetBlockedToolAudit();
+	};
+	pi.on("session_start", resetSessionAudit);
+	pi.on("session_switch", resetSessionAudit);
+	pi.on("session_fork", resetSessionAudit);
+	pi.on("session_tree", resetSessionAudit);
 
 	pi.on("tool_execution_start", (event, ctx) => {
 		// call_tool already owns a nested RunContext so its proxied lifecycle is not
