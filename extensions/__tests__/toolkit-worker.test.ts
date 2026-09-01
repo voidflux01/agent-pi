@@ -52,6 +52,24 @@ describe("toolkit CLI agent detection", () => {
 		expect(result.output).toContain("spawn denied");
 	});
 
+	it("retains asynchronous spawn errors in the returned output", async () => {
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: PassThrough;
+			stderr: PassThrough;
+		};
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		const resultPromise = runExplicit(() => spawnToolkitWorker({
+			name: "codex-agent", tools: "", systemPrompt: "",
+		}, {
+			task: "async failure",
+			spawnProcess: (() => child) as any,
+		}));
+		child.emit("error", new Error("worker unavailable"));
+
+		await expect(resultPromise).resolves.toMatchObject({ exitCode: 1, output: expect.stringContaining("worker unavailable") });
+	});
+
 	it("cancels a headless toolkit worker and terminates its child", async () => {
 		const child = new EventEmitter() as EventEmitter & {
 			stdout: PassThrough;

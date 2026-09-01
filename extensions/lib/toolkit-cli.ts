@@ -362,6 +362,7 @@ export function spawnToolkitWorker(
 				return;
 			}
 			const msg = `CLI spawn error (${command}): ${err.message}`;
+			output = appendBoundedOutput(output, msg);
 			options.onStderr?.(msg);
 			options.onStdoutLine?.(msg);
 			retryWithPureArgsOr(() => finishWith(1, msg));
