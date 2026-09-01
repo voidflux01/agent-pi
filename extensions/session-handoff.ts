@@ -9,7 +9,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalPath, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
-import { isResumableRunStatus, isTerminalRunStatus } from "./lib/run-state.ts";
+import { isResumableRunStatus, isTerminalRunStatus, normalizeRunStatus } from "./lib/run-state.ts";
 import {
 	buildHandoffSnapshot,
 	handoffPath,
@@ -55,7 +55,10 @@ function readChildren(workspace: string): TaskJournalEntry[] {
 			if (!line.trim()) continue;
 			try {
 				const entry = JSON.parse(line) as TaskJournalEntry;
-				if (entry.id) latest.set(entry.id, entry);
+				if (entry.id) {
+					if (!entry.runStatus) entry.runStatus = normalizeRunStatus(entry.status);
+					latest.set(entry.id, entry);
+				}
 			} catch {}
 		}
 		return [...latest.values()];
@@ -65,7 +68,7 @@ function readChildren(workspace: string): TaskJournalEntry[] {
 }
 
 function resumableChildren(workspace: string): TaskJournalEntry[] {
-	return readChildren(workspace).filter((child) => !isTerminalRunStatus(child.status));
+	return readChildren(workspace).filter((child) => !isTerminalRunStatus(child.runStatus || child.status));
 }
 
 function currentTasks(): Array<{ id: number; text: string; status: string }> {
@@ -86,7 +89,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 	// session's context; failed/running children remain actionable.
 	const children = resumableChildren(cwdOf(ctx));
 	const activeTask = tasks.find((task) => task.status === "inprogress");
-	const activeChild = children.find((child) => isResumableRunStatus(child.status));
+	const activeChild = children.find((child) => isResumableRunStatus(child.runStatus || child.status));
 	const receipt = state.verifierReceipt;
 	return buildHandoffSnapshot({
 		workspace: cwdOf(ctx),
@@ -98,7 +101,7 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 		activePipeline: state.activePipeline,
 		tasks,
 		children,
-		nextAction: activeTask?.text || (activeChild ? `${["failed", "error"].includes(activeChild.status) ? "Re-dispatch" : "Continue"} ${activeChild.agent}: ${activeChild.task || "recorded child task"}` : undefined),
+		nextAction: activeTask?.text || (activeChild ? `${normalizeRunStatus(activeChild.runStatus || activeChild.status) === "failed" ? "Re-dispatch" : "Continue"} ${activeChild.agent}: ${activeChild.task || "recorded child task"}` : undefined),
 		verification: state.executionContract ? {
 			status: receipt?.status || "UNVERIFIED",
 			attempt: state.verifierAttempt,
