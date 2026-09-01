@@ -207,26 +207,28 @@ export function pruneRunArtifacts(sessionDir: string, maxDays: number = RUN_ARTI
 
 	// 2) Journal rows (temp file + rename so a crash mid-write cannot
 	//    truncate the journal)
-	try {
-		const p = journalPath(sessionDir);
-		if (existsSync(p)) {
-			const raw = readFileSync(p, "utf8");
-			const kept: string[] = [];
-			for (const line of raw.split("\n")) {
-				if (!line.trim()) continue;
-				try {
-					const e = JSON.parse(line) as { updatedAt?: number; startedAt?: number };
-					const ts = e.updatedAt ?? e.startedAt ?? 0;
-					if (ts >= cutoff) kept.push(line);
-				} catch {
-					kept.push(line); // preserve unrecognized data
+	withJournalLock(sessionDir, () => {
+		try {
+			const p = journalPath(sessionDir);
+			if (existsSync(p)) {
+				const raw = readFileSync(p, "utf8");
+				const kept: string[] = [];
+				for (const line of raw.split("\n")) {
+					if (!line.trim()) continue;
+					try {
+						const e = JSON.parse(line) as { updatedAt?: number; startedAt?: number };
+						const ts = e.updatedAt ?? e.startedAt ?? 0;
+						if (ts >= cutoff) kept.push(line);
+					} catch {
+						kept.push(line); // preserve unrecognized data
+					}
 				}
+				const tmp = p + ".tmp";
+				writeFileSync(tmp, kept.length ? kept.join("\n") + "\n" : "", "utf8");
+				renameSync(tmp, p);
 			}
-			const tmp = p + ".tmp";
-			writeFileSync(tmp, kept.length ? kept.join("\n") + "\n" : "", "utf8");
-			renameSync(tmp, p);
-		}
-	} catch {}
+		} catch {}
+	});
 }
 
 /** Append a new dispatch record. */
