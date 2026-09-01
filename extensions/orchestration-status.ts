@@ -5,18 +5,35 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { listOrchestrationRuns } from "./lib/orchestration-query.ts";
+import { listOrchestrationRuns, listOrchestrationTopology, type OrchestrationTopology } from "./lib/orchestration-query.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
 const Params = Type.Object({
 	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 	run_id: Type.Optional(Type.String({ description: "Optional exact run id" })),
+	tree: Type.Optional(Type.Boolean({ description: "Render parent-child relationships" })),
 });
 
 function renderSummary(run: any): string {
 	const duration = run.durationMs === undefined ? "running" : `${Math.round(run.durationMs / 1000)}s`;
 	const parent = run.parentRunId ? ` parent=${run.parentRunId}` : "";
 	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events  ${run.runId}${parent}`;
+}
+
+function renderTree(topology: OrchestrationTopology, limit: number): string {
+	const byId = new Map(topology.runs.map((run) => [run.runId, run]));
+	const lines: string[] = [];
+	const seen = new Set<string>();
+	const visit = (id: string, depth: number) => {
+		if (lines.length >= limit || seen.has(id)) return;
+		seen.add(id);
+		const run = byId.get(id);
+		if (run) lines.push(`${"  ".repeat(depth)}${renderSummary(run)}`);
+		for (const child of topology.childrenByParent[id] || []) visit(child, depth + 1);
+	};
+	for (const id of topology.rootRunIds) visit(id, 0);
+	for (const id of topology.cycleRunIds) visit(id, 0);
+	return lines.join("\n") || "No persisted orchestration runs found.";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -28,9 +45,16 @@ export default function (pi: ExtensionAPI) {
 		capabilityRisk: "read",
 		capabilityEffect: { ordering: "commutative" },
 		async execute(_id, params, _signal, _update, ctx) {
-			const runs = listOrchestrationRuns(ctx?.cwd || process.cwd(), { limit: params.limit, runId: params.run_id });
-			const text = runs.length ? runs.map(renderSummary).join("\n") : "No persisted orchestration runs found.";
-			return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs } };
+			const cwd = ctx?.cwd || process.cwd();
+			if (params.run_id) {
+				const runs = listOrchestrationRuns(cwd, { limit: params.limit, runId: params.run_id });
+				const text = runs.length ? runs.map(renderSummary).join("\n") : "No persisted orchestration runs found.";
+				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs } };
+			}
+			const topology = listOrchestrationTopology(cwd);
+			const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
+			const text = params.tree ? renderTree(topology, limit) : topology.runs.slice(0, limit).map(renderSummary).join("\n") || "No persisted orchestration runs found.";
+			return { content: [{ type: "text" as const, text }], details: { count: Math.min(topology.runs.length, limit), runs: topology.runs.slice(0, limit), topology } };
 		},
 		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_status ")) + theme.fg("accent", args.run_id || `latest ${args.limit || 25}`), 0, 0); },
 		renderResult(result, _opts, theme) { return new Text(theme.fg("muted", `${result.details?.count ?? 0} orchestration run(s)`), 0, 0); },
@@ -41,8 +65,11 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const input = (args ?? "").trim();
 			const limit = input && /^\d+$/.test(input) ? Number(input) : 25;
-			const runs = listOrchestrationRuns(ctx.cwd || process.cwd(), { limit });
-			ctx.ui.notify(runs.length ? runs.map(renderSummary).join("\n") : "No persisted orchestration runs found.", "info");
+			const topology = listOrchestrationTopology(ctx.cwd || process.cwd());
+			const text = input.toLowerCase() === "tree"
+				? renderTree(topology, limit)
+				: topology.runs.slice(0, limit).map(renderSummary).join("\n") || "No persisted orchestration runs found.";
+			ctx.ui.notify(text, "info");
 		},
 	});
 

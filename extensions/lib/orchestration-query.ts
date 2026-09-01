@@ -17,6 +17,14 @@ export interface OrchestrationRunSummary {
 	eventDir: string;
 }
 
+export interface OrchestrationTopology {
+	runs: OrchestrationRunSummary[];
+	rootRunIds: string[];
+	childrenByParent: Record<string, string[]>;
+	orphanRunIds: string[];
+	cycleRunIds: string[];
+}
+
 function statusFromEvents(events: RunEvent[]): OrchestrationRunSummary["status"] {
 	const last = [...events].reverse().find((event) => event.type.startsWith("run."));
 	if (!last) return "unknown";
@@ -69,4 +77,57 @@ export function listOrchestrationRuns(cwd: string, options: { limit?: number; ru
 		const summary = summarizeOrchestrationRun(eventDir);
 		return summary ? [summary] : [];
 	}).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).slice(0, limit);
+}
+
+/** Build a bounded, JSON-safe graph. Malformed parent links are reported, not followed recursively. */
+export function buildOrchestrationTopology(runs: OrchestrationRunSummary[]): OrchestrationTopology {
+	const byId = new Map(runs.map((run) => [run.runId, run]));
+	const childrenByParent: Record<string, string[]> = {};
+	const rootRunIds: string[] = [];
+	const orphanRunIds: string[] = [];
+	for (const run of runs) {
+		if (!run.parentRunId) {
+			rootRunIds.push(run.runId);
+			continue;
+		}
+		if (!byId.has(run.parentRunId)) {
+			rootRunIds.push(run.runId);
+			orphanRunIds.push(run.runId);
+			continue;
+		}
+		(childrenByParent[run.parentRunId] ||= []).push(run.runId);
+	}
+	for (const ids of Object.values(childrenByParent)) ids.sort();
+
+	const cycleRunIds = new Set<string>();
+	for (const start of runs) {
+		const path: string[] = [];
+		const seen = new Map<string, number>();
+		let current: OrchestrationRunSummary | undefined = start;
+		while (current?.parentRunId && byId.has(current.parentRunId)) {
+			const index = seen.get(current.runId);
+			if (index !== undefined) {
+				for (const id of path.slice(index)) cycleRunIds.add(id);
+				break;
+			}
+			seen.set(current.runId, path.length);
+			path.push(current.runId);
+			current = byId.get(current.parentRunId);
+		}
+	}
+	return {
+		runs,
+		rootRunIds: rootRunIds.filter((id) => !cycleRunIds.has(id)),
+		childrenByParent,
+		orphanRunIds,
+		cycleRunIds: [...cycleRunIds].sort(),
+	};
+}
+
+export function listOrchestrationTopology(cwd: string, options: { limit?: number } = {}): OrchestrationTopology {
+	// Read the full bounded index before applying display limits so a parent is
+	// not misclassified as an orphan merely because it fell outside the view.
+	const all = listOrchestrationRuns(cwd, { limit: 100 });
+	void options;
+	return buildOrchestrationTopology(all);
 }

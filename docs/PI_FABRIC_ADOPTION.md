@@ -28,6 +28,9 @@ worker lifecycle boundaries.
 - TEAM, CHAIN, and PIPELINE now emit parent orchestration runs; their child
   dispatch records carry `parentRunId`, so the execution graph can be rebuilt
   after a restart.
+- The query layer exposes a bounded topology read model with explicit edges and
+  orphan/cycle diagnostics; `/orchestration-status tree` renders it without
+  recursively trusting persisted data.
 - `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
   recent run status and shared budget consumption; it refreshes in place and
   stops its timer on session lifecycle changes.
