@@ -46,6 +46,8 @@ describe("stale session lifecycle protection", () => {
 		expect(widget).toContain('runStatus: "cancelled"');
 		expect(widget).toContain('note: "cancelled: parent session changed"');
 		expect(team).toContain('runStatus: code === 130 ? "cancelled" : undefined');
+		expect(team).toContain("function clearAgentTimer");
+		expect(team).toContain("clearAgentTimer(state)");
 	});
 
 	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {

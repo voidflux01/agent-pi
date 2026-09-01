@@ -703,6 +703,7 @@ export default function (pi: ExtensionAPI) {
 				if (finished) return;
 				finished = true;
 				clearInterval(timer);
+				if (state.timer === timer) state.timer = undefined;
 
 				let full = externalFull ?? textChunks.join("");
 				if ((code !== 0 && code !== null) && stderrBuf.trim()) {
@@ -1465,6 +1466,12 @@ ${agentCatalog}${commanderSection}`,
 		state.summary = undefined;
 	}
 
+	function clearAgentTimer(state: AgentState) {
+		if (!state.timer) return;
+		clearInterval(state.timer);
+		state.timer = undefined;
+	}
+
 	// ── Reset agent boxes on new message ───────────────────────────────
 
 	pi.on("input", () => {
@@ -1489,7 +1496,7 @@ ${agentCatalog}${commanderSection}`,
 		taskListTui = undefined;
 		sessionEpoch++;
 		for (const state of agentStates.values()) {
-			if (state.timer) clearInterval(state.timer);
+			clearAgentTimer(state);
 		}
 		safeSetWidget(_ctx, "agent-team", undefined);
 		removeAllAgentWidgets(_ctx);
@@ -1508,6 +1515,7 @@ ${agentCatalog}${commanderSection}`,
 		taskListTui = undefined;
 		taskListState = { selectedIndex: -1, scrollOffset: 0 };
 		for (const state of agentStates.values()) {
+			clearAgentTimer(state);
 			resetAgentState(state);
 		}
 		(globalThis as any).__piRefreshTaskWidget = (ctx?: any) => updateWidget(ctx || widgetCtx);
@@ -1530,6 +1538,7 @@ ${agentCatalog}${commanderSection}`,
 			if (mode !== "TEAM") {
 				sessionEpoch++;
 				for (const state of agentStates.values()) {
+					clearAgentTimer(state);
 					if (state.status === "running" && state.proc) {
 						try { state.proc.kill("SIGTERM"); } catch {}
 					}
