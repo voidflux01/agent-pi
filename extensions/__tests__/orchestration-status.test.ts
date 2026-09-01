@@ -29,10 +29,18 @@ describe("orchestration status inspection", () => {
 		expect(result.details).toMatchObject({ count: 1, runs: [{ totalTokens: 12, costUsd: 0.003 }] });
 		expect(result.content[0].text).toContain("usage.updated");
 		expect(result.content[0].text).toContain('"totalTokens":12');
+		const filtered = await tool.execute("status", { mode: "SPEC" }, undefined, undefined, { cwd });
+		expect(filtered.details.count).toBe(0);
+		const matched = await tool.execute("status", { mode: "plan" }, undefined, undefined, { cwd });
+		expect(matched.details.count).toBe(1);
 
 		const notices: string[] = [];
 		const command = commands.find((entry) => entry.name === "orchestration-status");
 		await command.handler(`events ${run.runId}`, { cwd, ui: { notify(message: string) { notices.push(message); } } });
 		expect(notices[0]).toContain("step.completed");
+		await command.handler("mode PLAN", { cwd, ui: { notify(message: string) { notices.push(message); } } });
+		expect(notices.at(-1)).toContain("PLAN");
+		await command.handler("mode SPEC", { cwd, ui: { notify(message: string) { notices.push(message); } } });
+		expect(notices.at(-1)).toContain("No persisted SPEC");
 	});
 });

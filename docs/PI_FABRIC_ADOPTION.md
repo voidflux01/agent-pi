@@ -42,6 +42,12 @@ worker lifecycle boundaries.
 - The live orchestration Activity dashboard now shows bounded per-run
   token/cost usage alongside status, duration, verification, and recovery
   information, making mode-level efficiency differences visible during work.
+- The shared orchestration query now supports case-insensitive mode filters;
+  `orchestration_status` accepts `mode`, `/orchestration-status mode PLAN`
+  supports list/tree inspection, and `/orchestration-dashboard mode PLAN`
+  narrows the live Activity view. NORMAL, PLAN, SPEC, TEAM, CHAIN, and
+  PIPELINE therefore use the same observability path rather than separate
+  mode-specific dashboards.
 - `compose_exec` persists a bounded composition plan and supports explicit
   `resume_run_id` recovery for stale runs: completed steps and their compact
   results are reused, while only unfinished steps are executed in a new linked

@@ -118,9 +118,15 @@ export function readOrchestrationEvents(eventDir: string, limit = 100): RunEvent
 	return listRunEvents(eventDir).slice(-Math.max(1, Math.min(limit, 200)));
 }
 
-export function listOrchestrationRuns(cwd: string, options: { limit?: number; runId?: string } = {}): OrchestrationRunSummary[] {
+function normalizeMode(mode: string | undefined): string | undefined {
+	const normalized = mode?.trim().toUpperCase();
+	return normalized || undefined;
+}
+
+export function listOrchestrationRuns(cwd: string, options: { limit?: number; runId?: string; mode?: string } = {}): OrchestrationRunSummary[] {
 	const root = orchestrationRunsDir(cwd);
 	const limit = Math.max(1, Math.min(options.limit ?? 25, 100));
+	const mode = normalizeMode(options.mode);
 	const names = options.runId ? [options.runId] : (() => {
 		try { return readdirSync(root).slice(0, 200); } catch { return []; }
 	})();
@@ -128,7 +134,7 @@ export function listOrchestrationRuns(cwd: string, options: { limit?: number; ru
 		const eventDir = join(root, name);
 		try { if (!lstatSync(eventDir).isDirectory()) return []; } catch { return []; }
 		const summary = summarizeOrchestrationRun(eventDir);
-		return summary ? [summary] : [];
+		return summary && (!mode || summary.mode?.toUpperCase() === mode) ? [summary] : [];
 	}).sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || "")).slice(0, limit);
 }
 
@@ -177,10 +183,9 @@ export function buildOrchestrationTopology(runs: OrchestrationRunSummary[]): Orc
 	};
 }
 
-export function listOrchestrationTopology(cwd: string, options: { limit?: number } = {}): OrchestrationTopology {
+export function listOrchestrationTopology(cwd: string, options: { limit?: number; mode?: string } = {}): OrchestrationTopology {
 	// Read the full bounded index before applying display limits so a parent is
 	// not misclassified as an orphan merely because it fell outside the view.
-	const all = listOrchestrationRuns(cwd, { limit: 100 });
-	void options;
+	const all = listOrchestrationRuns(cwd, { limit: 100, mode: options.mode });
 	return buildOrchestrationTopology(all);
 }

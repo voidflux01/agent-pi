@@ -14,9 +14,10 @@ let visible = false;
 let timer: ReturnType<typeof setInterval> | undefined;
 let currentCtx: ExtensionContext | undefined;
 let widgetText: Text | undefined;
+let dashboardMode: string | undefined;
 
 function hasDashboardData(ctx: ExtensionContext): boolean {
-	return Boolean(activeOrchestrationBudget() || listOrchestrationRuns(ctx.cwd || process.cwd(), { limit: 1 }).length);
+	return Boolean(activeOrchestrationBudget() || listOrchestrationRuns(ctx.cwd || process.cwd(), { limit: 1, mode: dashboardMode }).length);
 }
 
 function hide(ctx: ExtensionContext): void {
@@ -36,11 +37,12 @@ function show(ctx: ExtensionContext): void {
 			widgetText = new Text("", 0, 0);
 			return {
 				render(width: number): string[] {
-					const runs = listOrchestrationTopology(ctx.cwd || process.cwd()).runs;
+					const runs = listOrchestrationTopology(ctx.cwd || process.cwd(), { mode: dashboardMode }).runs;
 					const budget = budgetStatus();
 					const lines = renderOrchestrationDashboard({
 						runs,
 						limit: 8,
+						...(dashboardMode ? { mode: dashboardMode } : {}),
 						...(budget ? { budget: { status: budget, blocked: Boolean(budgetBlockReason()) } } : {}),
 					}, width, theme);
 					widgetText!.setText(lines.join("\n"));
@@ -55,12 +57,16 @@ function show(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("orchestration-dashboard", {
-		description: "Toggle the live orchestration Activity dashboard (on|off)",
+		description: "Toggle the live orchestration Activity dashboard (on|off|mode <NORMAL|PLAN|SPEC|TEAM|CHAIN|PIPELINE>)",
 		handler: async (args, ctx) => {
-			const input = (args || "").trim().toLowerCase();
-			if (input === "off" || (visible && input !== "on")) hide(ctx);
+			const input = (args || "").trim();
+			const modeMatch = input.match(/^mode\s+(NORMAL|PLAN|SPEC|TEAM|CHAIN|PIPELINE|all)$/i);
+			if (modeMatch) dashboardMode = modeMatch[1].toUpperCase() === "ALL" ? undefined : modeMatch[1].toUpperCase();
+			if (input.toLowerCase() === "off") hide(ctx);
+			else if (input.toLowerCase() === "on" || modeMatch) show(ctx);
+			else if (visible) hide(ctx);
 			else show(ctx);
-			ctx.ui.notify(visible ? "Orchestration dashboard: on" : "Orchestration dashboard: off", "info");
+			ctx.ui.notify(`${visible ? "Orchestration dashboard: on" : "Orchestration dashboard: off"}${dashboardMode ? ` · ${dashboardMode}` : ""}`, "info");
 		},
 	});
 

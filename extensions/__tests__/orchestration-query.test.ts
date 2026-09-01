@@ -27,6 +27,19 @@ describe("orchestration query", () => {
 		expect(listOrchestrationRuns(cwd, { runId: "../escape" })).toEqual([]);
 	});
 
+	test("filters runs by coordination mode before applying the display limit", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-query-modes-"));
+		const root = join(cwd, ".pi", "agent-sessions", "compositions");
+		mkdirSync(root, { recursive: true });
+		for (const mode of ["NORMAL", "PLAN", "SPEC"]) {
+			const run = createOrchestrationRun({ eventDir: join(root, mode), actor: "test", mode });
+			run.finish("succeeded");
+		}
+		expect(listOrchestrationRuns(cwd, { mode: "plan" }).map(run => run.mode)).toEqual(["PLAN"]);
+		expect(listOrchestrationRuns(cwd, { mode: "SPEC", limit: 1 })).toHaveLength(1);
+		expect(listOrchestrationRuns(cwd, { mode: "missing" })).toEqual([]);
+	});
+
 	test("builds bounded parent edges and reports orphan/cycle anomalies", () => {
 		const base = (runId: string, parentRunId?: string) => ({ runId, ...(parentRunId ? { parentRunId } : {}), actor: "test", status: "succeeded" as const, eventCount: 1, eventDir: `/tmp/${runId}` });
 		const topology = buildOrchestrationTopology([

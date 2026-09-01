@@ -17,6 +17,7 @@ export interface DashboardInput {
 	runs: OrchestrationRunSummary[];
 	budget?: DashboardBudget;
 	limit: number;
+	mode?: string;
 }
 
 const short = (value: string, max: number): string => value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
@@ -32,7 +33,8 @@ function age(iso?: string): string {
 
 export function renderOrchestrationDashboard(input: DashboardInput, width: number, theme: DashboardTheme): string[] {
 	const usable = Math.max(32, width);
-	const lines = [theme.fg("accent", theme.bold("ORCHESTRATION ACTIVITY"))];
+	const modeLabel = input.mode ? ` · ${input.mode.toUpperCase()}` : "";
+	const lines = [theme.fg("accent", theme.bold(`ORCHESTRATION ACTIVITY${modeLabel}`))];
 	if (input.budget) {
 		const marker = input.budget.blocked ? theme.fg("error", " BLOCKED") : "";
 		lines.push(theme.fg("muted", `Budget ${input.budget.status}${marker}`));
