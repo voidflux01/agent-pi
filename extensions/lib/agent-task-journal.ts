@@ -9,6 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdi
 import { dirname, join } from "node:path";
 import { RESULT_MARKER } from "./agent-result-contract.ts";
 import { readLastAssistantText } from "./herdr-client.ts";
+import { isActiveRunStatus, normalizeRunStatus, type RunStatus } from "./run-state.ts";
 
 export type TaskJournalStatus = "dispatched" | "running" | "done" | "error";
 
@@ -33,6 +34,8 @@ export interface TaskJournalEntry {
 	/** Sub-agent process id, recorded at spawn. */
 	pid?: number;
 	status: TaskJournalStatus;
+	/** Canonical status projection; legacy status remains for backward compatibility. */
+	runStatus?: RunStatus;
 	exitCode?: number | null;
 	elapsedMs?: number;
 	startedAt: number;
@@ -196,7 +199,7 @@ export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void
 		const task = entry.task.length > MAX_TASK_CHARS
 			? entry.task.slice(0, MAX_TASK_CHARS) + "\n...[truncated]"
 			: entry.task;
-		appendFileSync(p, JSON.stringify({ ...entry, task }) + "\n", "utf8");
+		appendFileSync(p, JSON.stringify({ ...entry, task, runStatus: normalizeRunStatus(entry.status) }) + "\n", "utf8");
 	} catch {}
 }
 
@@ -225,7 +228,10 @@ export function journalUpdate(sessionDir: string, id: string, patch: Partial<Tas
 	const out: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
 		if (i === last && parsed[i]) {
-			out.push(JSON.stringify({ ...parsed[i], ...patch, id, updatedAt: Date.now() }) + "\n");
+			const next = { ...parsed[i], ...patch, id, updatedAt: Date.now() };
+			if (patch.status !== undefined) next.runStatus = normalizeRunStatus(patch.status);
+			else if (!next.runStatus) next.runStatus = normalizeRunStatus(next.status);
+			out.push(JSON.stringify(next) + "\n");
 		} else {
 			out.push(lines[i] + "\n");
 		}
@@ -244,7 +250,9 @@ export function journalList(sessionDir: string): TaskJournalEntry[] {
 		for (const line of readFileSync(p, "utf8").split("\n")) {
 			if (!line.trim()) continue;
 			try {
-				entries.push(JSON.parse(line));
+				const entry = JSON.parse(line) as TaskJournalEntry;
+				if (!entry.runStatus) entry.runStatus = normalizeRunStatus(entry.status);
+				entries.push(entry);
 			} catch {}
 		}
 	} catch {}
@@ -254,7 +262,7 @@ export function journalList(sessionDir: string): TaskJournalEntry[] {
 /** Records that are dispatched or running (candidate in-flight work). */
 export function journalActive(sessionDir: string): TaskJournalEntry[] {
 	return journalList(sessionDir).filter(
-		(e) => e.status === "dispatched" || e.status === "running",
+		(e) => isActiveRunStatus(e.runStatus || e.status),
 	);
 }
 

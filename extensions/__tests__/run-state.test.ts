@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isResumableRunStatus, isTerminalRunStatus, normalizeRunStatus } from "../lib/run-state.ts";
+import { isActiveRunStatus, isResumableRunStatus, isTerminalRunStatus, normalizeRunStatus } from "../lib/run-state.ts";
 
 describe("run state normalization", () => {
 	it.each([
@@ -22,5 +22,11 @@ describe("run state normalization", () => {
 	it("marks failed runs resumable while terminal success is not resumable", () => {
 		expect(isResumableRunStatus("failed")).toBe(true);
 		expect(isResumableRunStatus("completed")).toBe(false);
+	});
+
+	it("keeps only queued, running, and waiting runs active", () => {
+		expect(isActiveRunStatus("dispatched")).toBe(true);
+		expect(isActiveRunStatus("blocked")).toBe(true);
+		expect(isActiveRunStatus("error")).toBe(false);
 	});
 });

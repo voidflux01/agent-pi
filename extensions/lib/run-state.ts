@@ -26,3 +26,8 @@ export function isResumableRunStatus(value: unknown): boolean {
 	const status = normalizeRunStatus(value);
 	return status === "queued" || status === "running" || status === "waiting" || status === "failed";
 }
+
+export function isActiveRunStatus(value: unknown): boolean {
+	const status = normalizeRunStatus(value);
+	return status === "queued" || status === "running" || status === "waiting";
+}
