@@ -27,4 +27,12 @@ describe("orchestration dashboard renderer", () => {
 		expect(lines[3]).toContain("✗");
 		expect(lines[2].length).toBeLessThanOrEqual(80);
 	});
+
+	test("shows a bounded recovery action for stale work", () => {
+		const lines = renderOrchestrationDashboard({
+			limit: 1,
+			runs: [{ runId: "stale-run", actor: "subagent:builder", mode: "PLAN", status: "stale", eventCount: 4, eventDir: "/tmp/stale", recoveryAction: "subagent-resume", recoveryDispatchId: "builder-sa1-resume" }],
+		}, 100, theme);
+		expect(lines.join("\n")).toContain("resume:builder-sa1");
+	});
 });

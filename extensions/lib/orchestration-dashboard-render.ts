@@ -49,7 +49,8 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 		const mode = run.mode ? ` ${short(run.mode, 8)}` : "";
 		const verification = run.verificationStatus ? ` ${run.verificationStatus}` : "";
 		const files = run.changedFiles?.length ? ` Δ${run.changedFiles.length}` : "";
-		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode} ${duration.padStart(4)} ${run.eventCount}e${verification}${files} ${short(run.runId, 16)}${parent}`;
+		const recovery = run.status === "stale" ? ` ${run.recoveryAction === "subagent-resume" ? `resume:${short(run.recoveryDispatchId || "?", 12)}` : run.recoveryAction || "inspect"}` : "";
+		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode} ${duration.padStart(4)} ${run.eventCount}e${verification}${files}${recovery} ${short(run.runId, 16)}${parent}`;
 		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text", line).slice(0, usable));
 	}
 	return lines;

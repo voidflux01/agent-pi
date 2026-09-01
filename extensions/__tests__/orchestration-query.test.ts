@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
@@ -35,5 +35,21 @@ describe("orchestration query", () => {
 		expect(topology.childrenByParent.root).toEqual(["child"]);
 		expect(topology.orphanRunIds).toEqual(["orphan"]);
 		expect(topology.cycleRunIds).toEqual(["cycle-a", "cycle-b"]);
+	});
+
+	test("projects safe recovery actions for stale chain, pipeline, and subagent runs", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-recovery-"));
+		let fixture = 0;
+		const stale = (mode: string, dispatchId?: string) => {
+			const eventDir = join(dir, `${mode}-${fixture++}`);
+			const run = createOrchestrationRun({ eventDir, actor: "test", mode });
+			if (dispatchId) run.record("subagent.started", { dispatchId });
+			writeFileSync(join(eventDir, "active.json"), JSON.stringify({ pid: 2147483647 }));
+			return summarizeOrchestrationRun(eventDir)!;
+		};
+		expect(stale("CHAIN")).toMatchObject({ status: "stale", recoveryAction: "chain-resume" });
+		expect(stale("PIPELINE")).toMatchObject({ status: "stale", recoveryAction: "pipeline-resume" });
+		expect(stale("PLAN", "builder-sa1-resume")).toMatchObject({ status: "stale", recoveryAction: "subagent-resume", recoveryDispatchId: "builder-sa1-resume" });
+		expect(stale("PLAN", "../unsafe")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 	});
 });

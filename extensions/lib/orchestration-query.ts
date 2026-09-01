@@ -13,6 +13,9 @@ export interface OrchestrationRunSummary {
 	actor: string;
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	recovery?: "active" | "stale" | "terminal" | "unknown";
+	/** Safe, user-facing next action for a stale run; never an executable command. */
+	recoveryAction?: "chain-resume" | "pipeline-resume" | "subagent-resume" | "inspect";
+	recoveryDispatchId?: string;
 	lastEventType?: string;
 	startedAt?: string;
 	finishedAt?: string;
@@ -60,6 +63,15 @@ function payloadData(event: RunEvent): Record<string, unknown> {
 		: payload;
 }
 
+function recoveryForRun(status: OrchestrationRunSummary["status"], mode: unknown, events: RunEvent[]): Pick<OrchestrationRunSummary, "recoveryAction" | "recoveryDispatchId"> {
+	if (status !== "stale") return {};
+	if (mode === "CHAIN") return { recoveryAction: "chain-resume" };
+	if (mode === "PIPELINE") return { recoveryAction: "pipeline-resume" };
+	const dispatch = [...events].reverse().map(payloadData).find(data => typeof data.dispatchId === "string" && /^[A-Za-z0-9_.-]{1,160}$/.test(data.dispatchId as string));
+	if (dispatch && typeof dispatch.dispatchId === "string") return { recoveryAction: "subagent-resume", recoveryDispatchId: dispatch.dispatchId };
+	return { recoveryAction: "inspect" };
+}
+
 export function orchestrationRunsDir(cwd: string): string { return join(cwd, ".pi", "agent-sessions", "compositions"); }
 
 export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSummary | undefined {
@@ -82,6 +94,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		actor: start?.actor || events[0]?.actor || "unknown",
 		status,
 		recovery: status === "running" ? "active" : status === "stale" ? "stale" : status === "unknown" ? "unknown" : "terminal",
+		...recoveryForRun(status, startData.mode, events),
 		lastEventType: events.at(-1)?.type,
 		startedAt: start?.timestamp,
 		finishedAt: finish?.timestamp,

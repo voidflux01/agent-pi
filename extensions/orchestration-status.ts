@@ -21,7 +21,7 @@ function renderSummary(run: any): string {
 	const mode = run.mode ? ` mode=${run.mode}` : "";
 	const verification = run.verificationStatus ? ` verify=${run.verificationStatus}` : "";
 	const files = Array.isArray(run.changedFiles) && run.changedFiles.length > 0 ? ` files=${run.changedFiles.length}` : "";
-	const recovery = run.recovery === "stale" ? " recover=inspect" : "";
+	const recovery = run.recovery === "stale" ? ` recover=${run.recoveryAction === "subagent-resume" ? `subagent_resume:${run.recoveryDispatchId}` : run.recoveryAction || "inspect"}` : "";
 	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${verification}${files}${recovery}  ${run.runId}${parent}`;
 }
 
