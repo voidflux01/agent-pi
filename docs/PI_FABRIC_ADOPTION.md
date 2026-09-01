@@ -219,6 +219,9 @@ worker lifecycle boundaries.
 - The shared task and approval gates classify `dispatch_team_batch` as a
   write-capable orchestration action and `team_batch_recover` as read-only, so
   new TEAM entry points do not bypass safety policy accidentally.
+- TEAM parent RunContexts now aggregate measured child token/cost usage for
+  both single and batch dispatches, so status, mode metrics, and audit records
+  reflect actual worker consumption instead of only orchestration overhead.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

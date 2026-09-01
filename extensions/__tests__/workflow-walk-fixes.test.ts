@@ -104,6 +104,7 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "orchestration-status.ts"), "utf8")).toContain("team_batch_recover");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("projectTeamBatchRecovery(entries, sessionRoot)");
 		expect(readFileSync(join(root, "lib/task-gate.ts"), "utf8")).toContain('"dispatch_team_batch"');
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: tu.totalTokens");
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {

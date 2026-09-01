@@ -54,7 +54,7 @@ import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTask
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { projectTeamBatchRecovery } from "./lib/team-batch-recovery.ts";
 
 
@@ -513,6 +513,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		parentRunId?: string,
 		signal?: AbortSignal,
+		parentRun?: OrchestrationRun,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number; model: string }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0, model: "" });
@@ -735,6 +736,9 @@ export default function (pi: ExtensionAPI) {
 
 				const tu = toolkitUsage ?? (state.sessionFile ? sessionUsage(state.sessionFile) : null);
 				if (toolkitModel) state.resolvedModel = toolkitModel;
+				if (parentRun && tu && tu.totalTokens > 0) {
+					parentRun.recordUsage({ totalTokens: tu.totalTokens, costUsd: tu.costUsd });
+				}
 				journalUpdate(sessionDir, journalId, {
 					status: state.status,
 					exitCode: code,
@@ -915,7 +919,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				orchestrationRun.consumeStep();
-				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, signal);
+				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, signal, orchestrationRun);
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
@@ -1029,7 +1033,7 @@ export default function (pi: ExtensionAPI) {
 			const results = await Promise.all(jobs.map(async (job) => {
 				orchestrationRun.consumeStep();
 				try {
-					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, signal);
+					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, signal, orchestrationRun);
 					return { agent: job.agent, task: job.task, status: result.exitCode === 0 ? "done" : "error", ...result };
 				} catch (error: any) {
 					return { agent: job.agent, task: job.task, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };
