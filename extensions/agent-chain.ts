@@ -174,6 +174,8 @@ export default function (pi: ExtensionAPI) {
 
 	// Track the currently running chain subprocess for cancellation
 	let currentChainProc: any = null;
+	let currentChainTimer: ReturnType<typeof setInterval> | null = null;
+	let navProvider: any = null;
 
 	function loadChains(cwd: string) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
@@ -389,12 +391,14 @@ export default function (pi: ExtensionAPI) {
 				state.elapsed = Date.now() - startTime;
 				updateWidget();
 			}, 1000);
+			currentChainTimer = timer;
 
 			// Shared completion path for both transports. Persist the FULL
 			// transcript on disk, then compose the compact but complete
 			// result index for the parent context / next step.
 			const finish = (code: number | null, externalFull?: string) => {
 				clearInterval(timer);
+				if (currentChainTimer === timer) currentChainTimer = null;
 				currentChainProc = null;
 				updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
 
@@ -1396,7 +1400,11 @@ ${agentCatalog}
 
 		// Register nav provider for F-key navigation
 		const providers = ((globalThis as any).__piNavProviders = (globalThis as any).__piNavProviders || []);
-		providers.push({
+		if (navProvider) {
+			const oldIndex = providers.indexOf(navProvider);
+			if (oldIndex >= 0) providers.splice(oldIndex, 1);
+		}
+		navProvider = {
 			isActive: () => activeChain !== null && stepStates.length > 0,
 			selectPrev: (_ctx2: any) => {
 				const count = stepStates.length;
@@ -1422,6 +1430,33 @@ ${agentCatalog}
 				selectedStepIndex = -1;
 				updateWidget();
 			},
-		});
+		};
+		providers.push(navProvider);
 	}));
+
+	pi.on("session_shutdown", async (_event, _ctx) => {
+		unwatchMode?.();
+		unwatchMode = undefined;
+		if (currentChainTimer) {
+			clearInterval(currentChainTimer);
+			currentChainTimer = null;
+		}
+		if (currentChainProc) {
+			try { currentChainProc.kill("SIGTERM"); } catch {}
+			currentChainProc = null;
+		}
+		const providers = (globalThis as any).__piNavProviders as any[] | undefined;
+		if (providers && navProvider) {
+			const index = providers.indexOf(navProvider);
+			if (index >= 0) providers.splice(index, 1);
+		}
+		navProvider = null;
+		(globalThis as any).__piKillChainProc = undefined;
+		(globalThis as any).__piHasRunningChain = undefined;
+		activeChain = null;
+		stepStates = [];
+		setActiveChain(null);
+		hideChainWidget(_ctx);
+		widgetCtx = undefined;
+	});
 }

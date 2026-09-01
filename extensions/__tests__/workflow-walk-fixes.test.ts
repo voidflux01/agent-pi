@@ -93,6 +93,10 @@ describe("source wiring", () => {
 		const src = readFileSync(join(__dirname, "..", "agent-chain.ts"), "utf8");
 		expect(src).toContain("hideChainWidget");
 		expect(src).toContain("unwatchMode");
+		expect(src).toContain('pi.on("session_shutdown"');
+		expect(src).toContain("currentChainTimer");
+		expect(src).toContain("__piKillChainProc = undefined");
+		expect(src).toContain("providers.splice(index, 1)");
 		expect(src).toContain("Do not implement, test, or re-verify");
 		expect(src).toContain("extractResultBlock");
 	});
