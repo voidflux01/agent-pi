@@ -5,7 +5,7 @@
 // ABOUTME: resumable. Read-only by default: /agents-status shows the journal.
 // ABOUTME: Never auto-restarts or auto-re-dispatches anything.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { RESULT_MARKER } from "./agent-result-contract.ts";
 import { readLastAssistantText } from "./herdr-client.ts";
@@ -57,6 +57,38 @@ export function journalPath(sessionDir: string): string {
 /** A sub-agent session file not written for this long is considered idle/dead. */
 export const RECONCILE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 
+const JOURNAL_LOCK_ATTEMPTS = 25;
+const JOURNAL_LOCK_WAIT_MS = 20;
+
+function sleep(ms: number): void {
+	try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
+}
+
+/** Serialize read-modify-write journal operations across Pi processes. */
+function withJournalLock<T>(sessionDir: string, action: () => T): T | undefined {
+	const lockPath = `${journalPath(sessionDir)}.lock`;
+	let lockFd: number | undefined;
+	try {
+		mkdirSync(dirname(lockPath), { recursive: true });
+		for (let attempt = 0; attempt < JOURNAL_LOCK_ATTEMPTS; attempt++) {
+			try {
+				lockFd = openSync(lockPath, "wx");
+				break;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt === JOURNAL_LOCK_ATTEMPTS - 1) return undefined;
+				sleep(JOURNAL_LOCK_WAIT_MS);
+			}
+		}
+		if (lockFd === undefined) return undefined;
+		return action();
+	} catch {
+		return undefined;
+	} finally {
+		try { if (lockFd !== undefined) closeSync(lockFd); } catch {}
+		try { if (lockFd !== undefined) unlinkSync(lockPath); } catch {}
+	}
+}
+
 /**
  * Close out non-terminal journal rows left behind when a parent died
  * mid-dispatch. Called at session start / dispatch time next to
@@ -68,7 +100,7 @@ export const RECONCILE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
  *   untouched (a live sibling parent will update the row itself);
  * - anything else → error, marked as reconciled.
  */
-export function reconcileJournal(sessionDir: string, activeWindowMs: number = RECONCILE_ACTIVE_WINDOW_MS): void {
+function reconcileJournalUnlocked(sessionDir: string, activeWindowMs: number = RECONCILE_ACTIVE_WINDOW_MS): void {
 	const p = journalPath(sessionDir);
 	try {
 		if (!existsSync(p)) return;
@@ -108,6 +140,10 @@ export function reconcileJournal(sessionDir: string, activeWindowMs: number = RE
 			renameSync(tmp, p);
 		}
 	} catch {}
+}
+
+export function reconcileJournal(sessionDir: string, activeWindowMs: number = RECONCILE_ACTIVE_WINDOW_MS): void {
+	withJournalLock(sessionDir, () => reconcileJournalUnlocked(sessionDir, activeWindowMs));
 }
 
 /**
@@ -194,7 +230,7 @@ export function pruneRunArtifacts(sessionDir: string, maxDays: number = RUN_ARTI
 }
 
 /** Append a new dispatch record. */
-export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void {
+function journalAppendUnlocked(sessionDir: string, entry: TaskJournalEntry): void {
 	const p = journalPath(sessionDir);
 	try {
 		mkdirSync(dirname(p), { recursive: true });
@@ -207,8 +243,12 @@ export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void
 	} catch {}
 }
 
+export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void {
+	withJournalLock(sessionDir, () => journalAppendUnlocked(sessionDir, entry));
+}
+
 /** Update the record with the given id (last match wins). Never fabricates. */
-export function journalUpdate(sessionDir: string, id: string, patch: Partial<TaskJournalEntry>): void {
+function journalUpdateUnlocked(sessionDir: string, id: string, patch: Partial<TaskJournalEntry>): void {
 	const p = journalPath(sessionDir);
 	if (!existsSync(p)) return;
 	let lines: string[];
@@ -244,6 +284,10 @@ export function journalUpdate(sessionDir: string, id: string, patch: Partial<Tas
 	try {
 		writeFileSync(p, out.join(""), "utf8");
 	} catch {}
+}
+
+export function journalUpdate(sessionDir: string, id: string, patch: Partial<TaskJournalEntry>): void {
+	withJournalLock(sessionDir, () => journalUpdateUnlocked(sessionDir, id, patch));
 }
 
 /** Read all journal records, oldest first. Corrupt lines are skipped. */
