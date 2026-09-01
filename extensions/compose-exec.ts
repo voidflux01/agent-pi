@@ -122,9 +122,9 @@ export default function (pi: ExtensionAPI) {
 				if (name === "compose_exec" || name === "call_tool" || name === "tool_search") {
 					return { index, tool: name, status: "blocked", error: "meta-tool recursion is not allowed" };
 				}
-				const capability = getCapability(step.tool.startsWith("extensions.") ? step.tool : `extensions.${name}`)
-					?? getCapabilityForTool(name)
-					?? (name === "read" ? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { ordering: "commutative" } }) : undefined);
+				const capability = name === "read"
+					? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { ordering: "commutative" } })
+					: getCapability(step.tool.startsWith("extensions.") ? step.tool : `extensions.${name}`) ?? getCapabilityForTool(name);
 				const executor = executors[name] ?? (name === "read"
 					? ((_: string, args: Record<string, unknown>, signal: AbortSignal | undefined, __: unknown, context: any) => executeBuiltinTool("read", args, context, signal, pi))
 					: undefined);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
-import { resetCapabilitiesForTests } from "../lib/capability-registry.ts";
+import { registerDiscoveredCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -120,5 +120,16 @@ describe("compose_exec", () => {
 		expect(blocked.details.results[0].result.text).toContain("Read blocked");
 		const symlink = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "link.txt" } }] }, undefined, undefined, { cwd });
 		expect(symlink.details.results[0].result.text).toContain("symlink target");
+	});
+
+	test("replaces an underspecified discovered read capability with the safe schema", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerDiscoveredCapability({ name: "read", provider: "builtin", description: "Native read without an exposed schema" });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt", offset: 0 } }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(result.details.results[0].status).toBe("blocked");
+		expect(result.details.results[0].error).toContain("invalid arguments");
 	});
 });
