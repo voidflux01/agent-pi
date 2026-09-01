@@ -92,6 +92,7 @@ export interface DispatchRuntimeResult {
 
 /** Default worker wait. Pass pollTimeoutMs: 0 to disable. */
 export const DEFAULT_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+export const DEFAULT_ABORT_POLL_INTERVAL_MS = 50;
 const DEFAULT_HERDR_POLL_INTERVAL_MS = 3_000;
 
 function updateJournal(spec: DispatchRuntimeSpec, patch: Record<string, unknown>): void {
@@ -129,6 +130,9 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 	if (!executable) {
 		return { exitCode: 1, stderr: "No child command supplied", transport: "headless" };
 	}
+	if (isAborted(spec)) {
+		return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "headless" };
+	}
 
 	return new Promise((resolve) => {
 		const spawnProcess = spec.spawnProcess || spawn;
@@ -160,10 +164,13 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		});
 		let settled = false;
 		const timeoutMs = spec.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
+		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+		let abortTimer: ReturnType<typeof setInterval> | undefined;
 		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
 			settled = true;
-			if (timer) clearTimeout(timer);
+			if (timeoutTimer) clearTimeout(timeoutTimer);
+			if (abortTimer) clearInterval(abortTimer);
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
 			updateJournal(spec, { status: exitCode === 0 ? "done" : "error", exitCode, ...(failure ? { note: failure } : {}) });
 			resolve({
@@ -173,7 +180,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 				...(exitCode === 0 ? {} : { failure: failure || classifyFailure(stderr, "exit_code") }),
 			});
 		};
-		const timer = typeof timeoutMs === "number" && timeoutMs > 0
+		timeoutTimer = typeof timeoutMs === "number" && timeoutMs > 0
 			? setTimeout(() => {
 				const message = `Timed out after ${timeoutMs}ms`;
 				stderr = stderr ? `${stderr}\n${message}` : message;
@@ -182,6 +189,13 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 				try { child.kill("SIGTERM"); } catch {}
 			}, timeoutMs)
 			: undefined;
+		if (spec.isAborted) {
+			abortTimer = setInterval(() => {
+				if (!isAborted(spec)) return;
+				finish(130, "aborted");
+				try { child.kill("SIGTERM"); } catch {}
+			}, DEFAULT_ABORT_POLL_INTERVAL_MS);
+		}
 		child.once("close", (code) => finish(code ?? 1));
 		child.once("error", (error) => {
 			const message = error instanceof Error ? error.message : String(error);

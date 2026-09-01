@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, DEFAULT_POLL_TIMEOUT_MS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, run, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 
 function fakeChild() {
@@ -103,6 +103,51 @@ describe("shared dispatch runtime", () => {
 		expect(result.exitCode).toBe(1);
 		expect(result.failure).toBe("timeout");
 		expect(result.stderr).toContain("Timed out after 20ms");
+	});
+
+	it("kills a headless worker when the dispatch is aborted", async () => {
+		const child = fakeChild();
+		let killed = false;
+		child.kill = () => {
+			killed = true;
+			child.emit("close", 1);
+			return true;
+		};
+		let aborted = false;
+		const resultPromise = runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "task"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "abort-1",
+			transport: "headless",
+			pollTimeoutMs: 1_000,
+			isAborted: () => aborted,
+			spawnProcess: (() => child) as any,
+		}));
+		aborted = true;
+		const result = await resultPromise;
+		expect(killed).toBe(true);
+		expect(result.exitCode).toBe(130);
+		expect(result.failure).toBe("aborted");
+		expect(DEFAULT_ABORT_POLL_INTERVAL_MS).toBeLessThan(1_000);
+	});
+
+	it("does not spawn when already aborted", async () => {
+		let starts = 0;
+		const result = await runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "task"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "abort-before-start",
+			transport: "headless",
+			isAborted: () => true,
+			spawnProcess: (() => { starts += 1; return fakeChild(); }) as any,
+		}));
+		expect(result.exitCode).toBe(130);
+		expect(result.failure).toBe("aborted");
+		expect(starts).toBe(0);
 	});
 
 	it("refuses a dispatch without explicit authorization before spawning anything", async () => {
