@@ -60,6 +60,11 @@ worker lifecycle boundaries.
   keeping no-session worker topology and recovery inspectable.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
+- `compose_exec` steps now support a bounded `retry` count (0–3). Each
+  attempt emits `step.started`, `step.retrying`, or `step.failed`, while retry
+  attempts consume the same RunContext step budget and never retry budget
+  errors. This avoids replaying an entire long composition for a transient
+  executor failure.
 - Task journal rows now carry the initiating mode when known, and
   `/agents-status` aggregates elapsed time, tokens, and cost by mode so a
   NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE baseline can be measured from

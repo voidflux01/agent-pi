@@ -83,6 +83,26 @@ describe("compose_exec", () => {
 		expect(result.details).toMatchObject({ completed: 2, failed: 0 });
 	});
 
+	test("retries transient step errors within a bounded attempt budget", async () => {
+		const registered: any[] = [];
+		let calls = 0;
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, { name: "compose_flaky", description: "Flaky", async execute() { calls += 1; if (calls < 3) throw new Error("transient"); return { content: [{ type: "text", text: "recovered" }] }; } });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "compose_flaky", retry: 2 }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(calls).toBe(3);
+		expect(result.details).toMatchObject({ completed: 1, failed: 0 });
+		expect(result.details.results[0].attempts).toBe(3);
+		const retryEvents = listRunEvents(result.details.eventDir).map((event) => event.type);
+		expect(retryEvents.filter((type) => type === "step.retrying")).toHaveLength(2);
+
+		calls = 0;
+		const exhausted = await tool.execute("outer", { steps: [{ tool: "compose_flaky", retry: 1 }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(calls).toBe(2);
+		expect(exhausted.details.results[0]).toMatchObject({ status: "failed", attempts: 2 });
+	});
+
 	test("supports safe conditional skips and blocks references in parallel mode", async () => {
 		const registered: any[] = [];
 		const calls: string[] = [];

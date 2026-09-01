@@ -19,6 +19,7 @@ const Step = Type.Object({
 	tool: Type.String({ description: "Capability name, e.g. tasks or dispatch_agent" }),
 	arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	label: Type.Optional(Type.String({ description: "Short label for the returned audit" })),
+	retry: Type.Optional(Type.Integer({ minimum: 0, maximum: 3, description: "Retry transient executor errors up to this many times" })),
 	when: Type.Optional(Type.Object({
 		step: Type.Integer({ minimum: 0, maximum: 15, description: "Prior step index to inspect" }),
 		status: Type.Union([Type.Literal("completed"), Type.Literal("failed"), Type.Literal("blocked"), Type.Literal("skipped")]),
@@ -32,7 +33,7 @@ const ComposeParams = Type.Object({
 	resume_run_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9-]{1,128}$", description: "Explicitly resume a stale compose run by id" })),
 });
 
-type StepArgs = { tool: string; arguments?: Record<string, unknown>; label?: string; when?: { step: number; status: "completed" | "failed" | "blocked" | "skipped" } };
+type StepArgs = { tool: string; arguments?: Record<string, unknown>; label?: string; retry?: number; when?: { step: number; status: "completed" | "failed" | "blocked" | "skipped" } };
 
 function eventData(event: RunEvent): Record<string, unknown> {
 	if (!event.payload || typeof event.payload !== "object") return {};
@@ -190,7 +191,8 @@ export default function (pi: ExtensionAPI) {
 				resumeOf = requestedResumeId;
 			}
 			if (steps.length === 0) return { content: [{ type: "text" as const, text: "compose_exec requires steps unless resume_run_id points to a resumable stale composition" }], details: { error: "steps_required" } };
-			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", mode: coordinationState().mode, workspaceCwd: cwd });
+			const maxAttempts = steps.reduce((total, step) => total + 1 + Math.max(0, Math.min(step.retry ?? 0, 3)), 0);
+			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", mode: coordinationState().mode, budget: { maxSteps: maxAttempts }, workspaceCwd: cwd });
 			if (resumeOf) run.record("composition.resumed", { sourceRunId: resumeOf, reusedSteps: reusedResults.map((result) => result.index) });
 			const persistedPlan = boundedCompositionPlan(steps);
 			run.record("composition.started", { steps: persistedPlan, resumable: Boolean(persistedPlan), total: steps.length });
@@ -239,16 +241,23 @@ export default function (pi: ExtensionAPI) {
 				if (securityBlock) return { index, tool: name, status: "blocked", error: `security: ${securityBlock}` };
 				const approvalBlock = nestedApprovalBlock(name, args, cwd);
 				if (approvalBlock) return { index, tool: name, status: "blocked", error: `approval: ${approvalBlock}` };
-				try {
-					run.consumeStep();
-					run.record("step.started", { index, tool: name, risk: capability.risk, parallel });
-					const result = await executor(`${toolCallId}-compose-${index}`, args, signal, onUpdate, ctx);
-					run.record("step.completed", { index, tool: name, result: compactEventResult(result) });
-					return { index, tool: name, status: "completed", result: compactResult(result), risk: capability.risk };
-				} catch (error) {
-					run.record("step.failed", { index, tool: name, error: error instanceof Error ? error.message : String(error) });
-					const message = error instanceof RunBudgetError ? `${error.message}; reduce steps or split the composition` : error instanceof Error ? error.message : String(error);
-					return { index, tool: name, status: "failed", error: message, risk: capability.risk };
+				const attempts = 1 + Math.max(0, Math.min(step.retry ?? 0, 3));
+				for (let attempt = 1; attempt <= attempts; attempt += 1) {
+					try {
+						run.consumeStep();
+						run.record("step.started", { index, tool: name, risk: capability.risk, parallel, attempt, maxAttempts: attempts });
+						const result = await executor(`${toolCallId}-compose-${index}-attempt-${attempt}`, args, signal, onUpdate, ctx);
+						run.record("step.completed", { index, tool: name, attempt, result: compactEventResult(result) });
+						return { index, tool: name, status: "completed", attempts: attempt, result: compactResult(result), risk: capability.risk };
+					} catch (error) {
+						const message = error instanceof RunBudgetError ? `${error.message}; reduce steps or split the composition` : error instanceof Error ? error.message : String(error);
+						if (!(error instanceof RunBudgetError) && attempt < attempts) {
+							run.record("step.retrying", { index, tool: name, attempt, nextAttempt: attempt + 1, error: message });
+							continue;
+						}
+						run.record("step.failed", { index, tool: name, attempt, attempts: attempt, error: message });
+						return { index, tool: name, status: "failed", attempts: attempt, error: message, risk: capability.risk };
+					}
 				}
 			};
 
