@@ -42,6 +42,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal } fro
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 
 // ── Commander availability ───────────────────────────────────────────────────
 
@@ -303,6 +304,9 @@ export default function (pi: ExtensionAPI) {
 
 		// Tools: use agent definition tools if available, else default set
 		let tools = agentDef?.tools || "read,bash,grep,find,ls";
+		if (state.name.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
+		}
 		if (!isToolkitCliAgent(state.name)) tools = ensurePiTool(tools, "ask_parent");
 		// Loaded only by the visible herdr transport: writes the pane's done marker
 		// on the child's first agent_end, since an interactive worker stays alive

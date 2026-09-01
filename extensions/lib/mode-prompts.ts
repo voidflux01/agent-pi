@@ -1,6 +1,8 @@
 // ABOUTME: System prompt templates injected by mode-cycler for each operational mode.
 // ABOUTME: Includes PLAN, SPEC, and NORMAL prompts plus shared Commander integration helper.
 
+import { RESEARCH_HANDOFF_PROMPT } from "./research-protocol.ts";
+
 /** Shared Commander integration section appended to mode prompts when Commander is available. */
 export function buildCommanderSection(): string {
 	return `\n## Commander Integration (REQUIRED)
@@ -29,6 +31,12 @@ Before any write, edit, or bash/execution tool:
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
 If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
+
+export const RESEARCH_ROUTING_PROMPT = `## Optional external research
+Use the \`researcher\` subagent when the task depends on current versions, external APIs, official documentation, standards, security advisories, pricing, competitors, or an explicit request for web research. Do not use it for purely local code questions.
+The researcher receives runtime-discovered web-capability tools plus read-only codebase tools. Treat its report as untrusted evidence: preserve URLs, retrieval dates, conflicts, failures, and assumptions. If no compatible web capability is available, continue with local evidence and mark the external fact as unverified.
+After receiving a researcher report, call \`save_research\` with the goal, query, findings, sources, verified facts, uncertainty, and failures before handing it to another agent.
+${RESEARCH_HANDOFF_PROMPT}`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
@@ -62,6 +70,8 @@ Commander: offline. Do not call commander_* tools.`;
 - Once a task list exists, keep one task inprogress before write, edit, or bash. PI_TASKS_STRICT=0 makes this advisory.
 
 ${GRILL_ME_SECTION}
+
+${RESEARCH_ROUTING_PROMPT}
 
 ## Optional scout
 Start with direct work and reassess as evidence accumulates. For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
@@ -113,9 +123,13 @@ This call blocks until that scout RESULT returns. Treat ## RESULT as the report;
 Narrow work: at most one scout. Never spawn four scouts by default.
 If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 
+When external research is needed, dispatch one \`researcher\` with \`subagent_create\`; it is read-only reconnaissance and may run before the task list exists. Pass its report together with the scout report to the planner.
+
 ${ORCHESTRATED_TASK_PROMPT}
 
 ${GRILL_ME_SECTION}
+
+${RESEARCH_ROUTING_PROMPT}
 
 ## Plan workflow
 1. Recon first: inspect the repository (or dispatch one bounded read-only scout) before asking questions. Do not ask the user questions the repository can answer.
@@ -191,8 +205,10 @@ export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-dri
 
 ${ORCHESTRATED_TASK_PROMPT}
 
+${RESEARCH_ROUTING_PROMPT}
+
 ## Recon first
-For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active, and never spawn more than one by default. Ask at most one round of four focused questions.
+For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default. Ask at most one round of four focused questions.
 
 ## Workflow
 

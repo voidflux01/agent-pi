@@ -197,6 +197,14 @@ plan-build-review:
 
 Pipelines are defined in `agents/pipeline-team.yaml` and combine sequential phases with parallel agent dispatch.
 
+### Optional external research
+
+External research is capability-based and does not depend on a particular web plugin or fixed tool name. When a task needs current external facts, the orchestrator dispatches the read-only `researcher` agent. At runtime it inspects the available Pi tool metadata and passes only tools whose names or descriptions indicate web search, URL/page retrieval, content extraction, or source verification.
+
+The researcher reports source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failures. The orchestrator persists that report with `save_research` before handing it to a planner or builder. If no compatible web capability is installed, the workflow continues with local evidence and marks external facts as unverified.
+
+Use `research-plan-build` for a sequential chain, or `research-plan-build-review` for the phased PIPELINE workflow. Installing or replacing a web-capability plugin does not require changing this package as long as the plugin exposes descriptive tool metadata through Pi.
+
 ## Security
 
 The security system operates at three layers:

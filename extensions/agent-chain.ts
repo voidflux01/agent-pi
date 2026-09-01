@@ -35,7 +35,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, commanderAvailable as isCommanderAvailable, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -49,6 +49,7 @@ import { providerModelString, resolveInheritedModel } from "./lib/model-inherita
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
@@ -357,11 +358,16 @@ export default function (pi: ExtensionAPI) {
 			updatedAt: Date.now(),
 		});
 
+		let workerTools = ensurePiTool(agentDef.tools, "ask_parent");
+		if (agentDef.name.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
+		}
+
 		const args = [
 			"--mode", "json",
 			"-p",
 			"--model", model,
-			"--tools", ensurePiTool(agentDef.tools, "ask_parent"),
+			"--tools", workerTools,
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
@@ -1113,6 +1119,8 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 			systemPrompt: `You are the coordinator for a sequential pipeline called "${activeChain.name}".${desc}
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+${RESEARCH_ROUTING_PROMPT}
 
 You orchestrate via \`run_chain\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After run_chain returns, quote the step summaries from ## RESULT.
 

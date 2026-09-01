@@ -1,5 +1,6 @@
 all:
   - scout
+  - researcher
   - ranger
   - planner
   - builder
@@ -36,6 +37,7 @@ toolkit:
 
 full:
   - scout
+  - researcher
   - ranger
   - planner
   - builder
@@ -48,6 +50,13 @@ full:
   - documenter
 
 plan-build:
+  - planner
+  - builder
+  - reviewer
+
+research-plan-build:
+  - researcher
+  - scout
   - planner
   - builder
   - reviewer

@@ -43,19 +43,26 @@ export function isScoutName(value: unknown): boolean {
 	return String(value ?? "").trim().toLowerCase() === "scout";
 }
 
+export function isResearcherName(value: unknown): boolean {
+	return String(value ?? "").trim().toLowerCase() === "researcher";
+}
+
 /** Scout and toolkit CLIs block until they finish; other roles stay background. */
 export function shouldAwaitSubagentResult(name: unknown): boolean {
-	if (isScoutName(name)) return true;
+	if (isScoutName(name) || isResearcherName(name)) return true;
 	return isToolkitCliAgent(String(name ?? ""));
 }
 
 /** True for read-only scout reconnaissance that must not wait on a task list. */
 export function isScoutRecon(toolName: string, args?: unknown): boolean {
 	const params = toolArgs(args);
-	if (toolName === "subagent_create") return isScoutName(params.name);
+	if (toolName === "subagent_create") return isScoutName(params.name) || isResearcherName(params.name);
 	if (toolName === "subagent_create_batch") {
 		const agents = Array.isArray(params.agents) ? params.agents : [];
-		return agents.length > 0 && agents.every((agent) => isScoutName((agent as { name?: unknown })?.name));
+		return agents.length > 0 && agents.every((agent) => {
+			const name = (agent as { name?: unknown })?.name;
+			return isScoutName(name) || isResearcherName(name);
+		});
 	}
 	return false;
 }

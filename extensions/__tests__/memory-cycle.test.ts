@@ -2,7 +2,7 @@
 // ABOUTME: session state persistence, compaction context extraction, and memory restoration.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,14 +12,11 @@ import {
 	getProjectName,
 	getTimestamp,
 	extractFileOps,
-	writeDailyLog,
 	writeSessionState,
-	readRecentLogs,
 	readSessionState,
 	extractCompactionContext,
 	buildRestorationContent,
 	buildCycleMemoryInjection,
-	DAILY_LOG_DIR,
 } from "../lib/memory-cycle-helpers.ts";
 
 // ── Tests ────────────────────────────────────────────────────────
@@ -155,42 +152,6 @@ describe("memory-cycle helpers", () => {
 		});
 	});
 
-	describe("writeDailyLog", () => {
-		it("creates directory and appends log entry", () => {
-			const logPath = writeDailyLog({
-				project: "my-app",
-				summary: "Fixed auth bug",
-				date: "2026-03-03",
-				time: "14:30",
-				keyFiles: ["src/auth.ts", "src/login.ts"],
-				continuePrompt: "Continue with rate limiting",
-			});
-
-			expect(logPath).toContain("2026-03-03.md");
-			const content = readFileSync(logPath, "utf-8");
-			rmSync(logPath, { force: true });
-			expect(content).toContain("## 14:30 - my-app");
-			expect(content).toContain("**Summary:** Fixed auth bug");
-			expect(content).toContain("src/auth.ts, src/login.ts");
-			expect(content).toContain("**Continue:** Continue with rate limiting");
-		});
-
-		it("shows 'none' when no key files", () => {
-			const logPath = writeDailyLog({
-				project: "my-app",
-				summary: "Setup",
-				date: "2026-03-03",
-				time: "10:00",
-				keyFiles: [],
-				continuePrompt: "Start working",
-			});
-
-			const content = readFileSync(logPath, "utf-8");
-			rmSync(logPath, { force: true });
-			expect(content).toContain("**Files:** none");
-		});
-	});
-
 	describe("writeSessionState", () => {
 		it("writes JSON with correct schema and fields", () => {
 			const path = writeSessionState(tmpCwd, {
@@ -248,67 +209,6 @@ describe("memory-cycle helpers", () => {
 			writeFileSync(join(tmpCwd, ".context", "session-state.json"), "not json{{{");
 
 			expect(readSessionState(tmpCwd)).toBeNull();
-		});
-	});
-
-	describe("readRecentLogs", () => {
-		it("returns a string", () => {
-			expect(typeof readRecentLogs()).toBe("string");
-		});
-
-		it("includes today's log when available", () => {
-			const today = new Date().toISOString().split("T")[0];
-
-			mkdirSync(DAILY_LOG_DIR, { recursive: true });
-			const created = join(DAILY_LOG_DIR, `${today}.md`);
-			writeFileSync(created, "## 14:30 - project\n**Summary:** Fixed auth\n---");
-
-			const result = readRecentLogs();
-			rmSync(created, { force: true });
-			expect(result).toContain("Today");
-			expect(result).toContain("Fixed auth");
-			expect(result).toContain("Recent Session Logs");
-		});
-
-		it("includes yesterday's log when available", () => {
-			const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-
-			mkdirSync(DAILY_LOG_DIR, { recursive: true });
-			const createdY = join(DAILY_LOG_DIR, `${yesterday}.md`);
-			writeFileSync(createdY, "## 10:00 - project\n**Summary:** Started feature\n---");
-
-			const result = readRecentLogs();
-			rmSync(createdY, { force: true });
-			expect(result).toContain("Yesterday");
-			expect(result).toContain("Started feature");
-		});
-
-		it("caps restored daily logs so old history cannot flood context", () => {
-			const today = new Date().toISOString().split("T")[0];
-			mkdirSync(DAILY_LOG_DIR, { recursive: true });
-			const created = join(DAILY_LOG_DIR, `${today}.md`);
-			writeFileSync(created, "old-entry\n" + "x".repeat(20_000));
-			try {
-				const result = readRecentLogs();
-				expect(result.length).toBeLessThanOrEqual(6_100);
-				expect(result).toContain("older entries omitted");
-				expect(result).toContain("x".repeat(100));
-			} finally { rmSync(created, { force: true }); }
-		});
-
-		it("ignores empty log files", () => {
-			mkdirSync(DAILY_LOG_DIR, { recursive: true });
-			const created = join(DAILY_LOG_DIR, `${new Date().toISOString().split("T")[0]}.md`);
-			writeFileSync(created, "   \n  ");
-
-			try {
-				// today's file has only whitespace — must be skipped entirely
-				const before = readRecentLogs();
-				rmSync(created, { force: true });
-				expect(before).not.toContain("### Today");
-			} finally {
-				rmSync(created, { force: true });
-			}
 		});
 	});
 

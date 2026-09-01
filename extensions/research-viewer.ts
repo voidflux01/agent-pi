@@ -18,7 +18,10 @@ import {
 	listResearchSessions,
 	loadResearchSession,
 	listResearchSessionsFull,
+	createResearchSession,
+	saveResearchSession,
 	type ResearchSessionSummary,
+	type WebResearchRecord,
 } from "./lib/research-session.ts";
 
 function openBrowser(url: string): void {
@@ -134,6 +137,21 @@ const ShowResearchParams = Type.Object({
 	session_id: Type.Optional(Type.String({ description: "Open directly to a specific session's detail view" })),
 });
 
+const SaveResearchParams = Type.Object({
+	goal: Type.String({ description: "The research goal" }),
+	query: Type.String({ description: "The query or research question" }),
+	findings: Type.String({ description: "Source-backed findings and downstream implications" }),
+	verified_facts: Type.Optional(Type.String()),
+	uncertainty: Type.Optional(Type.String()),
+	failures: Type.Optional(Type.String()),
+	sources: Type.Optional(Type.Array(Type.Object({
+		url: Type.String(),
+		title: Type.Optional(Type.String()),
+		retrievedAt: Type.String(),
+		type: Type.Optional(Type.String()),
+	}))),
+});
+
 export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
 	function cleanupServer() {
@@ -161,6 +179,37 @@ export default function (pi: ExtensionAPI) {
 	// ── show_research tool ───────────────────────────────────────────
 
 	registerToolWithExecutor(pi, {
+		name: "save_research",
+		label: "Save Research",
+		description: "Persist a source-backed web research report in the research session store.",
+		parameters: SaveResearchParams,
+		async execute(_toolCallId, params) {
+			const p = params as {
+				goal: string; query: string; findings: string; verified_facts?: string;
+				uncertainty?: string; failures?: string; sources?: WebResearchRecord["sources"];
+			};
+			const session = createResearchSession(p.goal);
+			// save_research is called after the researcher has returned a complete
+			// report; keeping this as "researching" makes finished reports appear
+			// permanently active in the viewer.
+			session.status = "complete";
+			session.findings = p.findings;
+			session.webResearch = {
+				query: p.query,
+				sources: p.sources || [],
+				verifiedFacts: p.verified_facts || "",
+				uncertainty: p.uncertainty || "",
+				failures: p.failures || "",
+			};
+			saveResearchSession(session);
+			return { content: [{ type: "text" as const, text: `Saved research session ${session.id}` }] };
+		},
+		renderCall(args, theme) {
+			return new Text(outputLine(theme, "accent", theme.fg("toolTitle", theme.bold("save_research ")) + theme.fg("accent", (args as any).goal || "research")), 0, 0);
+		},
+	});
+
+	registerToolWithExecutor(pi, {
 		name: "show_research",
 		label: "Show Research",
 		description:
@@ -181,8 +230,13 @@ export default function (pi: ExtensionAPI) {
 	// ── /research command ────────────────────────────────────────────
 
 	pi.registerCommand("research", {
-		description: "Open the research sessions browser in the web viewer",
-		handler: async (_args, ctx) => {
+		description: "Run a research task or open the research sessions browser",
+		handler: async (args, ctx) => {
+			const task = String(args || "").trim();
+			if (task) {
+				await pi.sendUserMessage(`Research this request using the researcher agent, save the source-backed report, and return the findings:\n\n${task}`);
+				return;
+			}
 			await runViewer(ctx, "Research Sessions");
 		},
 	});

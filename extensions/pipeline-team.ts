@@ -34,7 +34,7 @@ import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
 import {
 	coordinationState,
 	setActivePipeline,
@@ -61,6 +61,7 @@ import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, typ
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
@@ -433,11 +434,16 @@ export default function (pi: ExtensionAPI) {
 			updatedAt: Date.now(),
 		});
 
+		let workerTools = ensurePiTool(agentDef.tools, "ask_parent");
+		if (agentDef.name.toLowerCase() === "researcher") {
+			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
+		}
+
 		const args = [
 			"--mode", "json",
 			"-p",
 			"--model", model,
-			"--tools", ensurePiTool(agentDef.tools, "ask_parent"),
+			"--tools", workerTools,
 			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
@@ -1313,9 +1319,10 @@ Call \`advance_phase\` with a comprehensive task summary when ready to proceed.`
 
 		} else if (phase.def.name === "gather") {
 			phaseInstructions = `## Phase Instructions: GATHER
-You are in the GATHER phase. Dispatch scout agents to explore the codebase in parallel.
-Use \`dispatch_agents\` to send multiple scouts concurrently.
-Review their findings, then call \`advance_phase\` with a summary.
+				You are in the GATHER phase. Dispatch scout agents to explore the codebase in parallel. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
+				Use \`dispatch_agents\` to send multiple scouts concurrently.
+				${RESEARCH_ROUTING_PROMPT}
+				Review their findings, then call \`advance_phase\` with a summary.
 
 Default agents from config:
 ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0, 100)}`).join("\n")}`;
@@ -1360,6 +1367,8 @@ Commander is connected. ALWAYS use these tools for dashboard visibility:
 			systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
 
 ${ORCHESTRATED_TASK_PROMPT}
+
+${RESEARCH_ROUTING_PROMPT}
 
 You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents, pipeline_status).
 
