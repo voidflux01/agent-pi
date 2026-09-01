@@ -49,4 +49,16 @@ describe("compose_exec", () => {
 		expect(result.details).toMatchObject({ total: 1, completed: 0, failed: 1 });
 		expect(result.details.results[0].error).toContain("recursion");
 	});
+
+	test("blocks conflicting non-commutative parallel capabilities", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerToolWithExecutor(fakePi, { name: "compose_write_one", description: "Write one value", capabilityRisk: "write", capabilityEffect: { resources: ["workspace"], ordering: "ordered" }, async execute() { throw new Error("must not execute"); } });
+		registerToolWithExecutor(fakePi, { name: "compose_write_two", description: "Write another value", capabilityRisk: "write", capabilityEffect: { resources: ["workspace"], ordering: "ordered" }, async execute() { throw new Error("must not execute"); } });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { parallel: true, steps: [{ tool: "compose_write_one" }, { tool: "compose_write_two" }] }, undefined, undefined, { cwd: process.cwd() });
+		expect(result.details.failed).toBe(2);
+		expect(result.details.results[0].error).toContain("parallel effect conflict");
+	});
 });

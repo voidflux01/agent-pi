@@ -6,7 +6,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
-import { getCapability, listCapabilities, validateCapabilityArguments } from "./lib/capability-registry.ts";
+import { capabilityConflict, getCapability, listCapabilities, validateCapabilityArguments } from "./lib/capability-registry.ts";
 import { nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
@@ -52,6 +52,20 @@ export default function (pi: ExtensionAPI) {
 			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec" });
 			const executors = getRegisteredToolExecutors();
 			const cwd = ctx?.cwd || process.cwd();
+			const parallelConflict = parallel ? (() => {
+				const capabilities = steps.map((step) => getCapability(`extensions.${toolName(step.tool)}`));
+				for (let left = 0; left < capabilities.length; left += 1) {
+					for (let right = left + 1; right < capabilities.length; right += 1) {
+						const a = capabilities[left];
+						const b = capabilities[right];
+						if (a && b) {
+							const overlap = capabilityConflict(a, b);
+							if (overlap.length > 0) return `${a.name} ↔ ${b.name}: ${overlap.join(", ")}`;
+						}
+					}
+				}
+				return undefined;
+			})() : undefined;
 			const runStep = async (step: StepArgs, index: number) => {
 				const name = toolName(step.tool);
 				if (name === "compose_exec" || name === "call_tool" || name === "tool_search") {
@@ -81,7 +95,9 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			const results: any[] = [];
-			if (parallel) results.push(...await Promise.all(steps.map(runStep)));
+			if (parallelConflict) {
+				results.push(...steps.map((step, index) => ({ index, tool: toolName(step.tool), status: "blocked", error: `parallel effect conflict: ${parallelConflict}` })));
+			} else if (parallel) results.push(...await Promise.all(steps.map(runStep)));
 			else {
 				for (let index = 0; index < steps.length; index += 1) {
 					const result = await runStep(steps[index]!, index);

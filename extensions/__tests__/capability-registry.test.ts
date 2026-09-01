@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Type } from "@sinclair/typebox";
-import { getCapability, listCapabilities, registerCapability, resetCapabilitiesForTests, searchCapabilities, validateCapabilityArguments } from "../lib/capability-registry.ts";
+import { capabilityConflict, getCapability, listCapabilities, registerCapability, resetCapabilitiesForTests, searchCapabilities, validateCapabilityArguments } from "../lib/capability-registry.ts";
 
 afterEach(() => resetCapabilitiesForTests());
 
@@ -24,5 +24,11 @@ describe("capability registry", () => {
 		const descriptor = registerCapability({ name: "schema_target", inputSchema: Type.Object({ required: Type.String() }) });
 		expect(validateCapabilityArguments(descriptor, { required: "ok" })).toEqual([]);
 		expect(validateCapabilityArguments(descriptor, { required: 42 })[0]).toContain("/required");
+	});
+
+	test("detects non-commutative shared resources", () => {
+		const left = registerCapability({ name: "left", risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } });
+		const right = registerCapability({ name: "right", risk: "execute", effect: { resources: ["workspace"], ordering: "unknown" } });
+		expect(capabilityConflict(left, right)).toEqual(["workspace"]);
 	});
 });

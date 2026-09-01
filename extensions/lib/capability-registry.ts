@@ -54,6 +54,14 @@ export function validateCapabilityArguments(capability: CapabilityDescriptor, va
 		return [`schema validation unavailable: ${error instanceof Error ? error.message : String(error)}`];
 	}
 }
+export function capabilityConflict(left: CapabilityDescriptor, right: CapabilityDescriptor): string[] {
+	if (left.effect.ordering === "commutative" && right.effect.ordering === "commutative") return [];
+	const resources = new Set(left.effect.resources ?? []);
+	const overlap = (right.effect.resources ?? []).filter((resource) => resources.has(resource));
+	if (overlap.length > 0) return overlap;
+	if (!(left.effect.resources?.length) || !(right.effect.resources?.length)) return ["unknown-resource"];
+	return [];
+}
 export function searchCapabilities(query: string): CapabilityDescriptor[] {
 	const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 	if (terms.length === 0) return listCapabilities();
