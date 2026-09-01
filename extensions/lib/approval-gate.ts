@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { coordinationState, resetExecutionVerification } from "./coordination-state.ts";
 import { isWithinDirectory } from "./path-safety.ts";
 import { isScoutRecon, READ_ONLY_BYPASS_TOOLS, TASK_EXECUTION_TOOLS } from "./task-gate.ts";
+import { getCapabilityForTool } from "./capability-registry.ts";
 
 export const APPROVAL_REQUIRED_MODES = ["PLAN", "SPEC"] as const;
 
@@ -312,6 +313,13 @@ export function decideApprovalGate(input: {
 	if ((FILE_MUTATION_TOOLS as readonly string[]).includes(toolName)) {
 		const path = toolPath(args);
 		if (path && isPlanningArtifact(mode, path, cwd)) return { block: false };
+	}
+	const discovered = getCapabilityForTool(toolName);
+	if (discovered && discovered.risk !== "read") {
+		const reason = mode === "PLAN"
+			? "PLAN implementation is blocked until show_plan is approved. The discovered tool is not read-only."
+			: "SPEC implementation is blocked until show_spec is approved. The discovered tool is not read-only.";
+		return { block: true, reason };
 	}
 
 	if (!(IMPLEMENTATION_TOOLS as readonly string[]).includes(toolName)) return { block: false };

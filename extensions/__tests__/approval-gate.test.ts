@@ -16,6 +16,7 @@ import {
 	toolPath,
 } from "../lib/approval-gate.ts";
 import { coordinationState } from "../lib/coordination-state.ts";
+import { registerDiscoveredCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
 
 describe("isPlanningArtifact", () => {
 	const cwd = "/tmp/app";
@@ -78,6 +79,14 @@ describe("decideApprovalGate", () => {
 		expect(decideApprovalGate({
 			mode: "PLAN", approved: false, toolName: "bash", args: { command: "bun src/index.ts" },
 		}).block).toBe(true);
+	});
+
+	it("blocks discovered non-read-only MCP tools before PLAN approval", () => {
+		registerDiscoveredCapability({ name: "mcp__repo__apply_patch", description: "Apply a patch to workspace files" });
+		const decision = decideApprovalGate({ mode: "PLAN", approved: false, toolName: "mcp__repo__apply_patch" });
+		expect(decision.block).toBe(true);
+		expect(decision.reason).toContain("show_plan");
+		resetCapabilitiesForTests();
 	});
 
 	it("allows read-only bash before PLAN/SPEC approval", () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Type } from "@sinclair/typebox";
-import { capabilityConflict, getCapability, listCapabilities, registerCapability, resetCapabilitiesForTests, searchCapabilities, validateCapabilityArguments } from "../lib/capability-registry.ts";
+import { capabilityConflict, getCapability, getCapabilityForTool, listCapabilities, registerCapability, registerDiscoveredCapability, resetCapabilitiesForTests, searchCapabilities, validateCapabilityArguments } from "../lib/capability-registry.ts";
 
 afterEach(() => resetCapabilitiesForTests());
 
@@ -30,5 +30,12 @@ describe("capability registry", () => {
 		const left = registerCapability({ name: "left", risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } });
 		const right = registerCapability({ name: "right", risk: "execute", effect: { resources: ["workspace"], ordering: "unknown" } });
 		expect(capabilityConflict(left, right)).toEqual(["workspace"]);
+	});
+
+	test("projects discovered MCP tools without making them compose executors", () => {
+		const descriptor = registerDiscoveredCapability({ name: "mcp__docs__search", description: "Search current documentation" });
+		expect(descriptor.provider).toBe("mcp");
+		expect(getCapabilityForTool("mcp__docs__search")).toBe(descriptor);
+		expect(descriptor.risk).toBe("network");
 	});
 });

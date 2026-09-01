@@ -7,8 +7,9 @@ export type CapabilityRisk = "read" | "write" | "execute" | "network" | "agent";
 export type CapabilityOrdering = "commutative" | "ordered" | "unknown";
 
 export interface CapabilityEffect { resources?: string[]; ordering?: CapabilityOrdering; }
+export type CapabilityProvider = "extensions" | "builtin" | "mcp" | "external";
 export interface CapabilityDescriptor {
-	ref: string; provider: "extensions"; name: string; description: string;
+	ref: string; provider: CapabilityProvider; name: string; description: string;
 	inputSchema?: unknown; risk: CapabilityRisk; effect: CapabilityEffect; registeredAt: number;
 }
 
@@ -23,7 +24,7 @@ function inferRisk(name: string, description: string): CapabilityRisk {
 	const text = `${name} ${description}`.toLowerCase();
 	if (/agent|subagent|dispatch|spawn|worker/.test(text)) return "agent";
 	if (/network|http|web|url|fetch|browser|search/.test(text)) return "network";
-	if (/write|edit|delete|remove|create|mutat|install|execute|run|bash/.test(text)) return "execute";
+	if (/write|edit|delete|remove|create|mutat|install|execute|run|bash|patch|apply/.test(text)) return "execute";
 	return "read";
 }
 
@@ -32,11 +33,12 @@ function inferEffect(name: string, risk: CapabilityRisk): CapabilityEffect {
 	return { resources: [/agent|subagent|dispatch|spawn|worker/.test(name) ? "agent-runtime" : "workspace"], ordering: "unknown" };
 }
 
-export function registerCapability(input: { name: string; description?: string; inputSchema?: unknown; risk?: CapabilityRisk; effect?: CapabilityEffect }): CapabilityDescriptor {
+export function registerCapability(input: { name: string; provider?: CapabilityProvider; description?: string; inputSchema?: unknown; risk?: CapabilityRisk; effect?: CapabilityEffect }): CapabilityDescriptor {
 	const description = input.description ?? "";
 	const risk = input.risk ?? inferRisk(input.name, description);
+	const provider = input.provider ?? "extensions";
 	const descriptor: CapabilityDescriptor = {
-		ref: `extensions.${input.name}`, provider: "extensions", name: input.name, description,
+		ref: `${provider}.${input.name}`, provider, name: input.name, description,
 		...(input.inputSchema === undefined ? {} : { inputSchema: input.inputSchema }),
 		risk, effect: input.effect ?? inferEffect(input.name, risk), registeredAt: Date.now(),
 	};
@@ -44,7 +46,17 @@ export function registerCapability(input: { name: string; description?: string; 
 	return descriptor;
 }
 
+/** Project Pi/MCP metadata into the same discovery vocabulary without making
+ * those native tools executable through compose_exec. */
+export function registerDiscoveredCapability(input: { name: string; provider?: "builtin" | "mcp" | "external"; description?: string; inputSchema?: unknown }): CapabilityDescriptor {
+	const provider: CapabilityProvider = input.provider ?? (input.name.startsWith("mcp__") ? "mcp" : "builtin");
+	return registerCapability({ ...input, provider });
+}
+
 export function getCapability(ref: string): CapabilityDescriptor | undefined { return store().get(ref); }
+export function getCapabilityForTool(name: string): CapabilityDescriptor | undefined {
+	return getCapability(`extensions.${name}`) ?? getCapability(`mcp.${name}`) ?? getCapability(`builtin.${name}`) ?? getCapability(`external.${name}`);
+}
 export function listCapabilities(): CapabilityDescriptor[] { return [...store().values()].sort((a, b) => a.ref.localeCompare(b.ref)); }
 export function validateCapabilityArguments(capability: CapabilityDescriptor, value: unknown): string[] {
 	if (!capability.inputSchema || typeof capability.inputSchema !== "object") return [];

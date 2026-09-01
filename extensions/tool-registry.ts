@@ -2,6 +2,7 @@
 // ABOUTME: Provides the foundation for tool_search and call_tool extensions.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerDiscoveredCapability } from "./lib/capability-registry.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -156,6 +157,9 @@ export class ToolRegistry {
 				parameterSummary: summarizeParameters(desc),
 			};
 			this.tools.set(tool.name, entry);
+			if (BUILTIN_TOOLS.includes(tool.name) || tool.name.startsWith("mcp__")) {
+				registerDiscoveredCapability({ name: tool.name, provider: tool.name.startsWith("mcp__") ? "mcp" : "builtin", description: desc });
+			}
 		}
 	}
 
