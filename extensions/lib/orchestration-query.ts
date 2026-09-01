@@ -38,6 +38,18 @@ export interface OrchestrationTopology {
 	cycleRunIds: string[];
 }
 
+export interface OrchestrationModeMetrics {
+	runs: number;
+	succeeded: number;
+	failed: number;
+	stale: number;
+	running: number;
+	cancelled: number;
+	durationMs: number;
+	totalTokens: number;
+	costUsd: number;
+}
+
 function activeProcessExists(eventDir: string): boolean {
 	try {
 		if (!existsSync(activeRunMarkerPath(eventDir))) return false;
@@ -116,6 +128,26 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 /** Read a bounded event timeline for one already-resolved run directory. */
 export function readOrchestrationEvents(eventDir: string, limit = 100): RunEvent[] {
 	return listRunEvents(eventDir).slice(-Math.max(1, Math.min(limit, 200)));
+}
+
+/** Aggregate all bounded RunContext units, including children and verification runs. */
+export function summarizeOrchestrationModes(runs: OrchestrationRunSummary[]): Record<string, OrchestrationModeMetrics> {
+	const byMode: Record<string, OrchestrationModeMetrics> = Object.create(null);
+	for (const run of runs) {
+		const mode = run.mode?.trim().toUpperCase();
+		if (!mode) continue;
+		const bucket = byMode[mode] || (byMode[mode] = { runs: 0, succeeded: 0, failed: 0, stale: 0, running: 0, cancelled: 0, durationMs: 0, totalTokens: 0, costUsd: 0 });
+		bucket.runs += 1;
+		if (run.status === "succeeded") bucket.succeeded += 1;
+		if (run.status === "failed") bucket.failed += 1;
+		if (run.status === "stale") bucket.stale += 1;
+		if (run.status === "running") bucket.running += 1;
+		if (run.status === "cancelled") bucket.cancelled += 1;
+		if (Number.isFinite(run.durationMs) && (run.durationMs ?? 0) > 0) bucket.durationMs += run.durationMs ?? 0;
+		if (Number.isFinite(run.totalTokens) && (run.totalTokens ?? 0) > 0) bucket.totalTokens += run.totalTokens ?? 0;
+		if (Number.isFinite(run.costUsd) && (run.costUsd ?? 0) > 0) bucket.costUsd += run.costUsd ?? 0;
+	}
+	return byMode;
 }
 
 function normalizeMode(mode: string | undefined): string | undefined {

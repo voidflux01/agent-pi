@@ -33,6 +33,7 @@ describe("orchestration status inspection", () => {
 		expect(filtered.details.count).toBe(0);
 		const matched = await tool.execute("status", { mode: "plan" }, undefined, undefined, { cwd });
 		expect(matched.details.count).toBe(1);
+		expect(matched.details.modeMetrics.PLAN).toMatchObject({ runs: 1, succeeded: 1, totalTokens: 12 });
 
 		const notices: string[] = [];
 		const command = commands.find((entry) => entry.name === "orchestration-status");

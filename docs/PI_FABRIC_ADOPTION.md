@@ -98,6 +98,10 @@ worker lifecycle boundaries.
 - `/agents-status mode <MODE>` now filters the durable task journal using the
   same case-insensitive mode contract, making NORMAL/PLAN/SPEC comparisons
   practical from both the journal and orchestration read models.
+- `orchestration_status` now returns bounded mode metrics across all persisted
+  RunContext units (including children and verification runs): run count,
+  success/failure/stale counts, average duration, tokens, and cost. This gives
+  routing changes a measurable baseline instead of relying on anecdotes.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

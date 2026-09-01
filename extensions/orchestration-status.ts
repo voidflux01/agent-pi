@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { listOrchestrationRuns, listOrchestrationTopology, readOrchestrationEvents, type OrchestrationTopology } from "./lib/orchestration-query.ts";
+import { listOrchestrationRuns, listOrchestrationTopology, readOrchestrationEvents, summarizeOrchestrationModes, type OrchestrationTopology } from "./lib/orchestration-query.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
 const Params = Type.Object({
@@ -54,6 +54,15 @@ function renderTree(topology: OrchestrationTopology, limit: number): string {
 	return lines.join("\n") || "No persisted orchestration runs found.";
 }
 
+function renderModeMetrics(runs: any[]): string {
+	const metrics = summarizeOrchestrationModes(runs);
+	const entries = Object.entries(metrics).sort(([a], [b]) => a.localeCompare(b)).map(([mode, value]) => {
+		const average = value.runs > 0 ? Math.round(value.durationMs / value.runs / 1000) : 0;
+		return `${mode} ${value.runs}runs/${value.succeeded}ok/${value.failed}fail/${value.stale}stale/${average}savg/${Math.floor(value.totalTokens)}tok/$${value.costUsd.toFixed(4)}`;
+	});
+	return entries.length ? `MODE METRICS: ${entries.join(" | ")}` : "";
+}
+
 export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "orchestration_status",
@@ -69,12 +78,13 @@ export default function (pi: ExtensionAPI) {
 				const events = params.include_events && runs[0] ? readOrchestrationEvents(runs[0].eventDir) : undefined;
 				const timeline = events?.map(renderEvent).join("\n");
 				const text = runs.length ? `${runs.map(renderSummary).join("\n")}${timeline ? `\n${timeline}` : ""}` : "No persisted orchestration runs found.";
-				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs, ...(events ? { events } : {}) } };
+				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs, modeMetrics: summarizeOrchestrationModes(runs), ...(events ? { events } : {}) } };
 			}
 			const topology = listOrchestrationTopology(cwd, { mode: params.mode });
 			const limit = Math.max(1, Math.min(params.limit ?? 25, 100));
 			const text = params.tree ? renderTree(topology, limit) : topology.runs.slice(0, limit).map(renderSummary).join("\n") || "No persisted orchestration runs found.";
-			return { content: [{ type: "text" as const, text }], details: { count: Math.min(topology.runs.length, limit), runs: topology.runs.slice(0, limit), topology } };
+			const metrics = summarizeOrchestrationModes(topology.runs);
+			return { content: [{ type: "text" as const, text: `${text}${text === "No persisted orchestration runs found." ? "" : `\n${renderModeMetrics(topology.runs)}`}` }], details: { count: Math.min(topology.runs.length, limit), runs: topology.runs.slice(0, limit), topology, modeMetrics: metrics } };
 		},
 		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_status ")) + theme.fg("accent", args.run_id || `${args.mode || "all"} ${args.limit || 25}`), 0, 0); },
 		renderResult(result, _opts, theme) { return new Text(theme.fg("muted", `${result.details?.count ?? 0} orchestration run(s)`), 0, 0); },

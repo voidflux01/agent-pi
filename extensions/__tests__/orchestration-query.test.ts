@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
-import { buildOrchestrationTopology, listOrchestrationRuns, readOrchestrationEvents, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
+import { buildOrchestrationTopology, listOrchestrationRuns, readOrchestrationEvents, summarizeOrchestrationModes, summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 
 describe("orchestration query", () => {
 	test("summarizes persisted run events", () => {
@@ -49,6 +49,15 @@ describe("orchestration query", () => {
 		expect(topology.childrenByParent.root).toEqual(["child"]);
 		expect(topology.orphanRunIds).toEqual(["orphan"]);
 		expect(topology.cycleRunIds).toEqual(["cycle-a", "cycle-b"]);
+	});
+
+	test("aggregates bounded run metrics by mode", () => {
+		const base = (mode: string, status: any, durationMs: number, totalTokens: number) => ({ runId: `${mode}-${status}`, actor: "test", mode, status, durationMs, totalTokens, costUsd: 0.01, eventCount: 1, eventDir: "/tmp/run" });
+		const metrics = summarizeOrchestrationModes([
+			base("plan", "succeeded", 2_000, 100), base("PLAN", "failed", 4_000, 200), base("SPEC", "stale", 1_000, 50),
+		]);
+		expect(metrics.PLAN).toMatchObject({ runs: 2, succeeded: 1, failed: 1, durationMs: 6_000, totalTokens: 300 });
+		expect(metrics.SPEC).toMatchObject({ runs: 1, stale: 1 });
 	});
 
 	test("projects safe recovery actions for stale chain, pipeline, and subagent runs", () => {
