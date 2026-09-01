@@ -45,9 +45,10 @@ export function authorizeLocalServerRequest(
 	url: URL,
 ): boolean {
 	const contentLength = Number(req.headers["content-length"] || 0);
-	if (!Number.isFinite(contentLength) || contentLength > 8 * 1024 * 1024) {
+	if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > 8 * 1024 * 1024) {
 		res.writeHead(413, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
 		res.end("Request body too large");
+		if (typeof req.resume === "function") req.resume();
 		return false;
 	}
 	const origin = req.headers.origin;

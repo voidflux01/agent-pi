@@ -23,4 +23,18 @@ describe("local viewer origin boundary", () => {
 		req.headers.cookie = auth.cookie.split(";")[0];
 		expect(authorizeLocalServerRequest(req, response(), auth, new URL("http://127.0.0.1:4321/save"))).toBe(true);
 	});
+
+	it("drains and rejects invalid or oversized declared bodies", () => {
+		const auth = createLocalServerAuth();
+		for (const contentLength of ["-1", String(8 * 1024 * 1024 + 1)]) {
+			const req = request();
+			req.headers["content-length"] = contentLength;
+			let resumed = false;
+			req.resume = () => { resumed = true; };
+			const res = response();
+			expect(authorizeLocalServerRequest(req, res, auth, new URL("http://127.0.0.1:4321/save"))).toBe(false);
+			expect(res.status).toBe(413);
+			expect(resumed).toBe(true);
+		}
+	});
 });
