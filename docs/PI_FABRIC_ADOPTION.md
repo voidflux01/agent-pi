@@ -184,6 +184,11 @@ worker lifecycle boundaries.
   approval, registry, and registration rejects also persist bounded
   `tool.blocked` events and return a run id, so denied work is auditable
   without ever invoking the target tool.
+- Direct Pi/native and extension tool executions now enter the same lifecycle
+  model through `tool_execution_start/end`; successful and failed calls in
+  NORMAL, PLAN, and SPEC therefore have queryable RunContexts too. Mutating
+  capabilities capture the bounded workspace delta, while `call_tool` keeps
+  its nested audit as the single source for proxied execution.
 - Orchestration summaries now render `UNVERIFIED` when no deterministic
   verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
   for actual `verification.completed` evidence. Execution success therefore

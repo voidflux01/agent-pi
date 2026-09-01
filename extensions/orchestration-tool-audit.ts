@@ -1,0 +1,51 @@
+// ABOUTME: Audits native Pi tool executions into the shared orchestration event model.
+// ABOUTME: Keeps direct NORMAL/PLAN/SPEC work observable alongside composed and worker calls.
+
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { coordinationState } from "./lib/coordination-state.ts";
+import { getCapabilityForTool } from "./lib/capability-registry.ts";
+import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
+
+type PendingExecution = { toolName: string; run: OrchestrationRun };
+
+function shouldCaptureWorkspace(toolName: string): boolean {
+	const capability = getCapabilityForTool(toolName);
+	return toolName === "write" || toolName === "edit" || toolName === "bash"
+		|| capability?.effect.resources?.includes("workspace") === true;
+}
+
+export default function (pi: ExtensionAPI) {
+	const pending = new Map<string, PendingExecution>();
+
+	pi.on("tool_execution_start", (event, ctx) => {
+		// call_tool already owns a nested RunContext so its proxied lifecycle is not
+		// double-counted here. Native and extension tools still use this common path.
+		if (event.toolName === "call_tool") return;
+		const run = createOrchestrationRun({
+			context: ctx,
+			actor: "tool-runtime",
+			mode: coordinationState().mode,
+			budget: { maxSteps: 1 },
+			workspaceCwd: shouldCaptureWorkspace(event.toolName) ? (ctx?.cwd || process.cwd()) : undefined,
+		});
+		run.consumeStep();
+		run.record("tool.started", { toolName: event.toolName, toolCallId: event.toolCallId });
+		pending.set(event.toolCallId, { toolName: event.toolName, run });
+	});
+
+	pi.on("tool_execution_end", (event) => {
+		const execution = pending.get(event.toolCallId);
+		if (!execution) return;
+		pending.delete(event.toolCallId);
+		const resultDetails = event.result?.details;
+		const cancelled = resultDetails?.cancelled === true || resultDetails?.status === "cancelled";
+		const status = cancelled ? "cancelled" : event.isError ? "failed" : "succeeded";
+		execution.run.record("tool.completed", {
+			toolName: execution.toolName,
+			toolCallId: event.toolCallId,
+			status,
+			isError: event.isError,
+		});
+		execution.run.finish(status, { toolName: execution.toolName, toolCallId: event.toolCallId });
+	});
+}
