@@ -21,8 +21,20 @@ function renderSummary(run: any): string {
 	const mode = run.mode ? ` mode=${run.mode}` : "";
 	const verification = run.verificationStatus ? ` verify=${run.verificationStatus}` : "";
 	const files = Array.isArray(run.changedFiles) && run.changedFiles.length > 0 ? ` files=${run.changedFiles.length}` : "";
+	const usage = run.totalTokens !== undefined || run.costUsd !== undefined ? ` usage=${Math.max(0, Math.floor(run.totalTokens ?? 0))}tok/$${Math.max(0, run.costUsd ?? 0).toFixed(4)}` : "";
 	const recovery = run.recovery === "stale" ? ` recover=${run.recoveryAction === "subagent-resume" ? `subagent_resume:${run.recoveryDispatchId}` : run.recoveryAction || "inspect"}` : "";
-	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${verification}${files}${recovery}  ${run.runId}${parent}`;
+	return `${run.status.padEnd(9)} ${run.actor.padEnd(24)} ${duration.padStart(8)} ${run.eventCount} events${mode}${usage}${verification}${files}${recovery}  ${run.runId}${parent}`;
+}
+
+function renderEvent(event: any): string {
+	let payload = "";
+	if (event.payload !== undefined) {
+		try {
+			const encoded = JSON.stringify(event.payload);
+			payload = encoded.length > 900 ? ` ${encoded.slice(0, 899)}…` : ` ${encoded}`;
+		} catch { payload = " {\"serializationError\":true}"; }
+	}
+	return `${event.timestamp} ${event.actor} ${event.type}${payload}`;
 }
 
 function renderTree(topology: OrchestrationTopology, limit: number): string {
@@ -54,7 +66,7 @@ export default function (pi: ExtensionAPI) {
 			if (params.run_id) {
 				const runs = listOrchestrationRuns(cwd, { limit: params.limit, runId: params.run_id });
 				const events = params.include_events && runs[0] ? readOrchestrationEvents(runs[0].eventDir) : undefined;
-				const timeline = events?.map(event => `${event.timestamp} ${event.actor} ${event.type}`).join("\n");
+				const timeline = events?.map(renderEvent).join("\n");
 				const text = runs.length ? `${runs.map(renderSummary).join("\n")}${timeline ? `\n${timeline}` : ""}` : "No persisted orchestration runs found.";
 				return { content: [{ type: "text" as const, text }], details: { count: runs.length, runs, ...(events ? { events } : {}) } };
 			}
@@ -68,9 +80,21 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("orchestration-status", {
-		description: "Show persisted compose and worker orchestration runs",
+		description: "Show persisted orchestration runs; pass a run id for exact inspection or 'events <run_id>' for its bounded timeline",
 		handler: async (args, ctx) => {
 			const input = (args ?? "").trim();
+			const parts = input.split(/\s+/).filter(Boolean);
+			const exactId = parts[0] === "events" ? parts[1] : parts[0];
+			if (exactId && /^[A-Za-z0-9_-]{1,128}$/.test(exactId) && parts[0] !== "tree" && !/^\d+$/.test(exactId)) {
+				const runs = listOrchestrationRuns(ctx.cwd || process.cwd(), { runId: exactId, limit: 1 });
+				if (runs.length === 0) { ctx.ui.notify("No persisted orchestration run found for that id.", "warning"); return; }
+				if (parts[0] === "events") {
+					ctx.ui.notify([renderSummary(runs[0]), ...readOrchestrationEvents(runs[0].eventDir).map(renderEvent)].join("\n"), "info");
+					return;
+				}
+				ctx.ui.notify(renderSummary(runs[0]), "info");
+				return;
+			}
 			const limit = input && /^\d+$/.test(input) ? Number(input) : 25;
 			const topology = listOrchestrationTopology(ctx.cwd || process.cwd());
 			const text = input.toLowerCase() === "tree"

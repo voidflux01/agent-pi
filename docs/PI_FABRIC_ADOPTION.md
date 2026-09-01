@@ -46,6 +46,9 @@ worker lifecycle boundaries.
   `resume_run_id` recovery for stale runs: completed steps and their compact
   results are reused, while only unfinished steps are executed in a new linked
   run. Active or terminal source runs are rejected instead of replayed.
+- Exact `orchestration_status` inspection now renders bounded event payloads,
+  including handoffs, verification, and budget records; the slash command also
+  accepts a run id or `events <run_id>` for the same read-only view.
 - Composition returns bounded structured step results instead of forwarding
   every intermediate tool payload.
 - Task journal rows now carry the initiating mode when known, and
