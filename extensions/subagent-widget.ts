@@ -236,6 +236,7 @@ export default function (pi: ExtensionAPI) {
 		state: SubState,
 		prompt: string,
 		ctx: any,
+		options: { orchestrationRun?: OrchestrationRun; onSettled?: (status: "succeeded" | "failed" | "cancelled") => void } = {},
 	): Promise<string> {
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
@@ -285,13 +286,22 @@ export default function (pi: ExtensionAPI) {
 			startedAt: Date.now(),
 			updatedAt: Date.now(),
 		});
-		const orchestrationRun: OrchestrationRun = createOrchestrationRun({
+		const ownsOrchestrationRun = !options.orchestrationRun;
+		const orchestrationRun = options.orchestrationRun ?? createOrchestrationRun({
 			context: ctx,
 			actor: `subagent:${state.name.toLowerCase()}`,
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
 		});
 		orchestrationRun.consumeStep();
 		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
+		const settleOrchestration = (status: "succeeded" | "failed" | "cancelled", payload: Record<string, unknown>) => {
+			orchestrationRun.record("subagent.completed", payload);
+			if (ownsOrchestrationRun) {
+				orchestrationRun.finish(status, { agent: state.name, exitCode: payload.exitCode });
+			} else {
+				options.onSettled?.(status);
+			}
+		};
 
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -373,8 +383,7 @@ export default function (pi: ExtensionAPI) {
 				// The child belongs to the replaced session. Finish timer cleanup,
 				// then stop before mutating its state or touching any session-bound UI.
 				if (spawnEpoch !== sessionEpoch) {
-					orchestrationRun.record("subagent.completed", { agent: state.name, exitCode: code ?? 130, cancelled: true });
-					orchestrationRun.finish("cancelled", { agent: state.name, exitCode: code ?? 130 });
+					settleOrchestration("cancelled", { agent: state.name, exitCode: code ?? 130, cancelled: true });
 					const staleJournalDir = path.join(spawnCwd, ".pi", "agent-sessions");
 					try {
 						journalUpdate(staleJournalDir, state.saRunId ?? "", {
@@ -415,15 +424,11 @@ export default function (pi: ExtensionAPI) {
 						result,
 					);
 				} catch {}
-				orchestrationRun.record("subagent.completed", {
+				settleOrchestration(code === 0 && !failure ? "succeeded" : code === 130 ? "cancelled" : "failed", {
 					agent: state.name,
 					exitCode: code,
 					failure,
 					outputFile: fullOutputPath || undefined,
-				});
-				orchestrationRun.finish(code === 0 && !failure ? "succeeded" : code === 130 ? "cancelled" : "failed", {
-					agent: state.name,
-					exitCode: code,
 				});
 				const toolkitRun = isToolkitCliAgent(state.name);
 				let contractProblems: string[] = [];
@@ -716,6 +721,26 @@ export default function (pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: "Session changed before the subagent batch could start." }] };
 			}
 
+			const batchRun = createOrchestrationRun({
+				context: ctx,
+				actor: "subagent_batch",
+				budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },
+			});
+			let batchRemaining = states.length;
+			let batchFailed = false;
+			let batchCancelled = false;
+			const onBatchSettled = (status: "succeeded" | "failed" | "cancelled") => {
+				batchCancelled ||= status === "cancelled";
+				batchFailed ||= status === "failed";
+				batchRemaining -= 1;
+				if (batchRemaining === 0) {
+					batchRun.finish(batchCancelled ? "cancelled" : batchFailed ? "failed" : "succeeded", {
+						total: states.length,
+						failed: states.filter((state) => state.status === "error").length,
+					});
+				}
+			};
+
 			// Register and spawn all agents
 			for (const state of states) {
 				agents.set(state.id, state);
@@ -723,7 +748,10 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			for (const state of states) {
-				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx))();
+				explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
+					orchestrationRun: batchRun,
+					onSettled: onBatchSettled,
+				}))();
 			}
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");

@@ -26,6 +26,9 @@ worker lifecycle boundaries.
 - `subagent_create` and its standard background dispatch path now create a
   parent orchestration run, so NORMAL, PLAN, and SPEC scouts/builders appear in
   the same parent/child topology as TEAM, CHAIN, and PIPELINE workers.
+- `subagent_create_batch` gives a parallel batch one bounded parent run and
+  aggregates child success/failure/cancellation before closing it, preserving
+  one auditable unit for independent work.
 - Sequential composition supports bounded `$STEP_n_TEXT` and
   `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
   and conditions are rejected in parallel mode instead of creating implicit

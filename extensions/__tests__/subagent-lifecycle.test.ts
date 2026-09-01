@@ -70,6 +70,15 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain('orchestrationRun.record("subagent.completed"');
 		expect(src).toContain('orchestrationRun.finish(');
 	});
+
+	it("gives a parallel subagent batch one shared bounded parent run", () => {
+		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain('actor: "subagent_batch"');
+		expect(src).toContain("maxSteps: states.length");
+		expect(src).toContain("batchRemaining");
+		expect(src).toContain("orchestrationRun: batchRun");
+		expect(src).toContain("onSettled: onBatchSettled");
+	});
 });
 
 describe("timeout resolution", () => {
