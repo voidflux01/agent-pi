@@ -75,6 +75,7 @@ export interface ToolkitWorkerResult {
 	exitCode: number;
 	elapsed: number;
 	output: string;
+	failure?: "timeout" | "cancelled" | "process_error";
 }
 
 const TOOLKIT_ABORT_POLL_INTERVAL_MS = 50;
@@ -311,6 +312,7 @@ export function spawnToolkitWorker(
 
 		let cancelled = false;
 		let timedOut = false;
+		let failure: ToolkitWorkerResult["failure"];
 		let settled = false;
 		let abortTimer: ReturnType<typeof setInterval> | undefined;
 		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
@@ -336,11 +338,13 @@ export function spawnToolkitWorker(
 				exitCode: timedOut ? 1 : cancelled ? 130 : exitCode,
 				elapsed: Date.now() - startTime,
 				output: cancelled ? (outText || "Toolkit worker cancelled") : outText,
+				...(failure ? { failure } : {}),
 			});
 		};
 		const cancel = () => {
 			if (cancelled || settled) return;
 			cancelled = true;
+			if (!timedOut) failure = "cancelled";
 			forceKillTimer = setTimeout(() => {
 				try { proc.kill("SIGKILL"); } catch {}
 			}, TOOLKIT_FORCE_KILL_DELAY_MS);
@@ -351,6 +355,7 @@ export function spawnToolkitWorker(
 			timeoutTimer = setTimeout(() => {
 				if (settled || cancelled) return;
 				timedOut = true;
+				failure = "timeout";
 				const message = `Toolkit worker timed out after ${timeoutMs}ms`;
 				output = appendBoundedOutput(output, message);
 				options.onStderr?.(message);
@@ -375,6 +380,7 @@ export function spawnToolkitWorker(
 				attempts.push(cliCommand.pureArgs(options.task, options.cwd));
 				output = "";
 				buffer = "";
+				failure = undefined;
 				runAttempt();
 				return;
 			}
@@ -387,6 +393,7 @@ export function spawnToolkitWorker(
 				return;
 			}
 			const msg = `CLI spawn error (${command}): ${err.message}`;
+			failure = "process_error";
 			output = appendBoundedOutput(output, msg);
 			options.onStderr?.(msg);
 			options.onStdoutLine?.(msg);
@@ -588,6 +595,7 @@ export interface ToolkitDispatchResult {
 	exitCode: number;
 	raw: string;
 	transport: "herdr" | "headless";
+	failure?: "timeout" | "cancelled" | "process_error";
 }
 
 /**
@@ -628,8 +636,8 @@ export async function runToolkitDispatch(opts: {
 	orchestrationRun.record("dispatch.started", { launchId: opts.runId, cwd: opts.cwd, agent: opts.agentName });
 	const settleRun = (result: ToolkitDispatchResult): ToolkitDispatchResult => {
 		const status = result.exitCode === 130 ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
-		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport });
-		orchestrationRun.finish(status, { exitCode: result.exitCode, transport: result.transport });
+		orchestrationRun.record("dispatch.completed", { exitCode: result.exitCode, transport: result.transport, ...(result.failure ? { failure: result.failure } : {}) });
+		orchestrationRun.finish(status, { exitCode: result.exitCode, transport: result.transport, ...(result.failure ? { failure: result.failure } : {}) });
 		return result;
 	};
 	const stub = { name: opts.agentName, tools: "", systemPrompt: "" };
@@ -721,12 +729,13 @@ export async function runToolkitDispatch(opts: {
 				exitCode: cancelledRun ? 130 : (rc ?? 1),
 				raw: rawOut,
 				transport: "herdr",
+				failure: cancelledRun ? "cancelled" : rc === null ? "timeout" : undefined,
 			});
 						}
 						cleanupLaunchFiles(refs);
 						await closeHerdrTabAsync(tab);
 						if (herdrCancelled || cancelled()) {
-			return settleRun({ exitCode: 130, raw: "", transport: "herdr" });
+			return settleRun({ exitCode: 130, raw: "", transport: "herdr", failure: "cancelled" });
 						}
 					}
 				}
@@ -746,5 +755,5 @@ export async function runToolkitDispatch(opts: {
 		isCancelled: opts.isCancelled,
 		timeoutMs: opts.timeoutMs,
 	});
-	return settleRun({ exitCode: result.exitCode, raw: result.output, transport: "headless" });
+	return settleRun({ exitCode: result.exitCode, raw: result.output, transport: "headless", ...(result.failure ? { failure: result.failure } : {}) });
 }

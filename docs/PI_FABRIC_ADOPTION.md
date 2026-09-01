@@ -115,6 +115,9 @@ worker lifecycle boundaries.
 - External toolkit workers now use the same default deadline in both headless
   and Herdr transports; timeout termination is journaled as a failed run while
   cancellation remains distinguishable.
+- Toolkit dispatch results and `dispatch.completed` events now carry a bounded
+  failure cause (`timeout`, `cancelled`, or `process_error`), closing the gap
+  between a numeric exit code and an actionable recovery decision.
 - Tool discovery projects built-in and `mcp__*` tools into the capability
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made

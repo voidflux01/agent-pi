@@ -94,7 +94,7 @@ describe("toolkit CLI agent detection", () => {
 		}));
 		setTimeout(() => { cancelled = true; }, 70);
 
-		await expect(resultPromise).resolves.toMatchObject({ exitCode: 130 });
+		await expect(resultPromise).resolves.toMatchObject({ exitCode: 130, failure: "cancelled" });
 		expect(signal).toBe("SIGTERM");
 	});
 
@@ -120,7 +120,7 @@ describe("toolkit CLI agent detection", () => {
 			spawnProcess: (() => child) as any,
 		}));
 
-		await expect(resultPromise).resolves.toMatchObject({ exitCode: 1, output: expect.stringContaining("timed out") });
+		await expect(resultPromise).resolves.toMatchObject({ exitCode: 1, failure: "timeout", output: expect.stringContaining("timed out") });
 		expect(signal).toBe("SIGTERM");
 	});
 

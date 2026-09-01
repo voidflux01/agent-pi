@@ -81,6 +81,8 @@ the authoritative fixture command is `node --test`.
 - Toolkit-worker regression coverage confirms the shared deadline applies to
   headless workers, terminates a timed-out child, and reports timeout as
   failure rather than cancellation.
+- Toolkit-worker regression coverage also confirms timeout and cancellation
+  return distinct structured failure causes for audit consumers.
 - `/agents-status` now attributes runs by mode with bounded runs/success, elapsed,
   token, and cost fields; legacy journal rows remain included in global totals.
 - `subagent_wait` cancellation returns structured `aborted` state without
