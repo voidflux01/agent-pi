@@ -206,6 +206,8 @@ describe("McpClient", () => {
 		const firstConnect = client.connect();
 		lastMockProc.stdout.emit("data", '{"jsonrpc":"2.0","id":1,"result":');
 		await expect(firstConnect).rejects.toThrow(/timeout/i);
+		expect(lastMockProc.kill).toHaveBeenCalled();
+		expect((client as any).proc).toBeNull();
 
 		const reconnect = client.connect();
 		lastMockProc.stdout.emit("data", JSON.stringify({

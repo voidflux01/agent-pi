@@ -106,7 +106,10 @@ export class McpClient {
 		const handshake = new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(initId);
-				try { this.proc?.kill(); } catch {}
+				if (this.proc === proc) {
+					try { proc.kill(); } catch {}
+					this.proc = null;
+				}
 				reject(new Error("MCP initialize timeout"));
 			}, this.timeoutMs);
 
