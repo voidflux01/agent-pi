@@ -10,7 +10,9 @@
     "test": "node scripts/run-tests.mjs",
     "check": "npm test && npm audit --omit=dev --audit-level=high",
     "doctor": "node scripts/doctor.mjs",
-    "doctor:strict": "node scripts/doctor.mjs --strict"
+    "doctor:strict": "node scripts/doctor.mjs --strict",
+    "verify:package": "node scripts/package-smoke.mjs",
+    "verify:release": "npm run doctor:strict && npm test && npm audit --omit=dev --audit-level=high && npm run verify:package"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

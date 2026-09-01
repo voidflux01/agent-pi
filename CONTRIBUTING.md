@@ -57,6 +57,8 @@ See [docs/EXTENSIONS.md](docs/EXTENSIONS.md) for the full extension reference.
 - Tests live in `extensions/__tests__/`
 - Run tests: `npm test` from the repository root. The runner sends `bun:test` files to Bun and the remaining files to Vitest. Bun is required for the Bun-based test files.
 - Run diagnostics: `npm run doctor`; use `npm run doctor:strict` before a release or public push.
+- Verify the distributable package with `npm run verify:package` before changing package dependencies or manifest paths.
+- Run `npm run verify:release` before a release or public push.
 - Add tests for new tools, utility functions, and security-sensitive code
 
 ### Agent Definitions

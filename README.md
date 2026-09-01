@@ -234,12 +234,19 @@ Run the full local check, including the production dependency audit:
 npm run check
 ```
 
+Before a release or public push, run the stricter end-to-end local check:
+
+```bash
+npm run verify:release
+```
+
 Check package paths, runtime imports, YAML files, dependencies, and local Pi
 registration:
 
 ```bash
 npm run doctor
 npm run doctor:strict   # treat warnings as failures
+npm run verify:package  # pack and install in a disposable clean directory
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [CHANGELOG.md](CHANGELOG.md) for project history.
