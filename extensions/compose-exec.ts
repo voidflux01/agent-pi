@@ -9,6 +9,7 @@ import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool
 import { getCapability, listCapabilities, validateCapabilityArguments } from "./lib/capability-registry.ts";
 import { nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
 
 const Step = Type.Object({
 	tool: Type.String({ description: "Capability name, e.g. tasks or dispatch_agent" }),
@@ -48,6 +49,7 @@ export default function (pi: ExtensionAPI) {
 			const steps = params.steps as StepArgs[];
 			const parallel = params.parallel === true;
 			const stopOnError = params.stop_on_error !== false;
+			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec" });
 			const executors = getRegisteredToolExecutors();
 			const cwd = ctx?.cwd || process.cwd();
 			const runStep = async (step: StepArgs, index: number) => {
@@ -66,10 +68,15 @@ export default function (pi: ExtensionAPI) {
 				const approvalBlock = nestedApprovalBlock(name, args, cwd);
 				if (approvalBlock) return { index, tool: name, status: "blocked", error: `approval: ${approvalBlock}` };
 				try {
+					run.consumeStep();
+					run.record("step.started", { index, tool: name, risk: capability.risk, parallel });
 					const result = await executor(`${toolCallId}-compose-${index}`, args, signal, onUpdate, ctx);
+					run.record("step.completed", { index, tool: name });
 					return { index, tool: name, status: "completed", result: compactResult(result), risk: capability.risk };
 				} catch (error) {
-					return { index, tool: name, status: "failed", error: error instanceof Error ? error.message : String(error), risk: capability.risk };
+					run.record("step.failed", { index, tool: name, error: error instanceof Error ? error.message : String(error) });
+					const message = error instanceof RunBudgetError ? `${error.message}; reduce steps or split the composition` : error instanceof Error ? error.message : String(error);
+					return { index, tool: name, status: "failed", error: message, risk: capability.risk };
 				}
 			};
 
@@ -83,9 +90,10 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			const failed = results.filter((result) => result.status !== "completed").length;
+			run.finish(failed ? "failed" : "succeeded", { total: steps.length, completed: results.length - failed, failed });
 			return {
 				content: [{ type: "text" as const, text: `compose_exec ${failed ? "completed with issues" : "completed"}: ${results.length}/${steps.length} step(s)` }],
-				details: { parallel, total: steps.length, completed: results.filter((result) => result.status === "completed").length, failed, results },
+				details: { runId: run.runId, eventDir: run.eventDir, parallel, total: steps.length, completed: results.filter((result) => result.status === "completed").length, failed, results },
 			};
 		},
 		renderCall(args, theme) {
