@@ -34,9 +34,10 @@ function formatToolDetailed(entry: ToolEntry): string {
 		`**Category:** ${entry.category}`,
 		`**Source:** ${entry.source}`,
 		...(capability ? [
-			`**Capability:** ${capability.ref}`,
-			`**Risk:** ${capability.risk}`,
-			`**Effect:** ${capability.effect.resources?.join(", ") || "none"} (${capability.effect.ordering || "unknown"})`,
+				`**Capability:** ${capability.ref}`,
+				`**Risk:** ${capability.risk}`,
+				`**Execution:** ${capability.execution}`,
+				`**Effect:** ${capability.effect.resources?.join(", ") || "none"} (${capability.effect.ordering || "unknown"})`,
 		] : []),
 		`**Tags:** ${entry.tags.join(", ") || "none"}`,
 		``,

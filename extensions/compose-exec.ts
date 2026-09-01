@@ -155,12 +155,12 @@ const BUILTIN_BASH_SCHEMA = Type.Object({
 
 function registerBuiltinCapability(name: "read" | "write" | "edit" | "bash") {
 	return name === "read"
-		? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { resources: ["workspace"], ordering: "commutative" } })
+		? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { resources: ["workspace"], ordering: "commutative" }, execution: "in_process" })
 		: name === "write"
-			? registerCapability({ name, provider: "builtin", description: "Write a workspace file", inputSchema: BUILTIN_WRITE_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } })
+			? registerCapability({ name, provider: "builtin", description: "Write a workspace file", inputSchema: BUILTIN_WRITE_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" }, execution: "in_process" })
 			: name === "edit"
-				? registerCapability({ name, provider: "builtin", description: "Edit a workspace file by exact text replacement", inputSchema: BUILTIN_EDIT_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" } })
-				: registerCapability({ name, provider: "builtin", description: "Run a security-checked workspace command", inputSchema: BUILTIN_BASH_SCHEMA, risk: "execute", effect: { resources: ["workspace", "shell"], ordering: "ordered" } });
+				? registerCapability({ name, provider: "builtin", description: "Edit a workspace file by exact text replacement", inputSchema: BUILTIN_EDIT_SCHEMA, risk: "write", effect: { resources: ["workspace"], ordering: "ordered" }, execution: "in_process" })
+				: registerCapability({ name, provider: "builtin", description: "Run a security-checked workspace command", inputSchema: BUILTIN_BASH_SCHEMA, risk: "execute", effect: { resources: ["workspace", "shell"], ordering: "ordered" }, execution: "in_process" });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -241,6 +241,7 @@ export default function (pi: ExtensionAPI) {
 					? ((_: string, args: Record<string, unknown>, signal: AbortSignal | undefined, __: unknown, context: any) => executeBuiltinTool(name, args, context, signal, pi))
 					: undefined);
 				if (!capability || !executor) return { index, tool: name, status: "blocked", error: "capability is not registered for in-process execution" };
+				if (capability.execution !== "in_process") return { index, tool: name, status: "blocked", error: "capability is native-only; call it directly instead of composing it" };
 				const resolvedArgs = resolveStepReferences(step.arguments ?? {}, priorResults, index);
 				if (resolvedArgs.error) return { index, tool: name, status: "blocked", error: resolvedArgs.error };
 				const args = (resolvedArgs.value ?? {}) as Record<string, unknown>;

@@ -10,6 +10,7 @@ describe("capability registry", () => {
 		expect(descriptor.ref).toBe("extensions.dispatch_agent");
 		expect(descriptor.risk).toBe("agent");
 		expect(descriptor.effect.resources).toEqual(["agent-runtime"]);
+		expect(descriptor.execution).toBe("native_only");
 		expect(getCapability("extensions.dispatch_agent")).toBe(descriptor);
 	});
 
@@ -37,5 +38,6 @@ describe("capability registry", () => {
 		expect(descriptor.provider).toBe("mcp");
 		expect(getCapabilityForTool("mcp__docs__search")).toBe(descriptor);
 		expect(descriptor.risk).toBe("network");
+		expect(descriptor.execution).toBe("native_only");
 	});
 });

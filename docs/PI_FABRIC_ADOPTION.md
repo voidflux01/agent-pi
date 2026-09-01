@@ -156,6 +156,11 @@ worker lifecycle boundaries.
   catalog for shared search, risk labels, and approval decisions; native tools
   remain on Pi's native execution path and are intentionally not made
   compose-able without an in-process executor.
+- Capability descriptors now expose an explicit `execution` contract:
+  extension/builtin handlers registered with an executor are `in_process`,
+  while discovered MCP/native tools are `native_only`. Search can therefore
+  explain the boundary and composition rejects native-only tools explicitly
+  instead of failing later with an ambiguous missing-executor error.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.

@@ -5,12 +5,14 @@ import { Value } from "@sinclair/typebox/value";
 
 export type CapabilityRisk = "read" | "write" | "execute" | "network" | "agent";
 export type CapabilityOrdering = "commutative" | "ordered" | "unknown";
+/** Whether the current process can safely invoke this capability directly. */
+export type CapabilityExecution = "in_process" | "native_only";
 
 export interface CapabilityEffect { resources?: string[]; ordering?: CapabilityOrdering; }
 export type CapabilityProvider = "extensions" | "builtin" | "mcp" | "external";
 export interface CapabilityDescriptor {
 	ref: string; provider: CapabilityProvider; name: string; description: string;
-	inputSchema?: unknown; risk: CapabilityRisk; effect: CapabilityEffect; registeredAt: number;
+	inputSchema?: unknown; risk: CapabilityRisk; effect: CapabilityEffect; execution: CapabilityExecution; registeredAt: number;
 }
 
 const KEY = "__piCapabilityRegistry";
@@ -33,14 +35,15 @@ function inferEffect(name: string, risk: CapabilityRisk): CapabilityEffect {
 	return { resources: [/agent|subagent|dispatch|spawn|worker/.test(name) ? "agent-runtime" : "workspace"], ordering: "unknown" };
 }
 
-export function registerCapability(input: { name: string; provider?: CapabilityProvider; description?: string; inputSchema?: unknown; risk?: CapabilityRisk; effect?: CapabilityEffect }): CapabilityDescriptor {
+export function registerCapability(input: { name: string; provider?: CapabilityProvider; description?: string; inputSchema?: unknown; risk?: CapabilityRisk; effect?: CapabilityEffect; execution?: CapabilityExecution }): CapabilityDescriptor {
 	const description = input.description ?? "";
 	const risk = input.risk ?? inferRisk(input.name, description);
 	const provider = input.provider ?? "extensions";
 	const descriptor: CapabilityDescriptor = {
 		ref: `${provider}.${input.name}`, provider, name: input.name, description,
 		...(input.inputSchema === undefined ? {} : { inputSchema: input.inputSchema }),
-		risk, effect: input.effect ?? inferEffect(input.name, risk), registeredAt: Date.now(),
+		risk, effect: input.effect ?? inferEffect(input.name, risk),
+		execution: input.execution ?? "native_only", registeredAt: Date.now(),
 	};
 	store().set(descriptor.ref, descriptor);
 	return descriptor;
@@ -50,7 +53,7 @@ export function registerCapability(input: { name: string; provider?: CapabilityP
  * those native tools executable through compose_exec. */
 export function registerDiscoveredCapability(input: { name: string; provider?: "builtin" | "mcp" | "external"; description?: string; inputSchema?: unknown }): CapabilityDescriptor {
 	const provider: CapabilityProvider = input.provider ?? (input.name.startsWith("mcp__") ? "mcp" : "builtin");
-	return registerCapability({ ...input, provider });
+	return registerCapability({ ...input, provider, execution: "native_only" });
 }
 
 export function getCapability(ref: string): CapabilityDescriptor | undefined { return store().get(ref); }

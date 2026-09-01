@@ -95,6 +95,9 @@ the authoritative fixture command is `node --test`.
 - `compose_exec` regression coverage confirms transient step errors retry at
   most three attempts, emit retry events, and expose the final attempt count;
   budget errors remain terminal.
+- Capability registry regression coverage confirms discovered MCP tools are
+  labelled `native_only`, while executor-backed extension capabilities are
+  labelled `in_process` for composition and search consumers.
 - `compose_exec` regression coverage confirms a slow step receives an abort
   signal at its bounded `timeout_ms` and becomes a failed step. A deliberately
   uncooperative executor is not retried after timeout, preventing duplicate

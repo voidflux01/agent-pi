@@ -29,6 +29,7 @@ export function registerToolWithExecutor(pi: { registerTool: (definition: any) =
 		inputSchema: definition.parameters,
 		risk: definition.capabilityRisk,
 		effect: definition.capabilityEffect,
+		execution: "in_process",
 	});
 }
 
