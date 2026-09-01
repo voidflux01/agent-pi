@@ -756,7 +756,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerToolWithExecutor(pi, {
 		name: "subagent_create_batch",
-		description: "Spawn multiple subagents at once. By default the tool returns immediately; call subagent_wait with the returned SA IDs to join their bounded results. Set join: true to spawn and perform one bounded join in this same call, reducing a model round trip. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
+		description: "Spawn multiple subagents at once. By default the tool returns immediately; call subagent_wait with the returned SA IDs to join their bounded results. Set join: true to spawn and perform one bounded join in this same call, reducing a model round trip. Cancelling a synchronous join also aborts its workers; a non-joined batch remains detachable and continues in the background. When an agent's `name` matches a known agent definition, that agent's configured model, tools, and system prompt are automatically applied.",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				task: Type.String({ description: "The complete task description for the subagent" }),
@@ -864,6 +864,10 @@ export default function (pi: ExtensionAPI) {
 				state.completion = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
 					orchestrationRun: batchRun,
 					onSettled: onBatchSettled,
+					// A joined batch is one synchronous execution boundary: aborting
+					// the parent tool must reach every worker. Non-joined batches are
+					// intentionally detachable and keep running after the tool returns.
+					signal: args.join === true ? signal : undefined,
 				}))();
 			}
 
@@ -877,7 +881,7 @@ export default function (pi: ExtensionAPI) {
 				const waitPromises: Promise<JoinOutcome>[] = [allResults.then((value) => ({ kind: "joined" as const, value }))];
 				if (timeoutMs > 0) waitPromises.push(new Promise<JoinOutcome>((resolve) => { timer = setTimeout(() => resolve({ kind: "timedOut" }), timeoutMs); }));
 				if (signal) {
-					if (signal.aborted) return { content: [{ type: "text", text: "Batch join cancelled; background subagents remain running." }], details: { joined: false, aborted: true, ids: states.map((state) => state.id), runId: batchRun.runId } };
+					if (signal.aborted) return { content: [{ type: "text", text: "Batch join cancelled; workers are being aborted." }], details: { joined: false, aborted: true, ids: states.map((state) => state.id), runId: batchRun.runId } };
 					waitPromises.push(new Promise<JoinOutcome>((resolve) => {
 						abortHandler = () => resolve({ kind: "aborted" });
 						signal.addEventListener("abort", abortHandler, { once: true });
@@ -888,7 +892,7 @@ export default function (pi: ExtensionAPI) {
 				if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
 				if (outcome.kind !== "joined") {
 					return {
-						content: [{ type: "text", text: outcome.kind === "timedOut" ? `Batch join timed out after ${timeoutMs}ms.` : "Batch join cancelled; background subagents remain running." }],
+						content: [{ type: "text", text: outcome.kind === "timedOut" ? `Batch join timed out after ${timeoutMs}ms; workers remain detachable.` : "Batch join cancelled; workers are being aborted." }],
 						details: { joined: false, ...(outcome.kind === "timedOut" ? { timedOut: true, timeoutMs } : { aborted: true }), ids: states.map((state) => state.id), statuses: states.map((state) => state.status), runId: batchRun.runId },
 					};
 				}

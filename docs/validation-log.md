@@ -149,3 +149,5 @@ the authoritative fixture command is `node --test`.
 - Live provider availability was checked with `pi auth check --no-refresh`; the isolated NORMAL, PLAN, and SPEC smoke runs completed successfully.
 - The same isolated live mode-entry smoke completed for TEAM, CHAIN, and PIPELINE; worker execution remains covered by the fake-child dispatch matrix and prior Herdr workflow rounds.
 - The isolated live NORMAL batch smoke verified real parallel spawn plus one bounded join; no repository files were touched.
+- Batch lifecycle regression coverage confirms a synchronous `join: true` cancellation propagates the parent abort signal to every worker, while non-joined batches remain detachable background work.
+- Full repository tests after the cancellation-boundary change: 172 Bun passed; 947 Vitest passed; 13 skipped. `doctor:strict`: 14 passed, 0 warnings/failures.

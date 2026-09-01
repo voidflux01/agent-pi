@@ -85,6 +85,9 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("batchRemaining");
 		expect(src).toContain("orchestrationRun: batchRun");
 		expect(src).toContain("onSettled: onBatchSettled");
+		expect(src).toContain("signal: args.join === true ? signal : undefined");
+		expect(src).toContain("workers are being aborted");
+		expect(src).toContain("workers remain detachable");
 	});
 
 	it("exposes read-only persisted batch recovery without automatic replay", () => {
