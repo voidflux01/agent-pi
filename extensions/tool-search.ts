@@ -7,6 +7,7 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { getToolRegistry, type ToolEntry } from "./tool-registry.ts";
+import { getCapability } from "./lib/capability-registry.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
@@ -25,12 +26,18 @@ function formatToolCompact(entry: ToolEntry): string {
 }
 
 function formatToolDetailed(entry: ToolEntry): string {
+	const capability = getCapability(`extensions.${entry.name}`);
 	const lines: string[] = [
 		`## ${entry.name}`,
 		``,
 		`**Label:** ${entry.label}`,
 		`**Category:** ${entry.category}`,
 		`**Source:** ${entry.source}`,
+		...(capability ? [
+			`**Capability:** ${capability.ref}`,
+			`**Risk:** ${capability.risk}`,
+			`**Effect:** ${capability.effect.resources?.join(", ") || "none"} (${capability.effect.ordering || "unknown"})`,
+		] : []),
 		`**Tags:** ${entry.tags.join(", ") || "none"}`,
 		``,
 		`### Description`,

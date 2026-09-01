@@ -2,6 +2,8 @@
 // ABOUTME: Pi exposes tool metadata through getAllTools(), so registration must
 // explicitly publish the handler for safe in-process composition.
 
+import { registerCapability } from "./capability-registry.ts";
+
 export interface RegisteredToolDefinition {
 	name: string;
 	execute: (...args: any[]) => any;
@@ -21,9 +23,15 @@ function executorMap(): Record<string, RegisteredToolDefinition["execute"]> {
 export function registerToolWithExecutor(pi: { registerTool: (definition: any) => void }, definition: RegisteredToolDefinition & Record<string, any>): void {
 	pi.registerTool(definition);
 	executorMap()[definition.name] = definition.execute;
+	registerCapability({
+		name: definition.name,
+		description: definition.description,
+		inputSchema: definition.parameters,
+		risk: definition.capabilityRisk,
+		effect: definition.capabilityEffect,
+	});
 }
 
 export function getRegisteredToolExecutors(): Record<string, RegisteredToolDefinition["execute"]> {
 	return { ...executorMap() };
 }
-
