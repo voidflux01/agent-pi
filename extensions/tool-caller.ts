@@ -10,6 +10,7 @@ import { loadPolicy, scanCommand, scanFilePath, formatThreatsForBlock } from "./
 import { approvalStateForMode, decideApprovalGate } from "./lib/approval-gate.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
+import { isWithinDirectory } from "./lib/path-safety.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
 
@@ -271,7 +272,7 @@ export default function (pi: ExtensionAPI) {
 
 // ── Built-in Tool Execution ────────────────────────────────────────────
 
-async function executeBuiltinTool(
+export async function executeBuiltinTool(
 	name: string,
 	args: Record<string, unknown>,
 	ctx: any,
@@ -313,6 +314,9 @@ async function executeBuiltinTool(
 			if (!path) return { content: [{ type: "text", text: "Error: 'path' parameter required" }] };
 			try {
 				const fullPath = resolve(cwd, path);
+				if (!isWithinDirectory(cwd, fullPath)) {
+					return { content: [{ type: "text", text: "Read blocked: path must stay inside the current workspace." }], details: { error: true, path } };
+				}
 				const content = readFileSync(fullPath, "utf-8");
 				const offset = (args.offset as number) || 1;
 				const limit = (args.limit as number) || 2000;

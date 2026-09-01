@@ -6,8 +6,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
-import { capabilityConflict, getCapability, listCapabilities, validateCapabilityArguments } from "./lib/capability-registry.ts";
-import { nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
+import { capabilityConflict, getCapability, getCapabilityForTool, listCapabilities, registerCapability, validateCapabilityArguments } from "./lib/capability-registry.ts";
+import { executeBuiltinTool, nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { createOrchestrationRun, RunBudgetError } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
@@ -76,11 +76,17 @@ function compactResult(value: any): unknown {
 	return { ...(text === undefined ? {} : { text }), ...(value.details === undefined ? {} : { details: value.details }) };
 }
 
+const BUILTIN_READ_SCHEMA = Type.Object({
+	path: Type.String({ minLength: 1 }),
+	offset: Type.Optional(Type.Integer({ minimum: 1 })),
+	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 2000 })),
+});
+
 export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "compose_exec",
 		label: "Compose Exec",
-		description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. Built-in Pi tools are not proxied by this first version; call them directly.",
+		description: "Run up to 16 registered extension capabilities as one bounded composition. Sequential steps may consume prior output with $STEP_n_TEXT or $STEP_n_DETAILS.path and use a safe when status condition. Use parallel=true only for independent steps. The safe built-in read capability is supported; other built-ins remain on Pi's native path.",
 		parameters: ComposeParams,
 		capabilityRisk: "execute",
 		capabilityEffect: { resources: ["extension-runtime"], ordering: "unknown" },
@@ -116,8 +122,12 @@ export default function (pi: ExtensionAPI) {
 				if (name === "compose_exec" || name === "call_tool" || name === "tool_search") {
 					return { index, tool: name, status: "blocked", error: "meta-tool recursion is not allowed" };
 				}
-				const capability = getCapability(step.tool.startsWith("extensions.") ? step.tool : `extensions.${name}`);
-				const executor = executors[name];
+				const capability = getCapability(step.tool.startsWith("extensions.") ? step.tool : `extensions.${name}`)
+					?? getCapabilityForTool(name)
+					?? (name === "read" ? registerCapability({ name, provider: "builtin", description: "Read a workspace file", inputSchema: BUILTIN_READ_SCHEMA, risk: "read", effect: { ordering: "commutative" } }) : undefined);
+				const executor = executors[name] ?? (name === "read"
+					? ((_: string, args: Record<string, unknown>, signal: AbortSignal | undefined, __: unknown, context: any) => executeBuiltinTool("read", args, context, signal, pi))
+					: undefined);
 				if (!capability || !executor) return { index, tool: name, status: "blocked", error: "capability is not registered for in-process execution" };
 				const resolvedArgs = resolveStepReferences(step.arguments ?? {}, priorResults, index);
 				if (resolvedArgs.error) return { index, tool: name, status: "blocked", error: resolvedArgs.error };

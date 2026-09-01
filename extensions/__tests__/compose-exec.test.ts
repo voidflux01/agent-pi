@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
 import { resetCapabilitiesForTests } from "../lib/capability-registry.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const EXECUTOR_KEY = "__piRegisteredToolExecutors";
 
@@ -97,5 +100,20 @@ describe("compose_exec", () => {
 		] }, undefined, undefined, { cwd: process.cwd() });
 		expect(parallel.details.results[0].status).toBe("blocked");
 		expect(parallel.details.results[0].error).toContain("sequential mode");
+	});
+
+	test("composes the safe built-in read capability and keeps paths inside the workspace", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		const cwd = mkdtempSync(join(tmpdir(), "compose-read-"));
+		writeFileSync(join(cwd, "input.txt"), "first\nsecond\nthird\n", "utf8");
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const read = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt", offset: 2, limit: 1 } }] }, undefined, undefined, { cwd });
+		expect(read.details).toMatchObject({ completed: 1, failed: 0 });
+		expect(read.details.results[0].result.text).toBe("second");
+		const blocked = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "../outside.txt" } }] }, undefined, undefined, { cwd });
+		expect(blocked.details.results[0].status).toBe("completed");
+		expect(blocked.details.results[0].result.text).toContain("Read blocked");
 	});
 });
