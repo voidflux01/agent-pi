@@ -158,3 +158,5 @@ the authoritative fixture command is `node --test`.
 - Full repository tests after entry-point run linking: 174 Bun passed; 949 Vitest passed; 13 skipped.
 - NORMAL/PLAN/SPEC routing now recommends one bounded parallel SCOUT + researcher join when both independent evidence sources are already known, while preserving sequential dispatch when research depends on scout findings.
 - Full repository tests after cross-mode reconnaissance routing: 174 Bun passed; 950 Vitest passed; 13 skipped.
+- RunContext budget coverage now hard-blocks new steps after a token/cost ceiling is exceeded, while preserving the measured overage and terminal `run.failed` audit event.
+- Full repository tests after RunContext budget enforcement: 174 Bun passed; 950 Vitest passed; 13 skipped.

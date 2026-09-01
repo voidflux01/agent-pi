@@ -39,6 +39,7 @@ describe("orchestration run context", () => {
 		const run = createOrchestrationRun({ budget: { maxSteps: 2, maxTokens: 100, maxCostUsd: 1 }, actor: "test" });
 		expect(run.recordUsage({ totalTokens: 40, costUsd: 0.25 })).toBe(true);
 		expect(run.recordUsage({ totalTokens: 70, costUsd: 0.8 })).toBe(false);
+		expect(() => run.consumeStep()).toThrow(RunBudgetError);
 		run.finish("succeeded");
 		expect(run.budgetExceeded).toBe(true);
 		expect(run.usage).toEqual({ totalTokens: 110, costUsd: 1.05 });

@@ -125,6 +125,7 @@ export function createOrchestrationRun(options: {
 		...(eventDir ? { eventDir } : {}),
 		events,
 		consumeStep() {
+			if (budgetExceeded) throw new RunBudgetError(`Run ${runId} cannot start another step after exceeding its token/cost budget`);
 			if (this.stepsUsed >= budget.maxSteps) throw new RunBudgetError(`Run ${runId} exceeded maxSteps=${budget.maxSteps}`);
 			if (Date.now() - startedAt > budget.maxDurationMs) throw new RunBudgetError(`Run ${runId} exceeded maxDurationMs=${budget.maxDurationMs}`);
 			this.stepsUsed += 1;
