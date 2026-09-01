@@ -11,6 +11,7 @@ import { approvalStateForMode, decideApprovalGate } from "./lib/approval-gate.ts
 import { coordinationState } from "./lib/coordination-state.ts";
 import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
+import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 
 // ── Tool Parameters ────────────────────────────────────────────────────
 
@@ -142,6 +143,20 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
+			const orchestrationRun = createOrchestrationRun({
+				context: ctx,
+				actor: "call_tool",
+				mode: coordinationState().mode,
+				budget: { maxSteps: 1 },
+				workspaceCwd: cwd,
+			});
+			orchestrationRun.consumeStep();
+			orchestrationRun.record("tool.started", { toolName: tool_name, reason });
+			const finishAudit = (status: "succeeded" | "failed") => {
+				orchestrationRun.record("tool.completed", { toolName: tool_name, status });
+				orchestrationRun.finish(status, { toolName: tool_name, reason });
+			};
+
 			// Execute via pi's internal tool calling mechanism
 			// We use sendMessage to inject a tool call that the agent loop will handle
 			// But that's not programmatic — we need direct execution.
@@ -166,10 +181,12 @@ export default function (pi: ExtensionAPI) {
 						onUpdate,
 						ctx,
 					);
+					finishAudit(result?.details?.error ? "failed" : "succeeded");
 					return {
 						content: result.content || [{ type: "text" as const, text: "Tool returned no content" }],
 						details: {
 							tool_name,
+							runId: orchestrationRun.runId,
 							reason,
 							proxied: true,
 							originalDetails: result.details,
@@ -182,10 +199,12 @@ export default function (pi: ExtensionAPI) {
 				// But for built-in tools, we can import and call them directly
 				const builtinResult = await executeBuiltinTool(tool_name, toolArgs, ctx, signal, pi);
 				if (builtinResult) {
+					finishAudit(builtinResult.details?.error ? "failed" : "succeeded");
 					return {
 						content: builtinResult.content || [{ type: "text" as const, text: "Tool returned no content" }],
 						details: {
 							tool_name,
+							runId: orchestrationRun.runId,
 							reason,
 							proxied: true,
 							executionMethod: "builtin",
@@ -195,21 +214,23 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Last resort: report that programmatic execution isn't available for this tool
+				finishAudit("failed");
 				return {
 					content: [{
 						type: "text" as const,
 						text: `Tool "${tool_name}" exists but programmatic execution is not available. ` +
 							`Call it directly instead of through call_tool.`,
 					}],
-					details: { tool_name, reason, error: "no_executor" },
+					details: { tool_name, runId: orchestrationRun.runId, reason, error: "no_executor" },
 				};
 			} catch (err: any) {
+				finishAudit("failed");
 				return {
 					content: [{
 						type: "text" as const,
 						text: `Error executing "${tool_name}": ${err.message}`,
 					}],
-					details: { tool_name, reason, error: "execution_error", message: err.message },
+					details: { tool_name, runId: orchestrationRun.runId, reason, error: "execution_error", message: err.message },
 				};
 			}
 		},

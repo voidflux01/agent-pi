@@ -167,6 +167,11 @@ worker lifecycle boundaries.
   approval, or executor checks. `call_tool` refreshes its executor cache at the
   same boundary, so a dynamically loaded extension is not merely discoverable
   but also invokable in-process.
+- Actual `call_tool` executions now create a bounded RunContext with
+  `tool.started`/`tool.completed` events and return its run id; workspace
+  manifests continue to capture changed files without persisting full tool
+  payloads, giving NORMAL/PLAN/SPEC dynamic calls the same audit navigation as
+  worker dispatches.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.

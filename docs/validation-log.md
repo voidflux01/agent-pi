@@ -103,6 +103,8 @@ the authoritative fixture command is `node --test`.
   security or approval gates.
 - Executor registry regression coverage confirms an extension loaded after
   session start is both discoverable and invokable through `call_tool`.
+- `call_tool` audit regression coverage confirms actual dynamic executions
+  persist bounded tool lifecycle events and return a navigable RunContext id.
 - `compose_exec` regression coverage confirms a slow step receives an abort
   signal at its bounded `timeout_ms` and becomes a failed step. A deliberately
   uncooperative executor is not retried after timeout, preventing duplicate
