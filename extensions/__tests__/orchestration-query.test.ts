@@ -28,6 +28,13 @@ describe("orchestration query", () => {
 		expect(listOrchestrationRuns(cwd, { runId: "../escape" })).toEqual([]);
 	});
 
+	test("marks a successful run without a verification receipt as unverified", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-query-unverified-"));
+		const run = createOrchestrationRun({ eventDir: join(dir, "run-1"), actor: "test", mode: "NORMAL" });
+		run.finish("succeeded");
+		expect(summarizeOrchestrationRun(run.eventDir!)).toMatchObject({ status: "succeeded", verificationStatus: "UNVERIFIED" });
+	});
+
 	test("filters runs by coordination mode before applying the display limit", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-query-modes-"));
 		const root = join(cwd, ".pi", "agent-sessions", "compositions");

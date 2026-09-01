@@ -179,6 +179,10 @@ worker lifecycle boundaries.
   worker dispatches. An aborted call is recorded as `cancelled` even if a
   cooperative boundary returns a late result, preserving the distinction
   between user cancellation and tool failure.
+- Orchestration summaries now render `UNVERIFIED` when no deterministic
+  verification receipt exists; `PASS`, `FAIL`, and `BLOCKED` remain reserved
+  for actual `verification.completed` evidence. Execution success therefore
+  cannot be mistaken for validation success in NORMAL, PLAN, or SPEC.
 - Non-terminal summaries expose `recovery: "stale"` and the last persisted
   event type, making a post-restart run actionable: inspect the bounded event
   timeline before deciding whether to resume or re-dispatch.

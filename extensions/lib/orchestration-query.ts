@@ -25,7 +25,8 @@ export interface OrchestrationRunSummary {
 	costUsd?: number;
 	eventCount: number;
 	eventDir: string;
-	verificationStatus?: "PASS" | "FAIL" | "BLOCKED";
+	/** PASS/FAIL/BLOCKED come from a real receipt; UNVERIFIED is explicit absence of one. */
+	verificationStatus?: "PASS" | "FAIL" | "BLOCKED" | "UNVERIFIED";
 	verificationPassed?: number;
 	verificationFailed?: number;
 	changedFiles?: string[];
@@ -98,6 +99,9 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 	const finishData = finish ? payloadData(finish) : {};
 	const verification = [...events].reverse().find((event) => event.type === "verification.completed");
 	const verificationData = verification ? payloadData(verification) : {};
+	const verificationStatus = verificationData.status === "PASS" || verificationData.status === "FAIL" || verificationData.status === "BLOCKED"
+		? verificationData.status
+		: "UNVERIFIED";
 	const workspace = [...events].reverse().find((event) => event.type === "workspace.changed");
 	const workspaceData = workspace ? payloadData(workspace) : {};
 	const failureEvent = [...events].reverse().find((event) => event.type === "dispatch.completed" && typeof payloadData(event).failure === "string");
@@ -129,7 +133,7 @@ export function summarizeOrchestrationRun(eventDir: string): OrchestrationRunSum
 		...(typeof usage.costUsd === "number" ? { costUsd: usage.costUsd } : {}),
 		eventCount: events.length,
 		eventDir,
-		...(verificationData.status === "PASS" || verificationData.status === "FAIL" || verificationData.status === "BLOCKED" ? { verificationStatus: verificationData.status } : {}),
+		verificationStatus,
 		...(typeof verificationData.passed === "number" ? { verificationPassed: verificationData.passed } : {}),
 		...(typeof verificationData.failed === "number" ? { verificationFailed: verificationData.failed } : {}),
 		...(Array.isArray(workspaceData.changedFiles) ? { changedFiles: workspaceData.changedFiles.filter((path): path is string => typeof path === "string").slice(0, 100) } : {}),
