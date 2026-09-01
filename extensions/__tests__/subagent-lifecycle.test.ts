@@ -30,6 +30,8 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("if (spawnEpoch !== sessionEpoch)");
 		expect(src).toContain("elapsedTimer");
 		expect(src).toContain("lifecycle.clearTimer(state.elapsedTimer)");
+		expect(src).toContain("clearTimeout(state.watchdogTimer)");
+		expect(src).toContain("lifecycle.clearProcess(proc)");
 		expect(src).not.toContain("ctx?.cwd ?? process.cwd()");
 	});
 

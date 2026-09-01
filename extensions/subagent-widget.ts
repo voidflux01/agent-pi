@@ -1144,8 +1144,17 @@ export default function (pi: ExtensionAPI) {
 				lifecycle.clearTimer(state.elapsedTimer);
 				state.elapsedTimer = undefined;
 			}
+			if (state.watchdogTimer) {
+				clearTimeout(state.watchdogTimer);
+				state.watchdogTimer = undefined;
+			}
 			if (state.proc && state.status === "running") {
-				killPromises.push(killGracefully(state.proc));
+				const proc = state.proc;
+				lifecycle.clearProcess(proc);
+				killPromises.push(killGracefully(proc));
+			}
+			else if (state.proc) {
+				lifecycle.clearProcess(state.proc);
 			}
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
@@ -1200,8 +1209,17 @@ export default function (pi: ExtensionAPI) {
 				lifecycle.clearTimer(state.elapsedTimer);
 				state.elapsedTimer = undefined;
 			}
+			if (state.watchdogTimer) {
+				clearTimeout(state.watchdogTimer);
+				state.watchdogTimer = undefined;
+			}
 			if (state.proc && state.status === "running") {
-				killPromises.push(killGracefully(state.proc));
+				const proc = state.proc;
+				lifecycle.clearProcess(proc);
+				killPromises.push(killGracefully(proc));
+			}
+			else if (state.proc) {
+				lifecycle.clearProcess(state.proc);
 			}
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
