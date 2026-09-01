@@ -32,6 +32,10 @@ worker lifecycle boundaries.
 - Audited parent runs can capture a bounded before/after workspace manifest;
   the event trail records changed file paths and hashes alongside the run
   result, while excluding the runtime's `.pi` bookkeeping files.
+- `verify_execution` now emits `verification.started` and
+  `verification.completed` events with deterministic PASS/FAIL/BLOCKED status
+  and assertion counts, so successful worker output cannot be confused with
+  successful validation.
 - Sequential composition supports bounded `$STEP_n_TEXT` and
   `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
   and conditions are rejected in parallel mode instead of creating implicit

@@ -146,4 +146,12 @@ describe("shipped wiring", () => {
 		expect(src.slice(reportStart)).not.toContain("completeDecision");
 		expect(src.slice(reportStart)).not.toContain("runIsolatedVerifier");
 	});
+
+	it("records deterministic verification status in the orchestration event trail", () => {
+		const src = readFileSync(join(root, "..", "execution-verifier.ts"), "utf8");
+		expect(src).toContain('actor: "verify_execution"');
+		expect(src).toContain('verification.started');
+		expect(src).toContain('verification.completed');
+		expect(src).toContain("verificationStatus");
+	});
 });
