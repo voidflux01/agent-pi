@@ -15,21 +15,9 @@ allowed-tools: Bash(agent-browser:*)
 - **Any remote URL** (https://example.com, etc.)
 - **Local files** (file:///path/to/file.html)
 
-### DO NOT use `web_remote` for localhost testing
+### Browser testing scope
 
-The `web_remote` tool (formerly `web_test`) is a **remote service** powered by Cloudflare Browser Rendering. It runs on Cloudflare's servers and **CANNOT reach localhost, 127.0.0.1, or any local network address**. It will fail silently or error on local URLs.
-
-| Scenario | Use This | NOT This |
-|----------|----------|----------|
-| Test localhost:3000 | `agent-browser` | ~~web_remote~~ |
-| Test 127.0.0.1:8080 | `agent-browser` | ~~web_remote~~ |
-| Test local network device | `agent-browser` | ~~web_remote~~ |
-| Fill forms, click buttons | `agent-browser` | ~~web_remote~~ |
-| Multi-step browser workflow | `agent-browser` | ~~web_remote~~ |
-| Screenshot a public site (quick, no interaction) | `agent-browser` or `web_remote` | — |
-| Accessibility audit of public site | `agent-browser` or `web_remote` | — |
-
-**Rule of thumb:** Always prefer `agent-browser`. Use `web_remote` only when you need a quick remote screenshot/a11y audit and don't need any interaction.
+Use `agent-browser` for local and remote browser automation, screenshots, forms, and accessibility checks.
 
 ## Core Workflow
 

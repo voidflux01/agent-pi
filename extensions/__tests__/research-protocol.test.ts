@@ -15,7 +15,6 @@ describe("research routing", () => {
 			{ name: "search_web_now", description: "Search the internet and return sources" },
 			{ name: "extract_page", description: "Fetch and extract content from a URL" },
 			{ name: "check_claim", description: "Check a claim against web sources and return evidence" },
-			{ name: "web_test", description: "Run a web test and capture a screenshot" },
 			{ name: "publish_page", description: "Post content to a web page" },
 		])).toEqual(["search_web_now", "extract_page", "check_claim"]);
 	});

@@ -12,7 +12,6 @@ import { generatePlanViewerHTML } from "../lib/plan-viewer-html.ts";
 import { createPlanStandaloneExport } from "../lib/viewer-standalone-export.ts";
 import { generateResearchViewerHTML } from "../lib/research-viewer-html.ts";
 import { generateBoardViewerHTML } from "../lib/board-viewer-html.ts";
-import { validateRemoteWebUrl } from "../web-test.ts";
 import { isSafeSoundName } from "../lib/sounds-player.ts";
 
 function responseMock() {
@@ -111,8 +110,6 @@ describe("command and output boundaries", () => {
 		expect(research).not.toContain("JSON.parse('");
 		const board = generateBoardViewerHTML({ title: "x", port: 1 });
 		expect(board).toContain("const rawType = String(msg.message_type || 'status')");
-		expect(validateRemoteWebUrl("http://127.0.0.1:8080")).toContain("private");
-		expect(validateRemoteWebUrl("https://example.com")).toBeNull();
 		expect(isSafeSoundName("../outside")).toBe(false);
 		expect(isSafeSoundName("safe-sound_01")).toBe(true);
 		expect(htmlSource("../lib/research-viewer-html.ts")).not.toContain("numberTextnumberText");
@@ -122,4 +119,3 @@ describe("command and output boundaries", () => {
 function htmlSource(relativePath: string): string {
 	return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
-

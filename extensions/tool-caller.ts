@@ -14,7 +14,7 @@ import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 // ── Tool Parameters ────────────────────────────────────────────────────
 
 const CallToolParams = Type.Object({
-	tool_name: Type.String({ description: "Name of the tool to invoke (e.g. 'read', 'tasks', 'web_remote')" }),
+	tool_name: Type.String({ description: "Name of the tool to invoke (e.g. 'read', 'tasks', 'debug_capture')" }),
 	arguments: Type.Record(Type.String(), Type.Unknown(), { description: "Arguments to pass to the tool — must match the tool's parameter schema" }),
 	reason: Type.Optional(Type.String({ description: "Brief description of why this tool is being called (for audit trail)" })),
 });

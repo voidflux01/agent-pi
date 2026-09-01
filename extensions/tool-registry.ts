@@ -30,7 +30,7 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "testing",
-		names: ["web_remote", "debug_capture"],
+		names: ["debug_capture"],
 		keywords: ["test", "screenshot", "capture", "audit"],
 	},
 	{

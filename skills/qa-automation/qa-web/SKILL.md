@@ -213,5 +213,5 @@ bash .pi/skills/qa-automation/qa-web/run.sh
 | "agent-browser: command not found" | Install: `npm install -g agent-browser` |
 | Browser launches but page is blank | Check URL and dev server: `curl $WEB_BASE_URL` |
 | Refs invalidated after click | Always re-snapshot after navigation/DOM changes |
-| Can't access localhost | agent-browser runs locally — it CAN access localhost (unlike web_remote) |
+| Can't access localhost | agent-browser runs locally — check that your dev server is running |
 | Headed mode not showing | Set `export WEB_HEADED=true` before running |

@@ -15,7 +15,6 @@ Thank you for your interest in contributing to agent! This guide will help you g
 extensions/          # All custom extensions (TypeScript)
   lib/               # Shared library code for extensions
   __tests__/         # Test suite
-  web-test-worker/   # Cloudflare Worker for browser testing
   assets/            # Static assets (logos, etc.)
 agents/              # Agent definitions and team configs
 commands/            # Toolkit slash commands
