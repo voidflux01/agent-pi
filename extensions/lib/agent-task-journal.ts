@@ -342,7 +342,8 @@ export function pidAlive(pid: number | undefined): boolean | undefined {
 /** One-line human-readable rendering of a journal record. */
 export function formatJournalEntry(e: TaskJournalEntry): string {
 	const normalizedStatus = normalizeRunStatus(e.runStatus || e.status);
-	const statusLabel = normalizedStatus === "unknown" ? e.status : normalizedStatus;
+	const legacyStatus = typeof e.status === "string" ? e.status : "unknown";
+	const statusLabel = normalizedStatus === "unknown" ? legacyStatus : normalizedStatus;
 	const alive = typeof e.pid === "number" && e.pid > 0
 		? (pidAlive(e.pid) === true ? " pid:alive" : pidAlive(e.pid) === false ? " pid:dead" : " pid:?")
 		: "";

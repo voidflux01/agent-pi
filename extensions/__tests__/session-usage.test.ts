@@ -115,6 +115,11 @@ describe("journal usage rendering", () => {
 		expect(sumJournalUsage([malformed]).runs).toBe(0);
 	});
 
+	test("renders malformed status fields without throwing", () => {
+		expect(() => formatJournalEntry({ ...base, status: undefined as any, runStatus: "unknown" })).not.toThrow();
+		expect(formatJournalEntry({ ...base, status: undefined as any, runStatus: "unknown" })).toContain("UNKNOWN");
+	});
+
 	test("summary rendering includes cancelled runs", () => {
 		const summary = summarizeJournal([{ ...base, status: "done", runStatus: "cancelled" }]);
 		expect(summary.cancelledRuns).toBe(1);
