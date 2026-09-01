@@ -87,9 +87,9 @@ export default function (pi: ExtensionAPI) {
 			const steps = params.steps as StepArgs[];
 			const parallel = params.parallel === true;
 			const stopOnError = params.stop_on_error !== false;
-			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec" });
 			const executors = getRegisteredToolExecutors();
 			const cwd = ctx?.cwd || process.cwd();
+			const run = createOrchestrationRun({ context: ctx, actor: "compose_exec", workspaceCwd: cwd });
 			const parallelConflict = parallel ? (() => {
 				const capabilities = steps.map((step) => getCapability(`extensions.${toolName(step.tool)}`));
 				for (let left = 0; left < capabilities.length; left += 1) {

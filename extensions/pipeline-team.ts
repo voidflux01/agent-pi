@@ -1031,6 +1031,7 @@ export default function (pi: ExtensionAPI) {
 				context: ctx,
 				actor: `pipeline:${activeConfig.name}:phase:${phase.def.name}`,
 				budget: { maxSteps: Math.max(1, resolved.length) },
+				workspaceCwd: ctx?.cwd,
 			});
 			orchestrationRun.record("pipeline.started", { phase: phase.def.name, mode, agents: resolved.map(a => a.role) });
 			orchestrationRun.consumeStep();

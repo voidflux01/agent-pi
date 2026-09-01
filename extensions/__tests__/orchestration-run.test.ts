@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, writeFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { createOrchestrationRun, RunBudgetError } from "../lib/orchestration-run.ts";
 import { activeRunMarkerPath } from "../lib/orchestration-run.ts";
 import { summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
@@ -39,5 +40,18 @@ describe("orchestration run context", () => {
 		run.finish("failed");
 		expect(run.events.map((event) => event.type)).toEqual(["run.started", "run.succeeded"]);
 		expect(existsSync(activeRunMarkerPath(eventDir))).toBe(false);
+	});
+
+	test("records changed workspace files for an auditable parent run", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-workspace-"));
+		execFileSync("git", ["init", "-q"], { cwd });
+		writeFileSync(join(cwd, "tracked.txt"), "before\n");
+		execFileSync("git", ["add", "tracked.txt"], { cwd });
+		const eventDir = join(cwd, ".pi", "events");
+		const run = createOrchestrationRun({ eventDir, actor: "test", workspaceCwd: cwd });
+		writeFileSync(join(cwd, "tracked.txt"), "after\n");
+		run.finish("succeeded");
+		const workspaceEvent = run.events.find((event) => event.type === "workspace.changed");
+		expect(workspaceEvent?.payload).toMatchObject({ changedFiles: ["tracked.txt"] });
 	});
 });

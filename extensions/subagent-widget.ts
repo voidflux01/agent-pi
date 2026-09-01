@@ -291,6 +291,7 @@ export default function (pi: ExtensionAPI) {
 			context: ctx,
 			actor: `subagent:${state.name.toLowerCase()}`,
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
+			workspaceCwd: spawnCwd,
 		});
 		orchestrationRun.consumeStep();
 		orchestrationRun.record("subagent.started", { agent: state.name, dispatchId: state.saRunId });
@@ -725,6 +726,7 @@ export default function (pi: ExtensionAPI) {
 				context: ctx,
 				actor: "subagent_batch",
 				budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },
+				workspaceCwd: contextCwd(ctx),
 			});
 			let batchRemaining = states.length;
 			let batchFailed = false;

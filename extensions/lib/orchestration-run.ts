@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { recordRunEvent } from "./evidence-store.ts";
+import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 
 export interface RunBudget {
 	maxSteps: number;
@@ -49,6 +50,22 @@ function eventDirFromContext(context: any, runId: string, explicitSessionFile?: 
 	return join(dirname(sessionFile), "compositions", runId);
 }
 
+function workspaceSnapshot(cwd: string | undefined): WorkspaceManifest | undefined {
+	if (!cwd) return undefined;
+	try { return buildWorkspaceManifest(cwd, ""); } catch { return undefined; }
+}
+
+function changedWorkspaceFiles(before: WorkspaceManifest, after: WorkspaceManifest): string[] {
+	const paths = new Set([...before.files.map(file => file.path), ...after.files.map(file => file.path), ...before.staged, ...after.staged, ...before.untracked, ...after.untracked]);
+	return [...paths].sort().filter(path => {
+		const beforeFile = before.files.find(file => file.path === path);
+		const afterFile = after.files.find(file => file.path === path);
+		return `${beforeFile?.size ?? "missing"}:${beforeFile?.hash ?? ""}` !== `${afterFile?.size ?? "missing"}:${afterFile?.hash ?? ""}`
+			|| before.staged.includes(path) !== after.staged.includes(path)
+			|| before.untracked.includes(path) !== after.untracked.includes(path);
+	});
+}
+
 export function createOrchestrationRun(options: {
 	context?: any;
 	sessionFile?: string;
@@ -56,6 +73,8 @@ export function createOrchestrationRun(options: {
 	parentRunId?: string;
 	budget?: Partial<RunBudget>;
 	actor?: string;
+	/** Capture a bounded before/after workspace delta in the run event trail. */
+	workspaceCwd?: string;
 } = {}): OrchestrationRun {
 	const runId = randomUUID();
 	const startedAt = Date.now();
@@ -66,6 +85,7 @@ export function createOrchestrationRun(options: {
 		...(options.budget?.maxCostUsd === undefined ? {} : { maxCostUsd: Math.max(0, options.budget.maxCostUsd) }),
 	};
 	const eventDir = eventDirFromContext(options.context, runId, options.sessionFile, options.eventDir);
+	const workspaceBefore = workspaceSnapshot(options.workspaceCwd);
 	const activeMarker = eventDir ? activeRunMarkerPath(eventDir) : undefined;
 	const events: RunEventRecord[] = [];
 	let finished = false;
@@ -92,6 +112,14 @@ export function createOrchestrationRun(options: {
 		finish(status, payload) {
 			if (finished) return;
 			finished = true;
+			if (workspaceBefore) {
+				const workspaceAfter = workspaceSnapshot(options.workspaceCwd);
+				if (workspaceAfter) record("workspace.changed", {
+					beforeHash: workspaceBefore.hash,
+					afterHash: workspaceAfter.hash,
+					changedFiles: changedWorkspaceFiles(workspaceBefore, workspaceAfter),
+				});
+			}
 			record(`run.${status}`, { stepsUsed: this.stepsUsed, durationMs: Date.now() - startedAt, ...(payload === undefined ? {} : { result: payload }) });
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
 		},

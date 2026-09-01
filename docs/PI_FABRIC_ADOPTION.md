@@ -29,6 +29,9 @@ worker lifecycle boundaries.
 - `subagent_create_batch` gives a parallel batch one bounded parent run and
   aggregates child success/failure/cancellation before closing it, preserving
   one auditable unit for independent work.
+- Audited parent runs can capture a bounded before/after workspace manifest;
+  the event trail records changed file paths and hashes alongside the run
+  result, while excluding the runtime's `.pi` bookkeeping files.
 - Sequential composition supports bounded `$STEP_n_TEXT` and
   `$STEP_n_DETAILS.path` handoffs plus status-based `when` skips; references
   and conditions are rejected in parallel mode instead of creating implicit

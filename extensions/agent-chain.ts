@@ -548,6 +548,7 @@ export default function (pi: ExtensionAPI) {
 			parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 			actor: `chain:${activeChain.name}`,
 			budget: { maxSteps: activeChain.steps.length },
+			workspaceCwd: ctx?.cwd,
 		});
 		orchestrationRun.record("chain.started", { chain: activeChain.name, task });
 
