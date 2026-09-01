@@ -1483,4 +1483,29 @@ ${contextSummary}${planSection}${reviewSection}
 			return false;
 		};
 	}));
+
+	pi.on("session_shutdown", async (_event, _ctx) => {
+		unwatchMode?.();
+		unwatchMode = undefined;
+		for (const phase of phaseStates) {
+			for (const agent of phase.agents) {
+				if (agent.timer) {
+					clearInterval(agent.timer);
+					agent.timer = undefined;
+				}
+				if (agent.proc && agent.status === "running") {
+					try { agent.proc.kill("SIGTERM"); } catch {}
+					agent.proc = undefined;
+				}
+			}
+		}
+		(globalThis as any).__piActivatePipeline = undefined;
+		(globalThis as any).__piKillPipelineProc = undefined;
+		(globalThis as any).__piHasRunningPipeline = undefined;
+		activeConfig = null;
+		phaseStates = [];
+		setActivePipeline(null);
+		clearPipelineUI();
+		widgetCtx = undefined;
+	});
 }

@@ -84,6 +84,9 @@ describe("source wiring", () => {
 		expect(src).toContain("dispatchCount");
 		expect(src).toContain("pipelineSelectLabel");
 		expect(src).toContain("__piSetMode");
+		expect(src).toContain('pi.on("session_shutdown"');
+		expect(src).toContain("__piKillPipelineProc = undefined");
+		expect(src).toContain("clearInterval(agent.timer)");
 	});
 
 	it("hides chain widget outside CHAIN mode", () => {
