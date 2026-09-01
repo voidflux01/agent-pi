@@ -20,6 +20,39 @@ interface FileViewerResult {
 	content: string;
 }
 
+const MAX_FILE_VIEWER_REQUEST_BODY_BYTES = 256 * 1024;
+
+function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
+	const declared = Number(req.headers["content-length"] || 0);
+	if (!Number.isFinite(declared) || declared < 0 || declared > MAX_FILE_VIEWER_REQUEST_BODY_BYTES) {
+		res.writeHead(413, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
+		req.resume();
+		return;
+	}
+	let body = "";
+	let received = 0;
+	let rejected = false;
+	req.on("data", (chunk) => {
+		if (rejected) return;
+		received += Buffer.byteLength(chunk);
+		if (received > MAX_FILE_VIEWER_REQUEST_BODY_BYTES) {
+			rejected = true;
+			res.writeHead(413, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ ok: false, error: "Request body too large" }));
+			return;
+		}
+		body += chunk;
+	});
+	req.on("end", () => { if (!rejected) onBody(body); });
+	req.on("error", () => {
+		if (!rejected && !res.headersSent) {
+			res.writeHead(400, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ ok: false, error: "Request body unreadable" }));
+		}
+	});
+}
+
 function openBrowser(url: string): void {
 	try {
 		execFileSync("open", [url], { stdio: "ignore" });
@@ -158,9 +191,7 @@ function startFileViewerServer(opts: {
 			}
 
 			if (req.method === "POST" && url.pathname === "/open-editor") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body || "{}");
 						const result = launchEditor(String(data.editor || ""), opts.filePath);
@@ -175,9 +206,7 @@ function startFileViewerServer(opts: {
 			}
 
 			if (req.method === "POST" && url.pathname === "/save") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						if (!opts.editable) throw new Error("This viewer is read-only");
 						const data = JSON.parse(body || "{}");
@@ -194,9 +223,7 @@ function startFileViewerServer(opts: {
 			}
 
 			if (req.method === "POST" && url.pathname === "/result") {
-				let body = "";
-				req.on("data", (chunk) => { body += chunk; });
-				req.on("end", () => {
+				readRequestBody(req, res, (body) => {
 					try {
 						const data = JSON.parse(body || "{}");
 						res.writeHead(200, { "Content-Type": "application/json" });

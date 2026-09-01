@@ -13,5 +13,8 @@ describe("file viewer boundaries", () => {
 		const source = readFileSync(new URL("../file-viewer.ts", import.meta.url), "utf8");
 		expect(source).toContain("authorizeLocalServerRequest");
 		expect(source).toContain("Unsupported editor");
+		expect(source).toContain("MAX_FILE_VIEWER_REQUEST_BODY_BYTES = 256 * 1024");
+		expect(source).toContain("readRequestBody(req, res");
+		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
 	});
 });
