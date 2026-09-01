@@ -785,6 +785,7 @@ export default function (pi: ExtensionAPI) {
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
 			return {
 				content: [{ type: "text", text: `Batch spawned ${states.length} subagents: ${ids}${deferred > 0 ? `; deferred ${deferred} due to context budget` : ""}` }],
+				details: { runId: batchRun.runId, ids: states.map((state) => state.id), count: states.length, deferred },
 			};
 		},
 	});
@@ -823,7 +824,10 @@ export default function (pi: ExtensionAPI) {
 				: { timedOut: false as const, value: await allResults };
 			if (timer) clearTimeout(timer);
 			if (results.timedOut) {
-				return { content: [{ type: "text", text: `Wait timed out after ${timeoutMs}ms. Running: ${selected.filter((state) => state.status === "running").map((state) => `SA${state.id}`).join(", ") || "none"}.` }] };
+				return {
+					content: [{ type: "text", text: `Wait timed out after ${timeoutMs}ms. Running: ${selected.filter((state) => state.status === "running").map((state) => `SA${state.id}`).join(", ") || "none"}.` }],
+					details: { joined: false, timedOut: true, timeoutMs, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+				};
 			}
 			for (const state of selected) {
 				if (!state.retainUntilCollected) continue;
@@ -838,7 +842,10 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			const joined = results.value.map((result, index) => `SA${selected[index].id} ${selected[index].name}:\n${result}`).join("\n\n");
-			return { content: [{ type: "text", text: joined.length > 12000 ? joined.slice(0, 11970) + "\n... [join truncated]" : joined }] };
+			return {
+				content: [{ type: "text", text: joined.length > 12000 ? joined.slice(0, 11970) + "\n... [join truncated]" : joined }],
+				details: { joined: true, timedOut: false, ids: selected.map((state) => state.id), statuses: selected.map((state) => state.status) },
+			};
 		},
 	});
 
