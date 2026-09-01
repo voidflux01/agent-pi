@@ -178,6 +178,21 @@ describe("shared dispatch runtime", () => {
 		expect(readFileSync(join(dir, "task-journal.jsonl"), "utf8")).toContain('"status":"error"');
 	});
 
+	it("classifies asynchronous child errors as process failures", async () => {
+		const child = fakeChild();
+		const resultPromise = runExplicit("agent-team", () => run({
+			authorization: currentDispatchAuthorization(),
+			command: ["pi", "task"],
+			cwd: "/tmp",
+			launchDir: "/tmp",
+			launchId: "async-error-1",
+			transport: "headless",
+			spawnProcess: (() => child) as any,
+		}));
+		child.emit("error", new Error("worker unavailable"));
+		await expect(resultPromise).resolves.toMatchObject({ failure: "process_error", stderr: "worker unavailable" });
+	});
+
 	it("refuses a dispatch without explicit authorization before spawning anything", async () => {
 		let starts = 0;
 		const errors: string[] = [];

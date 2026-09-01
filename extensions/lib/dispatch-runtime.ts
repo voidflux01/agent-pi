@@ -215,7 +215,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			const message = error instanceof Error ? error.message : String(error);
 			stderr += message;
 			spec.onStderr?.(message);
-			finish(1);
+			finish(1, "process_error");
 		});
 	});
 }
