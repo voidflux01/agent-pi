@@ -114,6 +114,11 @@ describe("shared dispatch runtime", () => {
 			return true;
 		};
 		let aborted = false;
+		const dir = mkdtempSync(join(tmpdir(), "dispatch-abort-"));
+		journalAppend(dir, {
+			version: 1, id: "abort-1", kind: "team", agent: "builder", task: "task",
+			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
+		});
 		const resultPromise = runExplicit("agent-team", () => run({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
@@ -123,6 +128,7 @@ describe("shared dispatch runtime", () => {
 			transport: "headless",
 			pollTimeoutMs: 1_000,
 			isAborted: () => aborted,
+			journal: { dir, id: "abort-1" },
 			spawnProcess: (() => child) as any,
 		}));
 		aborted = true;
@@ -130,6 +136,7 @@ describe("shared dispatch runtime", () => {
 		expect(killed).toBe(true);
 		expect(result.exitCode).toBe(130);
 		expect(result.failure).toBe("aborted");
+		expect(readFileSync(join(dir, "task-journal.jsonl"), "utf8")).toContain('"runStatus":"cancelled"');
 		expect(DEFAULT_ABORT_POLL_INTERVAL_MS).toBeLessThan(1_000);
 	});
 

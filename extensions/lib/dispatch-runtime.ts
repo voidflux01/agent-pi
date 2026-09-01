@@ -172,7 +172,12 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			if (timeoutTimer) clearTimeout(timeoutTimer);
 			if (abortTimer) clearInterval(abortTimer);
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
-			updateJournal(spec, { status: exitCode === 0 ? "done" : "error", exitCode, ...(failure ? { note: failure } : {}) });
+			updateJournal(spec, {
+				status: exitCode === 0 ? "done" : "error",
+				runStatus: failure === "aborted" ? "cancelled" : undefined,
+				exitCode,
+				...(failure ? { note: failure } : {}),
+			});
 			resolve({
 				exitCode,
 				stderr,
@@ -286,7 +291,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		);
 		if (updateTimer) clearInterval(updateTimer);
 		if (aborted || isAborted(spec)) {
-			updateJournal(spec, { status: "error", exitCode: 130 });
+			updateJournal(spec, { status: "error", runStatus: "cancelled", exitCode: 130 });
 			return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 		}
 		if (exitCode === null) {
@@ -302,7 +307,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 	} catch (error) {
 		if (updateTimer) clearInterval(updateTimer);
 		if (ownedByHerdr) {
-			updateJournal(spec, { status: "error", exitCode: 1 });
+			updateJournal(spec, { status: "error", runStatus: aborted ? "cancelled" : undefined, exitCode: 1 });
 			return {
 				exitCode: 1,
 				stderr: error instanceof Error ? error.message : String(error),

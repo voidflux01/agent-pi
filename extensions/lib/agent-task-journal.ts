@@ -203,7 +203,7 @@ export function journalAppend(sessionDir: string, entry: TaskJournalEntry): void
 		const task = entry.task.length > MAX_TASK_CHARS
 			? entry.task.slice(0, MAX_TASK_CHARS) + "\n...[truncated]"
 			: entry.task;
-		appendFileSync(p, JSON.stringify({ ...entry, task, runStatus: normalizeRunStatus(entry.status) }) + "\n", "utf8");
+		appendFileSync(p, JSON.stringify({ ...entry, task, runStatus: normalizeRunStatus(entry.runStatus || entry.status) }) + "\n", "utf8");
 	} catch {}
 }
 
@@ -233,7 +233,8 @@ export function journalUpdate(sessionDir: string, id: string, patch: Partial<Tas
 	for (let i = 0; i < lines.length; i++) {
 		if (i === last && parsed[i]) {
 			const next = { ...parsed[i], ...patch, id, updatedAt: Date.now() };
-			if (patch.status !== undefined) next.runStatus = normalizeRunStatus(patch.status);
+			if (patch.runStatus !== undefined) next.runStatus = normalizeRunStatus(patch.runStatus);
+			else if (patch.status !== undefined) next.runStatus = normalizeRunStatus(patch.status);
 			else if (!next.runStatus) next.runStatus = normalizeRunStatus(next.status);
 			out.push(JSON.stringify(next) + "\n");
 		} else {

@@ -133,4 +133,13 @@ describe("journalUpdate", () => {
 		expect(lines[1].exitCode).toBe(0);
 		expect(lines[1].sessionFile).toBeUndefined();
 	});
+
+	it("preserves an explicit canonical cancellation status", () => {
+		const row = baseRow({ id: "cancelled-1", status: "running" });
+		writeJournal([row]);
+		journalUpdate(dir, row.id, { status: "error", runStatus: "cancelled", exitCode: 130 });
+		const updated = JSON.parse(readJournal().trim());
+		expect(updated.status).toBe("error");
+		expect(updated.runStatus).toBe("cancelled");
+	});
 });
