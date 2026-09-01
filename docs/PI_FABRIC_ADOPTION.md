@@ -124,6 +124,9 @@ worker lifecycle boundaries.
 - Task journal rows now persist and display their owning RunContext id, making
   `/agents-status` a direct navigation point into `/orchestration-status` and
   its bounded event timeline after a restart.
+- Task journal rows now persist and display their owning RunContext id, making
+  `/agents-status` a direct navigation point into `/orchestration-status` and
+  its bounded event timeline after a restart.
 - Run summaries now project bounded dispatch failure causes into status rows
   and dashboard entries, preserving the distinction between timeout,
   cancellation, authentication, process, and exit-code failures.
