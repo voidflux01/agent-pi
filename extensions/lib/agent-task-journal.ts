@@ -75,11 +75,20 @@ function withJournalLock<T>(sessionDir: string, action: () => T): T | undefined 
 				lockFd = openSync(lockPath, "wx");
 				break;
 			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt === JOURNAL_LOCK_ATTEMPTS - 1) return undefined;
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") return undefined;
+				try {
+					const owner = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
+					if (Number.isInteger(owner) && owner > 0 && pidAlive(owner) === false) {
+						unlinkSync(lockPath);
+						continue;
+					}
+				} catch {}
+				if (attempt === JOURNAL_LOCK_ATTEMPTS - 1) return undefined;
 				sleep(JOURNAL_LOCK_WAIT_MS);
 			}
 		}
 		if (lockFd === undefined) return undefined;
+		try { writeFileSync(lockPath, String(process.pid), "utf8"); } catch { return undefined; }
 		return action();
 	} catch {
 		return undefined;

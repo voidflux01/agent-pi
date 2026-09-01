@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pruneRunArtifacts } from "../lib/agent-task-journal.ts";
+import { journalAppend, pruneRunArtifacts } from "../lib/agent-task-journal.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 let dir: string;
@@ -75,5 +75,16 @@ describe("pruneRunArtifacts", () => {
 		mkdirSync(empty, { recursive: true });
 		expect(() => pruneRunArtifacts(empty)).not.toThrow();
 		rmSync(empty, { recursive: true, force: true });
+	});
+
+	it("recovers a lock left by a dead process", () => {
+		const lockPath = join(dir, "task-journal.jsonl.lock");
+		writeFileSync(lockPath, "99999999", "utf8");
+		journalAppend(dir, {
+			version: 1, id: "after-crash", kind: "team", agent: "builder", task: "task",
+			status: "done", startedAt: Date.now(), updatedAt: Date.now(),
+		});
+		expect(readJournal()).toContain('"after-crash"');
+		expect(existsSync(lockPath)).toBe(false);
 	});
 });
