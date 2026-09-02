@@ -238,3 +238,12 @@ the authoritative fixture command is `node --test`.
   real Herdr workflow passed: Planner → Builder → Reviewer completed as three
   terminal `chain` journal rows and the parent returned `CHAIN-TASK-PASS` under
   `/budget 24000 0.20`, without manual fallback or repository changes.
+- The first bounded PIPELINE Herdr attempt was invalid at the harness boundary:
+  `set_mode PIPELINE` selected the default two-phase `plan-build` config and
+  the model called `run_chain`. A corrected attempt explicitly selected the
+  four-phase pipeline in the TUI; it then reached the real PIPELINE runtime,
+  completed the non-dispatch UNDERSTAND phase plus Planner and Builder, but
+  did not reach REVIEW before the bounded wait ended. It is therefore not a
+  PIPELINE pass. The harness now selects the first four-phase pipeline through
+  the picker and expects three worker journal rows (UNDERSTAND is intentionally
+  worker-free), but has not been rerun to conserve provider budget.
