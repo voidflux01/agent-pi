@@ -230,6 +230,10 @@ worker lifecycle boundaries.
   Synchronous NORMAL/PLAN/SPEC joins and TEAM/CHAIN/PIPELINE batches therefore
   stop sibling work after a confirmed ceiling breach, while detached background
   subagents keep their existing lifecycle.
+- Parallel TEAM batches, subagent batches, and PIPELINE phases accept optional
+  resource keys. Jobs with overlapping keys are scheduled in separate bounded
+  waves; jobs without keys retain the existing parallel behavior. This makes
+  file/service ownership explicit without sacrificing safe independent fan-out.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

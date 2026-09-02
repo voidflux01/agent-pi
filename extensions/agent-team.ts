@@ -49,6 +49,7 @@ import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdr
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { renderTaskList, navDown, navUp, navExit, navEnter, revealIncompleteTasks, type TaskListInfo, type TaskListState } from "./lib/task-list-render.ts";
 import { renderSubagentWidget } from "./lib/subagent-render.ts";
@@ -1009,6 +1010,7 @@ export default function (pi: ExtensionAPI) {
 			jobs: Type.Array(Type.Object({
 				agent: Type.String({ maxLength: 160, description: "Team member name (case-insensitive)" }),
 				task: Type.String({ maxLength: 4_000, description: "Independent task for this team member" }),
+				resources: Type.Optional(Type.Array(Type.String({ maxLength: 160 }), { maxItems: 16, description: "Shared resource keys; jobs with overlapping keys are serialized" })),
 			}), { maxItems: 8, description: "Independent jobs to run concurrently (maximum 8)" }),
 		}),
 
@@ -1017,7 +1019,7 @@ export default function (pi: ExtensionAPI) {
 			if (requested.length === 0) {
 				return { content: [{ type: "text", text: "Error: jobs must contain at least one independent team task." }] };
 			}
-			const jobs = requested.slice(0, 8) as Array<{ agent: string; task: string }>;
+			const jobs = requested.slice(0, 8) as Array<{ agent: string; task: string; resources?: string[] }>;
 			if (signal?.aborted) {
 				return { content: [{ type: "text", text: "Team batch cancelled before dispatch." }], details: { status: "cancelled", jobs: 0 } };
 			}
@@ -1031,15 +1033,19 @@ export default function (pi: ExtensionAPI) {
 			});
 			orchestrationRun.record("team.batch.started", { jobs: jobs.map((job) => job.agent) });
 			onUpdate?.({ content: [{ type: "text", text: `Dispatching ${jobs.length} independent TEAM tasks concurrently...` }] });
-			const results = await Promise.all(jobs.map(async (job) => {
-				orchestrationRun.consumeStep();
-				try {
-					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-					return { agent: job.agent, task: job.task, status: result.exitCode === 0 ? "done" : "error", ...result };
-				} catch (error: any) {
-					return { agent: job.agent, task: job.task, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };
-				}
-			}));
+			const results = Array(jobs.length) as Array<any>;
+			for (const wave of scheduleResourceWaves(jobs, jobs.length)) {
+				await Promise.all(wave.map(async (index) => {
+					const job = jobs[index];
+					orchestrationRun.consumeStep();
+					try {
+						const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
+						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 ? "done" : "error", ...result };
+					} catch (error: any) {
+						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };
+					}
+				}));
+			}
 			const failed = results.filter((result) => result.status !== "done").length;
 			const cancelled = signal?.aborted || results.some((result) => result.exitCode === 130);
 			orchestrationRun.record("team.batch.completed", { total: results.length, failed, cancelled });

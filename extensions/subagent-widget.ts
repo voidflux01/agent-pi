@@ -26,6 +26,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { formatDuration } from "./lib/duration-format.ts";
 import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
+import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
@@ -769,6 +770,7 @@ export default function (pi: ExtensionAPI) {
 				name: Type.Optional(Type.String({ description: "Short role label (e.g. REVIEWER, SCOUT). If this matches a known agent definition, that agent's model/tools/prompt are auto-applied." })),
 				summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 				model: Type.Optional(Type.String({ description: "Model override. Only set to override the agent definition's default model." })),
+				resources: Type.Optional(Type.Array(Type.String({ maxLength: 160 }), { maxItems: 16, description: "Shared resource keys; agents with overlapping keys are serialized" })),
 			}), { description: "Array of agent definitions to spawn" }),
 			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
@@ -867,16 +869,28 @@ export default function (pi: ExtensionAPI) {
 				registerWidget(state);
 			}
 
+			const deferredCompletions = new Map<number, (value: string) => void>();
 			for (const state of states) {
-				state.completion = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
-					orchestrationRun: batchRun,
-					onSettled: onBatchSettled,
-					// A joined batch is one synchronous execution boundary: aborting
-					// the parent tool must reach every worker. Non-joined batches are
-					// intentionally detachable and keep running after the tool returns.
-					signal: args.join === true ? signal : undefined,
-				}))();
+				state.completion = new Promise((resolve) => deferredCompletions.set(state.id, resolve));
 			}
+			void (async () => {
+				for (const wave of scheduleResourceWaves(defs, defs.length)) {
+					await Promise.all(wave.map(async (index) => {
+						const state = states[index];
+						const result = await explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {
+							orchestrationRun: batchRun,
+							onSettled: onBatchSettled,
+							// A joined batch is one synchronous execution boundary: aborting
+							// the parent tool must reach every worker. Non-joined batches are
+							// intentionally detachable and keep running after the tool returns.
+							signal: args.join === true ? signal : undefined,
+						}))();
+						deferredCompletions.get(state.id)?.(result);
+					}));
+				}
+			})().catch((error) => {
+				for (const state of states) deferredCompletions.get(state.id)?.(`Batch scheduling failed: ${error instanceof Error ? error.message : String(error)}`);
+			});
 
 			const ids = states.map(s => `SA${s.id} (${s.name})`).join(", ");
 			if (args.join === true) {

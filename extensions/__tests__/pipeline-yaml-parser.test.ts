@@ -245,4 +245,16 @@ pipeline-b:
 		const configs = parsePipelineYaml(yaml);
 		expect(configs[0].phases[0].agents[0].task_template).toBe("$TASK with context: $CONTEXT");
 	});
+
+	it("should parse optional resource keys for parallel conflict control", () => {
+		const configs = parsePipelineYaml(`build:
+  phases:
+    - name: build
+      mode: parallel
+      agents:
+        - role: builder
+          resources: [src/app.ts, workspace]
+          task_template: "Build app"`);
+		expect(configs[0].phases[0].agents[0].resources).toEqual(["src/app.ts", "workspace"]);
+	});
 });

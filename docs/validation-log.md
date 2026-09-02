@@ -175,3 +175,4 @@ the authoritative fixture command is `node --test`.
 - TEAM parent RunContexts now record measured child token/cost usage for single and batch dispatches, keeping status and mode metrics aligned with worker consumption.
 - CHAIN and PIPELINE parent RunContexts now record measured child token/cost usage, including failed workers with persisted session usage.
 - RunContexts now combine external cancellation with a run-owned signal and cancel synchronous worker groups after local or shared actual-spend budget exhaustion; reservations remain admission-only and do not interrupt workers that own their share.
+- Resource-aware scheduling now parses optional PIPELINE resource keys and applies deterministic conflict-free waves to TEAM batches, subagent batches, and parallel PIPELINE phases; pure scheduler and parser regressions pass.

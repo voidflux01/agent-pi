@@ -4,6 +4,7 @@
 export interface PhaseAgentDef {
 	role: string;
 	task_template: string;
+	resources?: string[];
 }
 
 export interface PhaseDef {
@@ -134,6 +135,13 @@ export function parsePipelineYaml(raw: string): PipelineConfig[] {
 		if (templateUnquoted && currentAgent) {
 			currentAgent.task_template = templateUnquoted[1].replace(/\\n/g, "\n");
 			inTaskTemplate = false;
+			continue;
+		}
+
+		// Optional resource keys used to serialize conflicting parallel work.
+		const resourcesMatch = line.match(/^\s+resources:\s*\[([^\]]*)\]\s*$/);
+		if (resourcesMatch && currentAgent) {
+			currentAgent.resources = resourcesMatch[1].split(",").map((resource) => resource.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
 			continue;
 		}
 	}

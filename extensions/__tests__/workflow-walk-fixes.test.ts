@@ -97,7 +97,7 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("Promise.all(jobs.map");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("scheduleResourceWaves(jobs, jobs.length)");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resultOneLiner(result.fullOutput");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain(".slice(0, 8_000)");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "team_batch_recover"');
@@ -109,6 +109,8 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: pu.totalTokens");
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("budgetUsageExceededReason");
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("signal: AbortSignal");
+		expect(readFileSync(join(root, "lib", "resource-scheduler.ts"), "utf8")).toContain("scheduleResourceWaves");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resources: Type.Optional");
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {

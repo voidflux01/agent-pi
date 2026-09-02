@@ -71,6 +71,7 @@ import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { clearPipelineSnapshot, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
+import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -704,14 +705,9 @@ export default function (pi: ExtensionAPI) {
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
 			const results: Array<Awaited<ReturnType<typeof spawnAgent>>> = [];
-			let cursor = 0;
-			const workers = Array.from({ length: Math.min(maxParallel, agentDefs.length) }, async () => {
-				while (cursor < agentDefs.length) {
-					const i = cursor++;
-					results[i] = await launch(agentDefs[i], i);
-				}
-			});
-			await Promise.all(workers);
+			for (const wave of scheduleResourceWaves(agentDefs, maxParallel)) {
+				await Promise.all(wave.map(async (i) => { results[i] = await launch(agentDefs[i], i); }));
+			}
 			for (const r of results) {
 				outputs.push(r.output);
 				fullOutputs.push(r.fullOutput || "");
@@ -1042,6 +1038,7 @@ export default function (pi: ExtensionAPI) {
 					input: "$INPUT",
 					review: reviewOutput,
 				}),
+				...((a as any).resources ? { resources: (a as any).resources } : {}),
 			}));
 
 			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
