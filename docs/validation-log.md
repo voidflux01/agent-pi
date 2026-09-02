@@ -252,3 +252,7 @@ the authoritative fixture command is `node --test`.
   completed UNDERSTAND → PLAN → BUILD → REVIEW, all three dispatched worker
   rows reached terminal `done`, and the parent returned `PIPELINE-TASK-PASS`
   under `/budget 32000 0.25` without repository changes.
+- PIPELINE's parent prompt now explicitly forbids CHAIN and standalone dispatch
+  tools, requiring `dispatch_agents` followed by `advance_phase`; this prevents
+  mode cross-talk observed in the first real workflow attempt. The source
+  boundary regression and the full local suite pass after this change.
