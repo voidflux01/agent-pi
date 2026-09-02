@@ -22,10 +22,11 @@ the authoritative fixture command is `node --test`.
 | 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `## RESULT`, and the join preserved an explicit contract-violation warning rather than treating the output as verified evidence. |
 | 12 | NORMAL batch join:true | PASS | In an isolated `/tmp` workspace with the real provider, one parent call to `subagent_create_batch` used `join:true` for two parallel SCOUT workers; no separate `subagent_wait` call occurred, the parent returned `JOIN-TRUE-SMOKE-PASS`, and both worker journal rows/transcript archives were retained. The `--no-session` smoke intentionally had no parent composition event directory. |
 | 13 | NORMAL headless batch join:true | PASS | A repeat isolated `--no-session` real-provider smoke used one `join:true` batch call for two SCOUT workers and returned `HEADLESS-EVENTS-SMOKE-PASS`; the parent composition event directory contained run start, child starts/completions, usage, workspace delta, and terminal success. |
+| 14 | NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE | PASS | Real `opencode-go/deepseek-v4-flash` entry smoke in six isolated `/tmp` workspaces: each session called `set_mode` exactly once and returned its mode marker. All 6/6 passed; wall time was 15.8–28.1s including Pi startup, with CHAIN the slowest. No worker was started and no repository file was modified, so this is entry-path evidence rather than full workflow-performance evidence. |
 
 ## Current evidence
 
-- Full repository tests: 172 Bun passed; 947 Vitest passed; 13 skipped.
+- Full repository tests: 182 Bun passed; 954 Vitest passed; 13 skipped.
 - Orchestration budget regression coverage confirms concurrent admission
   reservations are atomic, visible in status, released on actual usage, and
   explicitly releasable when a worker produces no usage; expired reservations
@@ -179,3 +180,4 @@ the authoritative fixture command is `node --test`.
 - Resource declarations and wave membership are now included in TEAM, PIPELINE, and subagent batch RunContext events for post-run auditability.
 - Added `npm run eval:orchestration`: provider-free runtime evaluation passes independent parallel speedup, resource-conflict wave behavior, and budget cancellation; it explicitly reports that provider-backed six-mode metrics remain unmeasured.
 - Tool registry regression confirms runtime-provided schemas are preserved on discovered native-only capabilities and cannot thereby become in-process executors.
+- Real provider entry smoke for all six modes passed 6/6 in parallel isolated workspaces; the measured range includes process/provider startup and is not a substitute for task-matched workflow metrics.
