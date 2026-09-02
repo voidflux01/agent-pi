@@ -2,6 +2,7 @@
 // ABOUTME: Validates ROLE - SA{id} titles, pre-written summaries, and single top divider
 
 import { describe, it, expect } from "vitest";
+import { Box, Text } from "@mariozechner/pi-tui";
 import { renderSubagentWidget, subagentTitle, parseSubName, shouldScheduleWidgetRemoval, type SubRenderState } from "../lib/subagent-render.ts";
 
 function makeFakeTheme() {
@@ -157,6 +158,20 @@ describe("renderSubagentWidget", () => {
 
 		expect(result.lines[1]).not.toContain("\n");
 		expect(result.lines[1]).toContain("inspect files then run tests");
+	});
+
+	it("does not re-wrap lines after the widget Box applies its padding", () => {
+		const outerWidth = 32;
+		const result = renderSubagentWidget(makeState({
+			name: "VERY-LONG-REVIEWER",
+			model: "provider/very-long-model-name",
+		}), outerWidth - 2, { fg: (_color: string, text: string) => text, bold: (text: string) => text });
+		const box = new Box(1, 1, (line: string) => line);
+		box.addChild(new Text(result.lines.join("\n"), 0, 0));
+
+		const lines = box.render(outerWidth);
+		expect(lines).toHaveLength(4); // top padding, two content rows, bottom padding
+		expect(lines.every((line) => visible(line).length <= outerWidth)).toBe(true);
 	});
 });
 

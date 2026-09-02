@@ -263,7 +263,9 @@ export default function (pi: ExtensionAPI) {
 						return `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
 					});
 
-					const result = renderSubagentWidget(state, width, theme);
+					// Box(1, 1) gives Text two fewer columns than the outer widget.
+					// Render against that inner width so Text does not wrap the line again.
+					const result = renderSubagentWidget(state, Math.max(1, width - 2), theme);
 					content.setText(result.lines.join("\n"));
 					return box.render(width);
 				},

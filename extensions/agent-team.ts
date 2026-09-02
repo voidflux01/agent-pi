@@ -409,7 +409,8 @@ export default function (pi: ExtensionAPI) {
 						summaryLines: state.summaryLines,
 						model: state.resolvedModel || state.def.model || undefined,
 					};
-					const result = renderSubagentWidget(renderState, width, theme);
+					// Box(1, 1) gives Text two fewer columns than the outer widget.
+					const result = renderSubagentWidget(renderState, Math.max(1, width - 2), theme);
 					content.setText(result.lines.join("\n"));
 					return box.render(width);
 				},
@@ -987,7 +988,8 @@ export default function (pi: ExtensionAPI) {
 				model: model || undefined,
 			};
 
-			const rendered = renderSubagentWidget(renderState, options.width || 80, theme);
+			const outerWidth = options.width || 80;
+			const rendered = renderSubagentWidget(renderState, Math.max(1, outerWidth - 2), theme);
 			const bg = STATUS_BG[status] || STATUS_BG.running;
 			const bgFn = (text: string): string => `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
 			const box = new Box(1, 1, bgFn);
