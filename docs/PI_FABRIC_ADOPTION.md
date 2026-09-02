@@ -234,6 +234,9 @@ worker lifecycle boundaries.
   resource keys. Jobs with overlapping keys are scheduled in separate bounded
   waves; jobs without keys retain the existing parallel behavior. This makes
   file/service ownership explicit without sacrificing safe independent fan-out.
+- Resource declarations and chosen wave membership are recorded in the parent
+  RunContext, so a later audit can explain why work ran concurrently or was
+  serialized.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

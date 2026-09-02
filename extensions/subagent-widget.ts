@@ -848,6 +848,7 @@ export default function (pi: ExtensionAPI) {
 				budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },
 				workspaceCwd: contextCwd(ctx),
 			});
+			batchRun.record("subagent.batch.started", { agents: defs.map((def: any) => ({ name: def.name, ...(def.resources ? { resources: def.resources } : {}) })) });
 			let batchRemaining = states.length;
 			let batchFailed = false;
 			let batchCancelled = false;
@@ -874,7 +875,8 @@ export default function (pi: ExtensionAPI) {
 				state.completion = new Promise((resolve) => deferredCompletions.set(state.id, resolve));
 			}
 			void (async () => {
-				for (const wave of scheduleResourceWaves(defs, defs.length)) {
+				for (const [waveIndex, wave] of scheduleResourceWaves(defs, defs.length).entries()) {
+					batchRun.record("subagent.batch.wave", { wave: waveIndex, jobs: wave.map((index) => ({ index, name: defs[index].name, ...(defs[index].resources ? { resources: defs[index].resources } : {}) })) });
 					await Promise.all(wave.map(async (index) => {
 						const state = states[index];
 						const result = await explicitDispatchHandler("subagent-tool", () => spawnAgent(state, state.task, ctx, {

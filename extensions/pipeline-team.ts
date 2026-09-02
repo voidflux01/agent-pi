@@ -648,7 +648,7 @@ export default function (pi: ExtensionAPI) {
 	// ── Dispatch Agents for a Phase ──────────────
 
 	async function dispatchPhaseAgents(
-		agentDefs: { role: string; task: string }[],
+		agentDefs: { role: string; task: string; resources?: string[] }[],
 		mode: "parallel" | "sequential",
 		ctx: any,
 		parentRunId?: string,
@@ -705,7 +705,8 @@ export default function (pi: ExtensionAPI) {
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
 			const results: Array<Awaited<ReturnType<typeof spawnAgent>>> = [];
-			for (const wave of scheduleResourceWaves(agentDefs, maxParallel)) {
+			for (const [waveIndex, wave] of scheduleResourceWaves(agentDefs, maxParallel).entries()) {
+				parentRun?.record("pipeline.phase.wave", { wave: waveIndex, jobs: wave.map((index) => ({ index, role: agentDefs[index].role, ...(agentDefs[index].resources ? { resources: agentDefs[index].resources } : {}) })) });
 				await Promise.all(wave.map(async (i) => { results[i] = await launch(agentDefs[i], i); }));
 			}
 			for (const r of results) {
@@ -1050,7 +1051,7 @@ export default function (pi: ExtensionAPI) {
 				budget: { maxSteps: Math.max(1, resolved.length) },
 				workspaceCwd: ctx?.cwd,
 			});
-			orchestrationRun.record("pipeline.started", { phase: phase.def.name, mode, agents: resolved.map(a => a.role) });
+			orchestrationRun.record("pipeline.started", { phase: phase.def.name, mode, agents: resolved.map(a => ({ role: a.role, ...((a as any).resources ? { resources: (a as any).resources } : {}) })) });
 			orchestrationRun.consumeStep();
 			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
 			try {

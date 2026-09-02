@@ -1031,10 +1031,11 @@ export default function (pi: ExtensionAPI) {
 				budget: { maxSteps: jobs.length },
 				workspaceCwd: ctx?.cwd,
 			});
-			orchestrationRun.record("team.batch.started", { jobs: jobs.map((job) => job.agent) });
+			orchestrationRun.record("team.batch.started", { jobs: jobs.map((job) => ({ agent: job.agent, ...(job.resources ? { resources: job.resources } : {}) })) });
 			onUpdate?.({ content: [{ type: "text", text: `Dispatching ${jobs.length} independent TEAM tasks concurrently...` }] });
 			const results = Array(jobs.length) as Array<any>;
-			for (const wave of scheduleResourceWaves(jobs, jobs.length)) {
+			for (const [waveIndex, wave] of scheduleResourceWaves(jobs, jobs.length).entries()) {
+				orchestrationRun.record("team.batch.wave", { wave: waveIndex, jobs: wave.map((index) => ({ index, agent: jobs[index].agent, ...(jobs[index].resources ? { resources: jobs[index].resources } : {}) })) });
 				await Promise.all(wave.map(async (index) => {
 					const job = jobs[index];
 					orchestrationRun.consumeStep();

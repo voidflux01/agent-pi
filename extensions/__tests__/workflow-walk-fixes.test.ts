@@ -111,6 +111,8 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("signal: AbortSignal");
 		expect(readFileSync(join(root, "lib", "resource-scheduler.ts"), "utf8")).toContain("scheduleResourceWaves");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resources: Type.Optional");
+		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('"team.batch.wave"');
+		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain('"pipeline.phase.wave"');
 	});
 
 	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {
