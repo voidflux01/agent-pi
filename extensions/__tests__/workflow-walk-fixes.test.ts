@@ -96,6 +96,9 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("recovery can ask it to advance instead of repeating side effects");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("const resumable = snapshot && pipelineConfigs.some");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).not.toContain("// Wipe pipeline session files");
+		const team = readFileSync(join(root, "agent-team.ts"), "utf8");
+		expect(team).toContain("const teamSessionNames = new Set");
+		expect(team).not.toContain('if (f.endsWith(".json"))');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');

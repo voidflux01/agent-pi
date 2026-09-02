@@ -1615,17 +1615,20 @@ ${agentCatalog}`,
 		});
 		contextWindow = _ctx.model?.contextWindow || 0;
 
-		// Wipe old agent session files so subagents start fresh
+		loadAgents(_ctx.cwd);
+
+		// Clear only TEAM-owned role sessions. This directory is shared with
+		// CHAIN/PIPELINE and their durable snapshots; deleting every JSON file
+		// here would destroy recovery material owned by those modes.
 		const sessDir = join(_ctx.cwd, ".pi", "agent-sessions");
+		const teamSessionNames = new Set(allAgentDefs.map((def) => `${def.name.toLowerCase().replace(/\s+/g, "-")}.json`));
 		if (existsSync(sessDir)) {
 			for (const f of readdirSync(sessDir)) {
-				if (f.endsWith(".json")) {
+				if (teamSessionNames.has(f)) {
 					try { unlinkSync(join(sessDir, f)); } catch {}
 				}
 			}
 		}
-
-		loadAgents(_ctx.cwd);
 
 		const preferred = defaultTeamName(teams);
 		if (preferred) {
