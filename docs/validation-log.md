@@ -214,3 +214,7 @@ the authoritative fixture command is `node --test`.
 - Herdr handoff E2E passed with `PI_OFFLINE=1`: an isolated real Pi TUI
   discovered the unfinished handoff, rendered `/handoff` with its objective
   and next action, and preserved the durable snapshot without provider usage.
+- A low-cost real Herdr PLAN task passed with `/budget 8000 0.10`: the TUI
+  executed `set_mode → show_plan → result`, returned `PLAN-TASK-PASS`, made no
+  file changes, and created no worker journal, confirming the interactive PLAN
+  path without launching additional agents.
