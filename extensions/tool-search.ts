@@ -22,7 +22,7 @@ const ToolSearchParams = Type.Object({
 // ── Formatting Helpers ─────────────────────────────────────────────────
 
 function formatToolCompact(entry: ToolEntry): string {
-	return `• ${entry.name} [${entry.category}] — ${entry.parameterSummary}`;
+	return `• ${entry.name} [${entry.category} · ${entry.classification.label}] — ${entry.parameterSummary}`;
 }
 
 function formatToolDetailed(entry: ToolEntry): string {
@@ -32,6 +32,8 @@ function formatToolDetailed(entry: ToolEntry): string {
 		``,
 		`**Label:** ${entry.label}`,
 		`**Category:** ${entry.category}`,
+		`**Intent:** ${entry.classification.label} (${entry.classification.intent})`,
+		`**Read-only:** ${entry.classification.readOnly ? "yes" : "no"}`,
 		`**Source:** ${entry.source}`,
 		...(capability ? [
 				`**Capability:** ${capability.ref}`,

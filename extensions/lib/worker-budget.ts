@@ -3,6 +3,10 @@
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
 
 export const IMPLEMENTATION_WORKER_MAX_TOOLS = 48;
+export const REVIEW_WORKER_MAX_TOOLS = 20;
+export const PLANNER_MAX_TOOLS = 32;
+export const DEFAULT_PLANNER_TIMEOUT_MS = 120_000;
+export const DEFAULT_REVIEW_TIMEOUT_MS = 120_000;
 export const IMPLEMENTATION_WORKER_THINKING = "low";
 
 export type WorkerThinking = "low" | "medium" | "high";
@@ -28,8 +32,8 @@ const THINKING_BY_NAME: Record<string, WorkerThinking> = {
 	"skill-expert": "medium",
 	"theme-expert": "medium",
 	"tui-expert": "medium",
-	planner: "high",
-	reviewer: "high",
+	planner: "medium",
+	reviewer: "medium",
 	warden: "high",
 	knight: "high",
 	"red-team": "high",
@@ -57,6 +61,11 @@ export function isExecutionWorker(name: string): boolean {
 	return isImplementationWorker(n) || n === "paladin" || n === "herald" || n === "tester";
 }
 
+export function isReviewWorker(name: string): boolean {
+	const n = normalize(name);
+	return n === "reviewer" || n.endsWith("-reviewer");
+}
+
 export function workerThinkingLevel(name: string): WorkerThinking | undefined {
 	const n = normalize(name);
 	if (isToolkitWorker(n)) return undefined;
@@ -73,8 +82,19 @@ Cosmetic constraints are secondary to a green verification.
 Hard stop after ${IMPLEMENTATION_WORKER_MAX_TOOLS} tool calls.`;
 }
 
+export function reviewWorkerPrompt(): string {
+	return `\n\n## Review stop condition\nPerform one focused review pass over the supplied handoff. First follow the task's explicit acceptance check; do not invent broader checks. If the workspace is not a Git repository, do not run git diff or treat Git metadata as a prerequisite. Run only the checks needed to support a concrete APPROVED or NEEDS CHANGES decision. Do not repeatedly re-read files, rerun identical checks, polish prose, or investigate unrelated issues. Emit the required ## RESULT block immediately after that decision. Hard stop after ${REVIEW_WORKER_MAX_TOOLS} tool calls.`;
+}
+
 export function workerHitToolCap(name: string, toolCount: number): boolean {
+	if (isReviewWorker(name)) return toolCount >= REVIEW_WORKER_MAX_TOOLS;
+	if (normalize(name) === "planner") return toolCount >= PLANNER_MAX_TOOLS;
 	return isExecutionWorker(name) && toolCount >= IMPLEMENTATION_WORKER_MAX_TOOLS;
+}
+
+export function workerTimeoutMs(name: string): number | undefined {
+	if (normalize(name) === "planner") return DEFAULT_PLANNER_TIMEOUT_MS;
+	return isReviewWorker(name) ? DEFAULT_REVIEW_TIMEOUT_MS : undefined;
 }
 
 /** Insert --thinking when this role has a pinned level. No wall-clock kill. */

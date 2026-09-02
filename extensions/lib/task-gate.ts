@@ -2,6 +2,7 @@
 // ABOUTME: NORMAL lists are strict by default; set PI_TASKS_STRICT=0 for advisory.
 
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
+import { RECON_TOOL_NAMES } from "./tool-classification.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
 	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "dispatch_team_batch", "team_batch_recover", "subagent_wait", "ask_user", "run_chain",
@@ -11,7 +12,7 @@ export const TASK_GATE_BYPASS_TOOLS = [
 /** Non-read-only workflow tools that require an active task in orchestration modes. */
 export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "dispatch_team_batch", "run_chain", "advance_phase", "compose_exec"] as const;
 
-export const READ_ONLY_BYPASS_TOOLS = ["read", "grep", "find", "ls", "glob"] as const;
+export const READ_ONLY_BYPASS_TOOLS = RECON_TOOL_NAMES;
 
 /** Modes where task tracking is part of the workflow contract. */
 export const TASK_REQUIRED_MODES = ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;

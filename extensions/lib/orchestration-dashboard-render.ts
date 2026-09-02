@@ -23,6 +23,26 @@ export interface DashboardInput {
 
 const short = (value: string, max: number): string => value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
 
+// Theme implementations wrap rows in ANSI sequences. Count only printable
+// characters when fitting a row so a narrow terminal cannot split a color code.
+function fitStyled(value: string, width: number): string {
+	if (!value.includes("\x1b")) return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`;
+	let visible = 0;
+	let end = value.length;
+	for (let i = 0; i < value.length;) {
+		if (value[i] === "\x1b") {
+			const match = value.slice(i).match(/^\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/);
+			if (match) { i += match[0].length; continue; }
+		}
+		if (visible === width) { end = i; break; }
+		visible += 1;
+		i += [...value.slice(i)][0]?.length || 1;
+	}
+	if (end === value.length) return value;
+	const clipped = value.slice(0, end);
+	return `${clipped}\x1b[0m`;
+}
+
 function age(iso?: string): string {
 	if (!iso) return "--";
 	const ms = Date.now() - Date.parse(iso);
@@ -47,7 +67,7 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 	}
 	if (input.runs.length === 0) {
 		lines.push(theme.fg("muted", "No persisted runs · /orchestration-status for details"));
-		return lines.map((line) => line.slice(0, usable));
+		return lines.map((line) => fitStyled(line, usable));
 	}
 	lines.push(theme.fg("muted", `Recent ${Math.min(input.runs.length, input.limit)} · refresh 2s`));
 	for (const run of input.runs.slice(0, input.limit)) {
@@ -63,8 +83,21 @@ export function renderOrchestrationDashboard(input: DashboardInput, width: numbe
 			: "";
 		const recovery = run.status === "stale" ? ` ${run.recoveryAction === "subagent-resume" ? `resume:${short(run.recoveryDispatchId || "?", 12)}` : run.recoveryAction || "inspect"}` : "";
 		const failure = run.failureCause ? ` ${short(run.failureCause, 12)}` : "";
-		const line = `${status} ${short(run.actor, 18).padEnd(18)}${mode}${tool} ${duration.padStart(4)} ${run.eventCount}e${usage}${verification}${files}${failure}${recovery} ${short(run.runId, 16)}${parent}`;
-		lines.push(theme.fg(run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text", line).slice(0, usable));
+		const fields = [
+			`${status} ${short(run.actor, 18)}`,
+			mode.trim(),
+			tool.trim(),
+			`${duration} · ${run.eventCount}e`,
+			usage.trim(),
+			verification.trim(),
+			files.trim(),
+			failure.trim(),
+			recovery.trim(),
+			short(run.runId, 16) + parent,
+		].filter(Boolean);
+		const line = fields.join(" · ");
+		const color = run.status === "failed" ? "error" : run.status === "succeeded" ? "success" : run.status === "stale" ? "warning" : "text";
+		lines.push(fitStyled(theme.fg(color, line), usable));
 	}
 	return lines;
 }

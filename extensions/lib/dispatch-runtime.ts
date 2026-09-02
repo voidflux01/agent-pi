@@ -343,10 +343,18 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			return { exitCode: 1, stderr: "Timed out waiting for Herdr output", failure: "timeout", transport: "herdr" };
 		}
 		const outputText = spec.sessionFile ? readLastAssistantText(spec.sessionFile).text : undefined;
-		const failure = exitCode === 0 ? classifyHerdrSession(spec.sessionFile) : classifyFailure("", "exit_code");
+		// A Herdr pane can write a successful process marker even when Pi's
+		// agent turn failed before producing an assistant message. Treat that as
+		// a failed dispatch; otherwise CHAIN/PIPELINE would mark an empty worker
+		// as done and pass an unusable handoff to the next phase.
+		const sessionFailure = classifyHerdrSession(spec.sessionFile);
+		const failure = exitCode === 0
+			? sessionFailure || (!outputText?.trim() ? "process_error" : undefined)
+			: classifyFailure("", "exit_code");
 		terminalStatus = exitCode === 0 && !failure ? "done" : "error";
-		updateJournal(spec, { status: terminalStatus, exitCode, ...(failure ? { failure } : {}) });
-		return { exitCode, stderr: "", ...(failure ? { failure } : {}), outputText, transport: "herdr" };
+		const effectiveExitCode = failure ? 1 : exitCode;
+		updateJournal(spec, { status: terminalStatus, exitCode: effectiveExitCode, ...(failure ? { failure } : {}) });
+		return { exitCode: effectiveExitCode, stderr: "", ...(failure ? { failure } : {}), outputText, transport: "herdr" };
 	} catch (error) {
 		if (updateTimer) clearInterval(updateTimer);
 		if (ownedByHerdr) {

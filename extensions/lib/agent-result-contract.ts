@@ -19,6 +19,37 @@ export const FALLBACK_HEAD_CHARS = 1000;
 export const MAX_RESULT_CHARS = 3500;
 /** Maximum transcript preview retained in structured tool details. */
 export const MAX_OUTPUT_PREVIEW_CHARS = 4000;
+export const MAX_HANDOFF_CHARS = 6000;
+
+/** Keep the next phase small while retaining both result and archive pointer. */
+export function boundedHandoff(text: string, maxChars = MAX_HANDOFF_CHARS): string {
+	const value = String(text || "");
+	if (value.length <= maxChars) return value;
+	const marker = "\n... [handoff truncated; full transcript preserved on disk] ...\n";
+	const available = Math.max(0, maxChars - marker.length);
+	const head = Math.ceil(available * 0.6);
+	return value.slice(0, head) + marker + value.slice(-(available - head));
+}
+
+/**
+ * Build the next-step handoff without replaying an unstructured transcript.
+ * A worker that omitted ## RESULT still has a complete archive for recovery,
+ * but its noisy fallback (tool help, repeated logs, and raw diffs) must not
+ * become instructions for the next worker.
+ */
+export function compactHandoff(opts: {
+	agent: string;
+	status: "done" | "error";
+	elapsedMs: number;
+	model?: string;
+	composed: ComposedAgentResult;
+	fullOutputPath: string;
+}): string {
+	if (opts.composed.usedResult) return boundedHandoff(opts.composed.content);
+	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
+	const archive = opts.fullOutputPath ? `\nFull transcript: ${opts.fullOutputPath}` : "";
+	return `${header}\n\nRESULT contract missing; do not infer completion from this worker. Read the archived transcript only if the next decision requires it.${archive}`;
+}
 
 /** Keep UI previews useful without putting the archived transcript in context. */
 export function boundedOutputPreview(text: string, maxChars = MAX_OUTPUT_PREVIEW_CHARS): string {

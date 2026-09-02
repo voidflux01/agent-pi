@@ -30,7 +30,7 @@ export interface TaskJournalEntry {
 	task: string;
 	model?: string;
 	/** Token/cost totals for the finished run (summed from the session file). */
-	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number };
+	usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number; /** Tokens counted against dispatch admission; excludes reusable cache reads. */ budgetTokens?: number };
 	cwd?: string;
 	/** Pi session file — enables `-c` resume after a parent restart. */
 	sessionFile?: string;

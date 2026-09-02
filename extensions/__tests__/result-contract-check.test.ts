@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
 	checkResultCompliance,
+	boundedHandoff,
 	boundedOutputPreview,
+	compactHandoff,
 	composeAgentResult,
 	contractGateEnabled,
 } from "../lib/agent-result-contract.ts";
@@ -89,6 +91,14 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content).not.toContain("Do not read this file unless");
 	});
 
+	test("keeps an unstructured worker fallback out of the next handoff", () => {
+		const composed = composeAgentResult({ ...base, outputText: "git diff help noise" });
+		const handoff = compactHandoff({ ...base, composed });
+		expect(handoff).toContain("RESULT contract missing");
+		expect(handoff).toContain("/tmp/x.txt");
+		expect(handoff).not.toContain("git diff help noise");
+	});
+
 	test("skipContract treats raw toolkit output as the result", () => {
 		const out = composeAgentResult({ ...base, outputText: "PONG", skipContract: true });
 		expect(out.usedResult).toBe(true);
@@ -113,6 +123,13 @@ describe("composeAgentResult contract gate", () => {
 });
 
 describe("bounded structured-output previews", () => {
+	test("bounds phase handoffs while preserving the archive tail", () => {
+		const handoff = boundedHandoff("head".repeat(1000) + "ARCHIVE_POINTER", 120);
+		expect(handoff.length).toBeLessThanOrEqual(120);
+		expect(handoff).toContain("handoff truncated");
+		expect(handoff).toContain("ARCHIVE_POINTER");
+	});
+
 	test("preserves short previews exactly", () => {
 		expect(boundedOutputPreview("short")).toBe("short");
 	});

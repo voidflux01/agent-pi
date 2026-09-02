@@ -53,14 +53,14 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
-import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt, workerHitToolCap, workerTimeoutMs } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
@@ -506,7 +506,7 @@ export default function (pi: ExtensionAPI) {
 			"-p",
 			"--model", model,
 			"--tools", workerTools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "") + (agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 
@@ -549,7 +549,7 @@ export default function (pi: ExtensionAPI) {
 				let composed = output;
 				try {
 					fullOutputPath = persistFullOutput(sessionDir, runBaseName(agentKey, agentState.index + 1), output);
-					composed = composeAgentResult({
+					const composedResult = composeAgentResult({
 						agent: agentDef.name,
 						status: agentState.status,
 						exitCode: code,
@@ -558,7 +558,8 @@ export default function (pi: ExtensionAPI) {
 						outputText: output,
 						fullOutputPath,
 						maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
-					}).content;
+					});
+					composed = compactHandoff({ agent: agentDef.name, status: agentState.status, elapsedMs: agentState.elapsed, model, composed: composedResult, fullOutputPath });
 				} catch {
 					composed = output; // persistence failure must never lose the result itself
 					fullOutputPath = "";
@@ -576,7 +577,7 @@ export default function (pi: ExtensionAPI) {
 					outputFile: fullOutputPath || undefined,
 					usage: pu && pu.assistantMessages > 0 ? {
 						input: pu.input, output: pu.output, cacheRead: pu.cacheRead, cacheWrite: pu.cacheWrite,
-						totalTokens: pu.totalTokens, costUsd: Math.round(pu.costUsd * 1e6) / 1e6,
+						totalTokens: pu.totalTokens, budgetTokens: pu.input + pu.output + pu.cacheWrite, costUsd: Math.round(pu.costUsd * 1e6) / 1e6,
 					} : undefined,
 				});
 
@@ -601,7 +602,7 @@ export default function (pi: ExtensionAPI) {
 				launchId: journalId,
 				parentRunId,
 				mode: "PIPELINE",
-				pollTimeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
+				pollTimeoutMs: workerTimeoutMs(agentDef.name) ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 				sessionFile: agentSessionFile,
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
@@ -900,7 +901,9 @@ export default function (pi: ExtensionAPI) {
 			if (currentPhaseIndex === 0) {
 				taskSummary = summary;
 			}
-			accContext += `\n\n## Phase ${currentPhaseIndex + 1}: ${phaseStates[currentPhaseIndex].def.name}\n${summary}`;
+			accContext = boundedHandoff(
+				`## Phase ${currentPhaseIndex + 1}: ${phaseStates[currentPhaseIndex].def.name}\n${summary}\n\n${accContext}`,
+			);
 
 			let nextIndex = currentPhaseIndex + 1;
 			if (skip_to) {
@@ -1040,7 +1043,7 @@ export default function (pi: ExtensionAPI) {
 					task: taskSummary,
 					context: accContext,
 					plan: planOutput,
-					input: "$INPUT",
+					input: boundedHandoff(accContext || taskSummary),
 					review: reviewOutput,
 				}),
 				...((a as any).resources ? { resources: (a as any).resources } : {}),
@@ -1077,7 +1080,7 @@ export default function (pi: ExtensionAPI) {
 			const outputSummary = mergedOutput.length > 3000
 				? mergedOutput.slice(0, 3000) + "\n\n... [output truncated, full output was " + mergedOutput.length + " chars]"
 				: mergedOutput;
-			accContext += `\n\n## Phase ${currentPhaseIndex + 1} Agent Output:\n${outputSummary}`;
+			accContext = boundedHandoff(`## Phase ${currentPhaseIndex + 1} Agent Handoff\n${outputSummary}`);
 
 			// Store plan output if this is the plan phase
 			if (phase.def.name.toLowerCase() === "plan") {

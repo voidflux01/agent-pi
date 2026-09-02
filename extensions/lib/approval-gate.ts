@@ -162,7 +162,7 @@ function nestedCallTool(args: unknown): { toolName: string; args: unknown } | un
 const READ_ONLY_BASH_BINS = new Set([
 	"date", "uname", "pwd", "whoami", "hostname", "wc", "echo", "printf",
 	"true", "false", "basename", "dirname", "nproc", "arch", "id", "printenv",
-	"cd", "ls", "find", "grep", "rg", "head", "tail", "sort", "cut", "tr",
+	"cd", "ls", "find", "grep", "rg", "ffgrep", "head", "tail", "sort", "cut", "tr",
 	"cat", "file", "stat", "du", "df", "realpath",
 ]);
 

@@ -3,6 +3,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerDiscoveredCapability } from "./lib/capability-registry.ts";
+import { classifyTool, type ToolClassification } from "./lib/tool-classification.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -11,6 +12,7 @@ export interface ToolEntry {
 	label: string;
 	description: string;
 	category: string;
+	classification: ToolClassification;
 	tags: string[];
 	source: "builtin" | "extension" | "skill";
 	parameterSummary: string;
@@ -21,7 +23,7 @@ export interface ToolEntry {
 const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[] = [
 	{
 		category: "filesystem",
-		names: ["read", "write", "edit", "ls", "find", "grep"],
+		names: ["read", "write", "edit", "ls", "find", "grep", "ffgrep"],
 		keywords: ["file", "directory", "path", "read", "write", "edit"],
 	},
 	{
@@ -31,8 +33,23 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "testing",
-		names: ["debug_capture"],
+		names: ["debug_capture", "verify_execution"],
 		keywords: ["test", "screenshot", "capture", "audit"],
+	},
+	{
+		category: "network",
+		names: ["agent_browser", "fetch_content", "get_search_content", "mcp", "mcpScript", "network_inspect", "safe_port_scan", "security_news", "source_check", "web_search"],
+		keywords: ["network", "mcp", "web", "http", "url", "browser", "database", "redis", "sql"],
+	},
+	{
+		category: "memory",
+		names: ["memory_correct", "memory_feedback", "memory_search", "memory_store_result", "recall", "save_research"],
+		keywords: ["memory", "recall", "research session"],
+	},
+	{
+		category: "database",
+		names: ["dbx_dbx_add_connection", "dbx_dbx_close_session", "dbx_dbx_describe_table", "dbx_dbx_duplicate_connection", "dbx_dbx_execute_and_show", "dbx_dbx_execute_query", "dbx_dbx_execute_redis_command", "dbx_dbx_get_schema_context", "dbx_dbx_list_connections", "dbx_dbx_list_tables", "dbx_dbx_open_session", "dbx_dbx_open_table", "dbx_dbx_remove_connection"],
+		keywords: ["database", "dbx", "sql", "redis", "table", "connection"],
 	},
 	{
 		category: "ui",
@@ -46,8 +63,13 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "workflow",
-		names: ["tasks", "set_mode", "advance_phase", "dispatch_agents", "pipeline_status", "run_chain", "cycle_memory"],
+		names: ["tasks", "set_mode", "advance_phase", "dispatch_agents", "pipeline_status", "run_chain", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover", "resume_handoff"],
 		keywords: ["task", "mode", "pipeline", "phase", "workflow", "chain"],
+	},
+	{
+		category: "ui",
+		names: ["ask_user_question", "close_viewer", "preview_export", "show_board", "show_cleanup", "show_reports", "show_research", "show_security_report", "show_sounds"],
+		keywords: ["viewer", "browser", "display", "screenshot", "interactive"],
 	},
 ];
 
@@ -105,7 +127,7 @@ function extractTags(name: string, description: string): string[] {
 
 // ── Source Detection ─────────────────────────────
 
-const BUILTIN_TOOLS = ["read", "write", "edit", "bash", "ls", "find", "grep"];
+const BUILTIN_TOOLS = ["read", "write", "edit", "bash", "ls", "find", "grep", "ffgrep"];
 
 function detectSource(name: string): ToolEntry["source"] {
 	if (BUILTIN_TOOLS.includes(name)) return "builtin";
@@ -152,6 +174,7 @@ export class ToolRegistry {
 				label: tool.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
 				description: desc,
 				category: detectCategory(tool.name, desc),
+				classification: classifyTool(tool.name, desc),
 				tags: extractTags(tool.name, desc),
 				source: detectSource(tool.name),
 				parameterSummary: summarizeParameters(desc),

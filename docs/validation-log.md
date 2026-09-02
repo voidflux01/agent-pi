@@ -309,3 +309,11 @@ the authoritative fixture command is `node --test`.
   render suite passes 41/41 and the full suite passes 183 Bun tests plus 965
   Vitest tests (13 skipped), preventing multiline task text from disturbing
   the parent TUI layout.
+- Native-only MCP integration verification (2026-09-02) passed: a real Pi
+  session launched through Herdr with all extensions enabled and an isolated
+  stdio MCP server that exits with code 17. `/mcp` surfaced the server as
+  failed/disconnected, and the workspace/config were cleaned up afterward.
+  The composition regression also passed: a discovered `mcp__...` capability
+  was blocked before execution, while approval, security, timeout, cancel, and
+  audit boundary tests passed in the same targeted run (69 tests, 0 failures).
+  No provider model request or business MCP tool was used.

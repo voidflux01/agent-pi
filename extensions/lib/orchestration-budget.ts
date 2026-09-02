@@ -137,10 +137,10 @@ function readBudgetState(file: string, now = Date.now()): { totalTokens: number;
 	return { totalTokens, costUsd, reservedTokens, reservedCostUsd, reservations };
 }
 
-export function recordBudgetUsage(sourceRunId: string, usage: { totalTokens?: number; costUsd?: number }): boolean {
+export function recordBudgetUsage(sourceRunId: string, usage: { totalTokens?: number; budgetTokens?: number; costUsd?: number }): boolean {
 	const budget = activeOrchestrationBudget();
 	if (!budget || !sourceRunId) return false;
-	const tokens = Number(usage.totalTokens ?? 0);
+		const tokens = Number(usage.budgetTokens ?? usage.totalTokens ?? 0);
 	const costUsd = Number(usage.costUsd ?? 0);
 	if (!Number.isFinite(tokens) || !Number.isFinite(costUsd) || tokens < 0 || costUsd < 0) return false;
 	try {

@@ -55,6 +55,19 @@ describe("compose_exec", () => {
 		expect(result.details.results[0].error).toContain("recursion");
 	});
 
+	test("keeps discovered MCP tools on Pi's native execution path", async () => {
+		const registered: any[] = [];
+		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
+		registerDiscoveredCapability({ name: "mcp__isolated__probe", provider: "mcp", description: "An isolated native MCP probe" });
+		composeExec(fakePi);
+		const tool = registered.find((entry) => entry.name === "compose_exec");
+		const result = await tool.execute("outer", { steps: [{ tool: "mcp__isolated__probe" }] }, undefined, undefined, { cwd: process.cwd() });
+
+		expect(result.details).toMatchObject({ total: 1, completed: 0, failed: 1 });
+		expect(result.details.results[0]).toMatchObject({ tool: "mcp__isolated__probe", status: "blocked" });
+		expect(result.details.results[0].error).toContain("in-process execution");
+	});
+
 	test("blocks conflicting non-commutative parallel capabilities", async () => {
 		const registered: any[] = [];
 		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };

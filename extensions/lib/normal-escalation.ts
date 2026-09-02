@@ -1,7 +1,9 @@
 // ABOUTME: Runtime guard that nudges NORMAL out of unbounded read-only exploration.
 // ABOUTME: Keeps simple work frictionless while requiring a low-cost scout after a recon loop.
 
-export const NORMAL_RECON_TOOLS = ["read", "grep", "find", "ls", "glob"] as const;
+import { isReconTool } from "./tool-classification.ts";
+
+export const NORMAL_RECON_TOOLS = ["read", "grep", "ffgrep", "find", "ls", "glob"] as const;
 export const NORMAL_RECON_LIMIT = 8;
 
 export interface NormalEscalationState {
@@ -17,7 +19,7 @@ export function resetNormalEscalation(state: NormalEscalationState): void {
 }
 
 export function isNormalReconTool(toolName: string): boolean {
-	return (NORMAL_RECON_TOOLS as readonly string[]).includes(toolName);
+	return isReconTool(toolName);
 }
 
 /** Conservative classification for shell-based repository reconnaissance. */
@@ -34,7 +36,7 @@ export function isNormalReconCall(toolName: string, args?: unknown): boolean {
 	if (/(^|\s)(rm|mv|cp|mkdir|touch|tee)\b|sed\s+-i\b|perl\s+-i\b|git\s+(add|commit|reset|checkout|switch|clean)\b|\b(npm|bun|pnpm|yarn)\s+(install|test|run)\b|(?:>>|>)/i.test(command)) {
 		return false;
 	}
-	return /(^|\s)(rg|grep|find|ls|fd|sed|head|tail|cat|awk|sort|wc|pwd|git)\b/i.test(command);
+	return /(^|\s)(rg|grep|ffgrep|find|ls|fd|sed|head|tail|cat|awk|sort|wc|pwd|git)\b/i.test(command);
 }
 
 /**

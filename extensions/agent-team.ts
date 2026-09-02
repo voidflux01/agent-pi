@@ -754,7 +754,7 @@ export default function (pi: ExtensionAPI) {
 					outputFile: fullOutputPath || undefined,
 					usage: tu && tu.totalTokens > 0 ? {
 						input: tu.input, output: tu.output, cacheRead: tu.cacheRead, cacheWrite: tu.cacheWrite,
-						totalTokens: tu.totalTokens, costUsd: Math.round(tu.costUsd * 1e6) / 1e6,
+						totalTokens: tu.totalTokens, budgetTokens: tu.input + tu.output + tu.cacheWrite, costUsd: Math.round(tu.costUsd * 1e6) / 1e6,
 					} : undefined,
 				});
 

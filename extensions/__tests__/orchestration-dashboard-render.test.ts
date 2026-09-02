@@ -28,8 +28,20 @@ describe("orchestration dashboard renderer", () => {
 		expect(lines[3]).toContain("PLAN");
 		expect(lines[3]).toContain("Δ1");
 		expect(lines[3]).toContain("1,234tok/$0.0123");
+		expect(lines[3]).toContain("· PLAN ·");
 		expect(lines[4]).toContain("✗");
 		expect(lines[3].length).toBeLessThanOrEqual(80);
+	});
+
+	test("fits ANSI-colored rows by visible width", () => {
+		const ansiTheme = { fg: (color: string, text: string) => `\x1b[31m${text}\x1b[0m`, bold: (text: string) => text };
+		const lines = renderOrchestrationDashboard({
+			limit: 1,
+			runs: [{ runId: "very-long-run-id", actor: "tool-runtime", mode: "NORMAL", toolName: "bash", status: "failed", durationMs: 1000, eventCount: 5, eventDir: "/tmp/run", failureCause: "command failed" }],
+		}, 48, ansiTheme);
+		const visible = lines[2]!.replace(/\x1b\[[0-9;]*m/g, "");
+		expect(visible.length).toBeLessThanOrEqual(48);
+		expect(lines[2]).toContain("\x1b[0m");
 	});
 
 	test("shows a bounded recovery action for stale work", () => {

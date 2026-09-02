@@ -13,6 +13,8 @@ if (!repo) throw new Error("usage: bun tools/e2e/chain-herdr-e2e.ts <repo-root>"
 const h = (args: string[]) => execFileSync("herdr", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const budgetTokens = process.env.CHAIN_E2E_BUDGET_TOKENS || "100000";
+const budgetCommand = `/budget ${budgetTokens} 0.20`;
 
 const workspace = mkdtempSync(join(tmpdir(), "chain-herdr-e2e-"));
 let workspaceId = "";
@@ -40,7 +42,7 @@ try {
 	}
 	if (!booted) throw new Error(`pi did not boot; tail=${readPane().slice(-500)}`);
 
-	send("send-text", paneId, "/budget 24000 0.20");
+	send("send-text", paneId, budgetCommand);
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
 	send("send-text", paneId, "Use set_mode to switch to CHAIN, then run_chain with chain plan-build-review for this tiny disposable task: verify that `printf chain-ok` produces chain-ok. Do not make repository changes. Wait for all three chain steps to finish, then reply exactly CHAIN-TASK-PASS.");
@@ -61,7 +63,7 @@ try {
 	if (!finalText.includes("CHAIN-TASK-PASS") || terminal.length < 3 || terminal.some((row: any) => row.status !== "done")) {
 		throw new Error(`CHAIN task incomplete; rows=${JSON.stringify(chainRows).slice(0, 1800)}; tail=${finalText.slice(-1200).replace(/\s+/g, " ")}`);
 	}
-	console.log(JSON.stringify({ status: "PASS", mode: "CHAIN", providerBudget: "/budget 24000 0.20", chainRows: chainRows.length }));
+	console.log(JSON.stringify({ status: "PASS", mode: "CHAIN", providerBudget: budgetCommand, chainRows: chainRows.length }));
 } finally {
 	closeHerdrWorkspace(workspaceId);
 	rmSync(workspace, { recursive: true, force: true });

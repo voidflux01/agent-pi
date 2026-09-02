@@ -33,6 +33,14 @@ describe("orchestration budget", () => {
 		expect(budgetBlockReason()).toContain("token budget exhausted");
 	});
 
+	test("uses uncached tokens for admission while retaining full usage separately", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-cache-"));
+		initOrchestrationBudget(dir, 100, 1);
+		expect(recordBudgetUsage("cached-run", { totalTokens: 1_000, budgetTokens: 40, costUsd: 0.1 })).toBe(true);
+		expect(readBudgetTotals(activeOrchestrationBudget()!.file)).toEqual({ totalTokens: 40, costUsd: 0.1 });
+		expect(budgetBlockReason()).toBeUndefined();
+	});
+
 	test("recovers a stale cross-process lock before recording usage", () => {
 		const dir = mkdtempSync(join(tmpdir(), "agent-pi-budget-"));
 		const budget = initOrchestrationBudget(dir, 1000, 1);
