@@ -738,4 +738,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
+	pi.on("session_switch", async () => {
+		cleanupServer();
+	});
 }

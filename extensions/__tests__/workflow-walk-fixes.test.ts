@@ -137,6 +137,18 @@ describe("source wiring", () => {
 		expect(pipeline).toContain('pi.on("session_switch"');
 		expect(pipeline).toContain("lifecycle.stopAll()");
 	});
+
+	it("closes session-owned viewers on session switch", () => {
+		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+		for (const file of [
+			"research-viewer.ts", "reports-viewer.ts", "sounds.ts", "spec-viewer.ts",
+			"board-viewer.ts", "file-viewer.ts", "completion-report.ts", "plan-viewer.ts",
+			"security-report.ts", "cleanup-viewer.ts",
+		]) {
+			const source = readFileSync(join(root, file), "utf8");
+			expect(source).toContain('pi.on("session_switch"');
+		}
+	});
 	it("gates advance_phase on dispatchCount", () => {
 		const src = readFileSync(join(__dirname, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("phaseRequiresAgentDispatch");

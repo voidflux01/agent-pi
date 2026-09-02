@@ -183,3 +183,5 @@ the authoritative fixture command is `node --test`.
 - Real provider entry smoke for all six modes passed 6/6 in parallel isolated workspaces; the measured range includes process/provider startup and is not a substitute for task-matched workflow metrics.
 - Session-switch source coverage confirms new sessions reset to NORMAL and stop
   CHAIN/PIPELINE-owned workers before replacement-session work can dispatch.
+- Session-switch source coverage also confirms all session-owned viewer/server
+  extensions close their local resources; the sounds viewer stops playback.

@@ -529,4 +529,8 @@ export default function (pi: ExtensionAPI) {
 		cleanupServer();
 		cleanupAllPlayback();
 	});
+	pi.on("session_switch", async () => {
+		cleanupServer();
+		cleanupAllPlayback();
+	});
 }
