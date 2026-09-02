@@ -284,3 +284,8 @@ the authoritative fixture command is `node --test`.
   terminal showed roughly 24k input tokens despite the intended 12k budget.
   The temporary harness was removed rather than kept as a misleading green
   test. No repository or user files were changed.
+- Post-run Herdr audit found two stale temporary `team-e2e` workspaces still
+  marked `working` after earlier provider attempts; both were explicitly
+  closed and the user's `flb-payment-center` workspace was left untouched.
+  This is a harness cleanup follow-up: every failure path should verify that
+  spawned Pi panes and the workspace are actually terminal before returning.
