@@ -247,3 +247,8 @@ the authoritative fixture command is `node --test`.
   PIPELINE pass. The harness now selects the first four-phase pipeline through
   the picker and expects three worker journal rows (UNDERSTAND is intentionally
   worker-free), but has not been rerun to conserve provider budget.
+- After separating PIPELINE's tool boundary from CHAIN and fixing the Herdr
+  picker-driven harness, the bounded real PIPELINE workflow passed: the TUI
+  completed UNDERSTAND → PLAN → BUILD → REVIEW, all three dispatched worker
+  rows reached terminal `done`, and the parent returned `PIPELINE-TASK-PASS`
+  under `/budget 32000 0.25` without repository changes.
