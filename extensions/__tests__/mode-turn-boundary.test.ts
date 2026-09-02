@@ -152,9 +152,11 @@ describe("set_mode turn boundary", () => {
 
 		await tools.set_mode.execute("mode-1", { mode: "PLAN" }, undefined, undefined, { abort: vi.fn(), hasUI: false });
 		markPlanApproved();
-		await handlers.session_switch({}, { hasUI: false });
+		const replacementCtx: any = { hasUI: true, ui: { setStatus: vi.fn(), setWidget: vi.fn() } };
+		await handlers.session_switch({}, replacementCtx);
 		expect(coordinationState().mode).toBe("NORMAL");
 		expect(coordinationState().planApproved).toBe(false);
+		expect(replacementCtx.ui.setStatus).toHaveBeenCalledWith("mode", "");
 		const providerResult = await handlers.before_provider_request({
 			type: "before_provider_request",
 			payload: { messages: [{ role: "system", content: "NORMAL current" }] },

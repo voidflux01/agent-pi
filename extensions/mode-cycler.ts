@@ -289,6 +289,11 @@ export default function (pi: ExtensionAPI) {
 		// mode-owned extensions a deterministic cancellation boundary for work
 		// that must not cross the session switch.
 		setCoordinationMode("NORMAL", ctx);
+		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
+			setMode(next, nextCtx || ctx);
+		};
+		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}
+		if (ctx.hasUI) ctx.ui.setStatus("mode", "");
 		// Re-apply current mode widgets after banner is shown to ensure correct rendering order
 		// The banner is shown in agent-banner.ts's session_switch handler, so we need to
 		// re-set widgets here to ensure mode-block (if any) renders before banner is re-set
