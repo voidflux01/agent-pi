@@ -292,3 +292,10 @@ the authoritative fixture command is `node --test`.
 - The shared Herdr cleanup helper then passed a provider-free live smoke:
   it created temporary workspace `w3P`, closed it, and confirmed the workspace
   was absent from `herdr workspace list` before returning.
+- A real Herdr NORMAL multi-file smoke then passed with the corrected
+  output-backed harness: an isolated task modified `greeting.ts` and
+  `greeting.test.ts`, ran `bun greeting.test.ts`, and produced the unique
+  command marker `NORMAL_FIXTURE_CHECK_7F3A_PASS` under `/budget 12000 0.15`.
+  The workspace was closed through the verified cleanup helper. The test did
+  not expose usage fields in its task journal, so token/cost metrics are not
+  claimed from this run.
