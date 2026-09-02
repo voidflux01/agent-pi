@@ -599,7 +599,7 @@ export default function (pi: ExtensionAPI) {
 		const startIndex = saved?.currentStepIndex || 0;
 		const persistState = (currentStepIndex: number) => writeChainSnapshot(sessionDir, {
 			chain: activeChain!.name,
-			originalTask,
+			originalTask: originalPrompt,
 			currentStepIndex,
 			stepOutputs,
 			steps: stepStates.map(({ agent, status, elapsed, lastWork, toolCount }) => ({ agent, status, elapsed, lastWork, toolCount })),

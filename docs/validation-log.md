@@ -228,3 +228,9 @@ the authoritative fixture command is `node --test`.
   unnecessarily because it matched journal agent names case-sensitively; it
   now normalizes that field. The UI trace also exposed excess task setup and
   dispatch noise, recorded as a UX follow-up rather than hidden.
+- A bounded real Herdr CHAIN attempt reached `run_chain` after fixing the
+  `originalTask` snapshot typo: Planner completed and Builder was dispatched,
+  but the chain did not reach a verified terminal success because the worker
+  result contract was malformed and the model drifted into a manual fallback.
+  This is recorded as a failed/inconclusive CHAIN workflow, not a pass; the
+  provider run was capped at `/budget 24000 0.20`.
