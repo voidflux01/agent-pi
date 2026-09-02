@@ -118,7 +118,7 @@ export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: T
 	return args;
 }
 
-/** Opt in to a bare CLI: no discovered extensions or skills. Default is off so
+/** Opt in to a bare CLI: no discovered extensions. Skills remain enabled so
  *  omp / prime keep their own tuned ~/.omp and ~/.prime configs. Isolation from
  *  the parent Pi home is always via env (PI_CODING_AGENT_DIR is not forwarded). */
 export function toolkitBareMode(): boolean {
@@ -157,7 +157,7 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				command: "omp",
 				args: (task: string) => [
 					"-p", "--mode", "json", "--no-session",
-					...(toolkitBareMode() ? ["--no-extensions", "--no-skills"] : []),
+					...(toolkitBareMode() ? ["--no-extensions"] : []),
 					task,
 				],
 			};
@@ -166,7 +166,7 @@ function getToolkitCliCommand(agentName: string): ToolkitCliCommand | null {
 				command: "prime-agent",
 				args: (task: string) => [
 					"-p", "--mode", "json", "--no-session",
-					...(toolkitBareMode() ? ["-ne", "-ns"] : []),
+					...(toolkitBareMode() ? ["-ne"] : []),
 					task,
 				],
 			};
@@ -211,7 +211,7 @@ export function getToolkitTuiArgv(
 				"-e", herdrDonePath,
 				"--auto-approve",
 				"--no-title",
-				...(bare ? ["--no-extensions", "--no-skills"] : []),
+				...(bare ? ["--no-extensions"] : []),
 				task,
 			];
 		case "prime-agent":
@@ -219,7 +219,7 @@ export function getToolkitTuiArgv(
 				"prime-agent",
 				"--session-dir", sessionDir,
 				"-e", herdrDonePath,
-				...(bare ? ["-ne", "-ns"] : []),
+				...(bare ? ["-ne"] : []),
 				task,
 			];
 		default:

@@ -27,7 +27,7 @@ import {
 import { completeDecision } from "./lib/execution-gate.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
-import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
+import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -525,10 +525,11 @@ export default function (pi: ExtensionAPI) {
 				workspaceManifestHash: currentHash,
 			});
 			if (!gate.allowed && contract && !String(gate.reason || "").startsWith("合同不可验证")) {
-				const verification = await runIsolatedVerifier({
+				const verification = await runAcceptanceVerifier({
 					cwd,
 					contract,
 					attempt: bumpVerifierAttempt(),
+					parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 				});
 				if (verification.receipt) {
 					setVerifierReceipt(verification.receipt);

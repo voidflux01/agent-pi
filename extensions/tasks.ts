@@ -32,8 +32,8 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
 import { padRight } from "./lib/ui-helpers.ts";
-import { isPlanningArtifactWrite, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
-import { coordinationState } from "./lib/coordination-state.ts";
+import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
+import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
@@ -225,6 +225,7 @@ export default function (pi: ExtensionAPI) {
 	let listTitle: string | undefined;
 	let listDescription: string | undefined;
 	let nudgedThisCycle = false;
+	let taskRefreshRequired = false;
 	// ── Snapshot for details ───────────────────────────────────────────
 
 	const makeDetails = (action: string, error?: string): TasksDetails => ({
@@ -336,10 +337,20 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		applyExtensionDefaults(import.meta.url, ctx);
 		reconstructState(ctx);
+		taskRefreshRequired = false;
 	});
-	pi.on("session_switch", async (_event, ctx) => reconstructState(ctx));
-	pi.on("session_fork", async (_event, ctx) => reconstructState(ctx));
-	pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+	pi.on("session_switch", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
+	pi.on("session_fork", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
+	pi.on("session_tree", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
+
+	// A task list describes one workflow context. Do not silently reuse a
+	// coarse list from another orchestration mode (for example NORMAL → SPEC).
+	// The planning documents and reconnaissance remain available, but execution
+	// must wait until the parent explicitly rebuilds the list from the new plan.
+	onCoordinationModeChange((mode, previous) => {
+		if (mode === previous) return;
+		taskRefreshRequired = taskRequiredForMode(mode) && tasks.length > 0;
+	});
 
 	// ── Blocking gate ──────────────────────────────────────────────────
 
@@ -351,6 +362,13 @@ export default function (pi: ExtensionAPI) {
 		const requiredMode = taskRequiredForMode(mode);
 		if (event.toolName === "tasks") return { block: false };
 		if (isPlanningArtifactWrite(event.toolName, mode, event.arguments || event.params || event.input)) return { block: false };
+		if (taskRefreshRequired && requiredMode) {
+			const args = event.arguments || event.params || event.input;
+			if (isScoutRecon(event.toolName, args)) return { block: false };
+			const reason = "This mode has a task list from an earlier workflow. Rebuild it with `tasks new-list`, add concrete steps from the current plan/spec, and mark the first implementation step inprogress before continuing.";
+			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "task_gate", reason, context: _ctx });
+			return { block: true, reason };
+		}
 		// In orchestration modes, delegated work is subject to the same hard gate
 		// as local write/execution tools. Setup and status tools remain available.
 		if (shouldBypassTaskGate(event.toolName, requiredMode, event.arguments || event.params || event.input)) return { block: false };
@@ -459,6 +477,7 @@ export default function (pi: ExtensionAPI) {
 					nextId = 1;
 					listTitle = params.text;
 					listDescription = params.description || undefined;
+					taskRefreshRequired = false;
 
 					// Group creation deferred to first `add` — avoids empty tasks[] rejection
 

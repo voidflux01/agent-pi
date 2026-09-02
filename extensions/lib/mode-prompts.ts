@@ -16,8 +16,10 @@ Before any write, edit, or bash/execution tool:
 3. Use \`tasks toggle\` to mark the current step inprogress.
 4. Keep task status current and toggle completed steps to done.
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
+If a SCOUT has returned but the material uncertainty remains unresolved after further repository inspection, dispatch one fresh SCOUT for the current question instead of repeating the same reads. Repeated read-only exploration in NORMAL, PLAN, and SPEC is bounded by a runtime escalation guard.
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
-If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.`;
+If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.
+\`verify_execution\` is available in every mode, not only PLAN/SPEC. When code or configuration changed, selectively dispatch the independent verifier for medium/high-risk changes: multi-file or cross-layer edits, public APIs, persistence/schema, concurrency, auth/security, production jobs, or changes lacking representative tests. Without an approved contract it is a review-only audit; it can report risks but never grants completion. Skills remain enabled for every verifier and subagent.`;
 
 const PARALLEL_JOIN_PROMPT = `For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` so parallel spawn and one bounded join happen in a single tool call. For one planner, builder, reviewer, or other worker whose result is needed immediately, set \`join: true\` on \`subagent_create\`; omit it for detachable background work. For background batches, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
 
@@ -142,7 +144,7 @@ ${RESEARCH_ROUTING_PROMPT}
 
 ## Plan workflow
 1. Recon first: inspect the repository (or dispatch one bounded read-only scout) before asking questions. Do not ask the user questions the repository can answer.
-2. Ask at most one round of four focused questions. Record defensible assumptions instead of asking about low-risk details.
+2. Ask one focused round of questions that fully resolves the material unknowns. Record defensible assumptions instead of asking about low-risk details.
 3. Write \.context/todo.md using the structured format below.
 3. Present it with show_plan and wait for approval.
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
@@ -214,7 +216,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${RESEARCH_ROUTING_PROMPT}
 
 ## Recon first
-For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default (one scout and, when needed, one researcher). Ask at most one round of four focused questions.
+For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default (one scout and, when needed, one researcher). Ask one focused round of questions that fully resolves the material unknowns.
 
 ## Workflow
 
@@ -231,11 +233,13 @@ Save the user's raw idea to planning/initialization.md
 ${GRILL_ME_SECTION}
 
 Write follow-up questions to planning/questions.md, then present with show_plan:
-- Generate 4-8 numbered clarifying questions with sensible defaults
+- Generate a focused set of numbered clarifying questions that fully resolves the unanswered decisions in the request
 - Frame as "I'm assuming X, is that correct?"
 - Use \`_Default: value_\` format for defaults
-- Always include a visual assets request (planning/visuals/)
-- Always include a reusability check for existing code
+- Ground each question in the user's request or repository evidence; do not ask questions the repository can answer
+- Each question must address a concrete ambiguity, scope boundary, technical constraint, acceptance criterion, dependency, or delivery expectation
+- Explain why each answer matters and do not add generic or filler questions
+- Cover visual assets (planning/visuals/) or reuse of existing code only when relevant
 - Call \`show_plan { file_path: "planning/questions.md", title: "Requirements", mode: "questions" }\`
 - Process answers, check for visual files, ask follow-ups if needed
 Save results to planning/requirements.md

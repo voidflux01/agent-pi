@@ -183,6 +183,38 @@ describe("mode-aware gate integration", () => {
 		}
 	});
 
+	it("requires rebuilding an existing task list after entering a new orchestration mode", async () => {
+		const previous = coordinationState().mode;
+		try {
+			const handlers = new Map<string, Function>();
+			let tool: any;
+			const pi = {
+				registerTool(def: any) { tool = def; }, registerCommand() {},
+				on(name: string, handler: Function) { handlers.set(name, handler); },
+				sendMessage() {},
+			};
+			const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {}, confirm: async () => true } };
+			setCoordinationMode("NORMAL");
+			tasksExtension(pi as any);
+			await tool.execute("new-list", { action: "new-list", text: "old work" }, undefined, undefined, ctx);
+			await tool.execute("add", { action: "add", text: "coarse old task" }, undefined, undefined, ctx);
+			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+
+			setCoordinationMode("SPEC");
+			const beforeRefresh = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			expect(beforeRefresh.block).toBe(true);
+			expect(beforeRefresh.reason).toContain("Rebuild it with `tasks new-list`");
+
+			await tool.execute("new-list", { action: "new-list", text: "spec implementation" }, undefined, undefined, ctx);
+			await tool.execute("add", { action: "add", text: "concrete spec step" }, undefined, undefined, ctx);
+			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+			const afterRefresh = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			expect(afterRefresh.block).toBe(false);
+		} finally {
+			setCoordinationMode(previous);
+		}
+	});
+
 	it("allows scout subagent_create before a task exists", async () => {
 		const previous = coordinationState().mode;
 		try {

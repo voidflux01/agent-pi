@@ -13,13 +13,17 @@ import {
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
-import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
+import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
+import { emptyContract } from "./lib/execution-contract.ts";
+import { runVerifierSubagent } from "./lib/verifier-subagent.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 
-const Params = Type.Object({});
+const Params = Type.Object({
+	objective: Type.Optional(Type.String({ description: "Optional review objective when no approved plan/spec contract exists" })),
+	});
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("execution-status", {
@@ -45,12 +49,25 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "verify_execution",
 		label: "Verify Execution",
-		description: "Run deterministic assertions against the approved contract. Assertions cannot be supplied by the caller; PASS requires every [cmd]/[file]/[match] to succeed.",
+		description: "Run the independent verifier subagent. With an approved contract it performs acceptance verification; without one it performs a code-change audit and never grants completion.",
 		parameters: Params,
 		execute: explicitDispatchHandler("subagent-tool", async (_id, _params, _signal, _update, ctx) => {
-			const contract = getExecutionContract();
+			let contract = getExecutionContract();
+			const objective = ((_params as { objective?: string })?.objective || "Review the current code changes for correctness, tests, quality, security, and regressions.").trim();
 			if (!contract) {
-				return { content: [{ type: "text", text: "合同不可验证：没有已绑定的验收清单。先批准含 [cmd]/[file]/[match] 断言的 plan 或完成管线 PLAN 相。不得输出 done:true；请输出 done:false 或继续修复工作流。" }], details: { status: "BLOCKED", completionAllowed: false } };
+				contract = emptyContract(`# Review: ${objective}\n`, "plan");
+				const audit = await runVerifierSubagent({
+					cwd: ctx.cwd || process.cwd(),
+					contract: { ...contract, objective },
+					parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+					mode: coordinationState().mode,
+					auditOnly: true,
+				});
+				const status = audit.report?.status || "BLOCKED";
+				return {
+					content: [{ type: "text", text: `Independent code-change audit: ${status} — ${audit.report?.summary || audit.error || "no valid verifier report"}. This review-only audit never grants completion.` }],
+					details: { status, completionAllowed: false, audit: audit.report, runId: audit.runId },
+				};
 			}
 			const cwd = ctx.cwd || process.cwd();
 			const attempt = bumpVerifierAttempt();
@@ -69,10 +86,12 @@ export default function (pi: ExtensionAPI) {
 				orchestrationRun.finish("failed", { verificationStatus: "BLOCKED", attempt });
 				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt } };
 			}
-			const verification = await runIsolatedVerifier({
+			const verification = await runAcceptanceVerifier({
 				cwd,
 				contract,
 				attempt,
+				parentRunId: orchestrationRun.runId,
+				mode: coordinationState().mode,
 			});
 			if (!verification.receipt) {
 				orchestrationRun.record("verification.completed", { status: "BLOCKED", error: verification.error });

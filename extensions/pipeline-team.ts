@@ -65,7 +65,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
-import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
+import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
@@ -926,10 +926,12 @@ export default function (pi: ExtensionAPI) {
 				let gate = pipelineCompleteDecision(planOutput, receipt, hash);
 				if (!gate.allowed && gate.contract && !String(gate.reason || "").startsWith("合同不可验证")) {
 					const attempt = bumpVerifierAttempt();
-					const verification = await runIsolatedVerifier({
+					const verification = await runAcceptanceVerifier({
 						cwd: _ctx.cwd,
 						contract: gate.contract,
 						attempt,
+						parentRunId: process.env.PI_AGENT_PI_RUN_ID,
+						mode: coordinationState().mode,
 					});
 					if (verification.receipt) {
 						setVerifierReceipt(verification.receipt);

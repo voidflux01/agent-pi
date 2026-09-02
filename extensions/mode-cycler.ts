@@ -15,7 +15,7 @@ import { coordinationState, setCoordinationMode } from "./lib/coordination-state
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
-import { createNormalEscalationState, normalEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
+import { createNormalEscalationState, reconEscalationReason, recordNormalToolCall, resetNormalEscalation, RECON_ESCALATION_LIMIT } from "./lib/normal-escalation.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 
 const MODE_FILE = "/tmp/pi-current-mode.txt";
@@ -94,7 +94,10 @@ export default function (pi: ExtensionAPI) {
 			// after this mode change in a freshly booted Pi.
 			try { (globalThis as any).__piActivatePipeline?.(ctx); } catch {}
 		}
-		if (previous !== mode) resetApprovalForMode(mode);
+		if (previous !== mode) {
+			resetApprovalForMode(mode);
+			resetNormalEscalation(normalEscalationState);
+		}
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};
@@ -214,13 +217,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		const mode = coordinationState().mode;
-		if (mode !== "NORMAL") {
+		if (mode !== "NORMAL" && mode !== "PLAN" && mode !== "SPEC") {
 			resetNormalEscalation(normalEscalationState);
 		} else {
 			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.arguments || event.params || event.input);
 			if (escalation.block) {
-				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason: normalEscalationReason(escalation.count), context: ctx });
-				return { block: true, reason: normalEscalationReason(escalation.count) };
+				const reason = reconEscalationReason(mode, escalation.count);
+				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason, context: ctx });
+				return { block: true, reason };
 			}
 		}
 		const decision = decideApprovalGate({

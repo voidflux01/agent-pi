@@ -5,6 +5,7 @@ import { isReconTool } from "./tool-classification.ts";
 
 export const NORMAL_RECON_TOOLS = ["read", "grep", "ffgrep", "find", "ls", "glob"] as const;
 export const NORMAL_RECON_LIMIT = 8;
+export const RECON_ESCALATION_LIMIT = NORMAL_RECON_LIMIT;
 
 export interface NormalEscalationState {
 	consecutiveReconCalls: number;
@@ -61,4 +62,10 @@ export function recordNormalToolCall(
 
 export function normalEscalationReason(count: number): string {
 	return `NORMAL escalation: ${count} consecutive read-only inspection calls have not resolved the task. Before more repository searching, dispatch one read-only SCOUT with subagent_create (name: "scout"). If the scout resolves the uncertainty, continue in NORMAL; switch to PLAN only if the scope or implementation approach now needs review.`;
+}
+
+export function reconEscalationReason(mode: string, count: number): string {
+	const normalized = String(mode || "NORMAL").toUpperCase();
+	if (normalized === "NORMAL") return normalEscalationReason(count);
+	return `${normalized} escalation: ${count} consecutive read-only inspection calls have not resolved the task. Before more repository searching, dispatch one fresh read-only SCOUT with subagent_create (name: "scout") for the current request. Do not repeat the same inspection in the parent until the SCOUT RESULT returns.`;
 }

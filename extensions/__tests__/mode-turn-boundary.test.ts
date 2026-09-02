@@ -119,6 +119,35 @@ describe("set_mode turn boundary", () => {
 		expect(released.every((r) => !r || r.block !== true)).toBe(true);
 	});
 
+	it("interrupts a PLAN/SPEC read-only loop and releases it after a fresh scout", async () => {
+		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const modeTools: any[] = [];
+		const pi: any = {
+			registerTool(def: any) { modeTools.push(def); },
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (event: any, ctx?: any) => any) {
+				if (event === "tool_call") toolCallHandlers.push(handler);
+			},
+		};
+		modeCycler(pi);
+
+		for (const mode of ["PLAN", "SPEC"]) {
+			await modeTools[0].execute("mode-recon", { mode }, undefined, undefined, { abort: vi.fn() });
+			for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
+				const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+				expect(result.every((r) => !r || r.block !== true)).toBe(true);
+			}
+			const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", arguments: { pattern: "TODO" } }, {})));
+			expect(blocked.some((r) => r?.block === true)).toBe(true);
+
+			const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", arguments: { name: "scout", task: "re-check the unresolved question" } }, {})));
+			expect(scout.every((r) => !r || r.block !== true)).toBe(true);
+			const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+			expect(released.every((r) => !r || r.block !== true)).toBe(true);
+		}
+	});
+
 	it("starts a fresh NORMAL scout decision for a follow-up user message", async () => {
 		const { handlers } = registerModeTool();
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {

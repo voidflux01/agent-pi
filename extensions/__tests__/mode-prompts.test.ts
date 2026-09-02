@@ -193,9 +193,10 @@ describe("SPEC_PROMPT", () => {
 
 	it("keeps Phase 2 questions.md, with grill as enhancement only", () => {
 		expect(SPEC_PROMPT).toContain("Enhancement only");
-		expect(SPEC_PROMPT).toContain("Generate 4-8 numbered clarifying questions");
-		expect(SPEC_PROMPT).toContain("Always include a visual assets request");
-		expect(SPEC_PROMPT).toContain("Always include a reusability check");
+		expect(SPEC_PROMPT).toContain("focused set of numbered clarifying questions");
+		expect(SPEC_PROMPT).toContain("do not ask questions the repository can answer");
+		expect(SPEC_PROMPT).toContain("do not add generic or filler questions");
+		expect(SPEC_PROMPT).toContain("only when relevant");
 		expect(SPEC_PROMPT).toContain("planning/questions.md");
 		expect(SPEC_PROMPT.indexOf("Phase 1: Initialize Spec")).toBeLessThan(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements"));
 		expect(SPEC_PROMPT.indexOf("Phase 2: Shape Requirements")).toBeLessThan(SPEC_PROMPT.indexOf("## Grill-me"));

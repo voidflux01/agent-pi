@@ -288,7 +288,7 @@ describe("visible external runtime helpers", () => {
 		expect(tui).toContain("--auto-approve");
 	});
 
-	it("adds --no-extensions --no-skills only when PI_TOOLKIT_BARE=1", () => {
+	it("adds --no-extensions, but never disables skills, when PI_TOOLKIT_BARE=1", () => {
 		expect(toolkitBareMode()).toBe(false);
 		const prev = process.env.PI_TOOLKIT_BARE;
 		process.env.PI_TOOLKIT_BARE = "1";
@@ -296,10 +296,10 @@ describe("visible external runtime helpers", () => {
 			expect(toolkitBareMode()).toBe(true);
 			const script = toolkitVisibleCommandLine("omp-agent", "t", undefined, "/tmp/o.raw", undefined, "/tmp/s", "/e.ts")[2];
 			expect(script).toContain("--no-extensions");
-			expect(script).toContain("--no-skills");
+			expect(script).not.toContain("--no-skills");
 			const prime = toolkitVisibleCommandLine("prime-agent", "t", undefined, "/tmp/o.raw", undefined, "/tmp/s", "/e.ts")[2];
 			expect(prime).toContain("-ne");
-			expect(prime).toContain("-ns");
+			expect(prime).not.toContain("-ns");
 		} finally {
 			if (prev === undefined) delete process.env.PI_TOOLKIT_BARE;
 			else process.env.PI_TOOLKIT_BARE = prev;

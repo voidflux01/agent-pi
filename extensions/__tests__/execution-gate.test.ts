@@ -114,7 +114,7 @@ describe("shipped wiring", () => {
 	it("gates every pipeline last phase through pipelineCompleteDecision", () => {
 		const src = readFileSync(join(root, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("pipelineCompleteDecision");
-		expect(src).toContain("runIsolatedVerifier");
+		expect(src).toContain("runAcceptanceVerifier");
 		expect(src).toContain("buildWorkspaceManifest");
 		expect(src).not.toContain("current.def.name.toLowerCase() === \"review\"");
 	});
@@ -139,7 +139,7 @@ describe("shipped wiring", () => {
 	it("gates agent show_report and leaves user /report ungated", () => {
 		const src = readFileSync(join(root, "..", "completion-report.ts"), "utf8");
 		expect(src).toContain('surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report"');
-		expect(src).toContain("runIsolatedVerifier");
+		expect(src).toContain("runAcceptanceVerifier");
 		expect(src).toContain("buildWorkspaceManifest");
 		const reportStart = src.indexOf('pi.registerCommand("report"');
 		expect(reportStart).toBeGreaterThan(0);
