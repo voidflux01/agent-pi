@@ -66,6 +66,17 @@ describe("handoff state", () => {
 		}
 	});
 
+	it("resolves a relative snapshot workspace from the handoff workspace", () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-relative-"));
+		try {
+			const snapshot = buildHandoffSnapshot({ workspace, objective: "Continue from relative path" });
+			writeHandoff(workspace, { ...snapshot, workspace: "." });
+			expect(readHandoff(workspace)?.objective).toBe("Continue from relative path");
+		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
 	it("restores a handoff at session start and persists progress on tool results", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "handoff-extension-"));
 		const handlers = new Map<string, Function>();

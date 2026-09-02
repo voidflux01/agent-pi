@@ -2,7 +2,7 @@
 // ABOUTME: The snapshot is a projection of task/journal/verification facts; it is not a second source of truth.
 
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 export type HandoffStatus = "in_progress" | "completed" | "interrupted";
 
@@ -52,11 +52,12 @@ export function handoffPath(workspace: string): string {
 	return join(workspace, ".pi", HANDOFF_FILE);
 }
 
-function canonicalWorkspace(workspace: string): string {
+function canonicalWorkspace(workspace: string, relativeTo?: string): string {
+	const candidate = relativeTo && !isAbsolute(workspace) ? resolve(relativeTo, workspace) : workspace;
 	try {
-		return realpathSync(workspace);
+		return realpathSync(candidate);
 	} catch {
-		return resolve(workspace);
+		return resolve(candidate);
 	}
 }
 
@@ -70,7 +71,7 @@ export function readHandoff(workspace: string): HandoffSnapshot | undefined {
 		if (
 			parsed?.version !== 1 ||
 			typeof parsed.workspace !== "string" ||
-			canonicalWorkspace(parsed.workspace) !== canonicalWorkspace(workspace) ||
+			canonicalWorkspace(parsed.workspace, workspace) !== canonicalWorkspace(workspace) ||
 			typeof parsed.objective !== "string" ||
 			!(["in_progress", "completed", "interrupted"] as string[]).includes(parsed.status) ||
 			typeof parsed.mode !== "string" ||
