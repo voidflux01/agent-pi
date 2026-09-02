@@ -69,7 +69,7 @@ import { runIsolatedVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { clearPipelineSnapshot, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 
 // ── Types ────────────────────────────────────────
@@ -440,6 +440,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		parentRunId?: string,
 		signal?: AbortSignal,
+		parentRun?: OrchestrationRun,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -558,7 +559,10 @@ export default function (pi: ExtensionAPI) {
 					fullOutputPath = "";
 				}
 
-				const pu = agentSessionFile && code === 0 ? sessionUsage(agentSessionFile) : null;
+				const pu = agentSessionFile ? sessionUsage(agentSessionFile) : null;
+				if (parentRun && pu && pu.assistantMessages > 0) {
+					parentRun.recordUsage({ totalTokens: pu.totalTokens, costUsd: pu.costUsd });
+				}
 				journalUpdate(sessionDir, journalId, {
 					status: agentState.status,
 					exitCode: code,
@@ -648,6 +652,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		parentRunId?: string,
 		signal?: AbortSignal,
+		parentRun?: OrchestrationRun,
 	): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean; blockedReason?: string }> {
 		if (!isExplicitDispatchActive()) {
 			return { outputs: [], fullOutputs: [], fullOutputPaths: [], success: false, blockedReason: "Dispatch refused: only an explicit tool or slash command may start a child" };
@@ -694,7 +699,7 @@ export default function (pi: ExtensionAPI) {
 					updateWidget();
 					return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
 				}
-				return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId, signal);
+				return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId, signal, parentRun);
 			};
 			// Bounded fan-out: at most maxParallel agents run at once (env-tunable),
 			// so a 12-agent phase cannot spike to 12 simultaneous pi processes.
@@ -731,7 +736,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const task = d.task.replace(/\$INPUT/g, input);
-				const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId, signal);
+				const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId, signal, parentRun);
 				outputs.push(result.output);
 				fullOutputs.push(result.fullOutput || "");
 				fullOutputPaths.push(result.fullOutputPath || "");
@@ -1051,7 +1056,7 @@ export default function (pi: ExtensionAPI) {
 			orchestrationRun.consumeStep();
 			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
 			try {
-				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, signal);
+				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, signal, orchestrationRun);
 				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
 				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
 			} catch (error) {

@@ -222,6 +222,9 @@ worker lifecycle boundaries.
 - TEAM parent RunContexts now aggregate measured child token/cost usage for
   both single and batch dispatches, so status, mode metrics, and audit records
   reflect actual worker consumption instead of only orchestration overhead.
+- CHAIN and PIPELINE now aggregate the same measured child usage into their
+  parent RunContexts, including failed workers that produced usage, making all
+  six modes comparable in status and cost metrics.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

@@ -54,7 +54,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./lib/orchestration-run.ts";
+import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -330,6 +330,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		parentRunId?: string,
 		signal?: AbortSignal,
+		parentRun?: OrchestrationRun,
 	): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
 		if (!isExplicitDispatchActive()) {
 			return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
@@ -450,7 +451,10 @@ export default function (pi: ExtensionAPI) {
 
 				state.lastWork = resultOneLiner(output, extractResultBlock(output).result) || state.lastWork;
 
-				const su = agentSessionFile && code === 0 ? sessionUsage(agentSessionFile) : null;
+				const su = agentSessionFile ? sessionUsage(agentSessionFile) : null;
+				if (parentRun && su && su.assistantMessages > 0) {
+					parentRun.recordUsage({ totalTokens: su.totalTokens, costUsd: su.costUsd });
+				}
 				journalUpdate(sessionDir, journalId, {
 					status: code === 0 ? "done" : "error",
 					exitCode: code,
@@ -677,7 +681,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			orchestrationRun.consumeStep();
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, signal);
+			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, signal, orchestrationRun);
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";

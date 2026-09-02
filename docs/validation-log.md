@@ -173,3 +173,4 @@ the authoritative fixture command is `node --test`.
 - NORMAL/PLAN/SPEC single-worker dispatch now supports explicit `join: true` for immediate planner/builder/reviewer results, while scout/researcher/toolkit defaults and background behavior remain unchanged.
 - TEAM batch dispatch/recovery are now registered in the shared task/approval gate matrix; regression coverage confirms dispatch requires an active task while recovery remains read-only.
 - TEAM parent RunContexts now record measured child token/cost usage for single and batch dispatches, keeping status and mode metrics aligned with worker consumption.
+- CHAIN and PIPELINE parent RunContexts now record measured child token/cost usage, including failed workers with persisted session usage.
