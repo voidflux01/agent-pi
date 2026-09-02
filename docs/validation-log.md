@@ -221,3 +221,10 @@ the authoritative fixture command is `node --test`.
 - A low-cost real Herdr SPEC task passed with `/budget 8000 0.10`: the TUI
   executed `set_mode → show_spec → result`, returned `SPEC-TASK-PASS`, ran no
   worker, and made no implementation changes in the disposable workspace.
+- TEAM Herdr worker smoke reached the functional success state: the real TUI
+  switched to TEAM, dispatched the valid `Reviewer` roster member, the child
+  ran `printf team-ok`, the parent toggled task 1 to done, and displayed
+  `TEAM-TASK-PASS` under `/budget 8000 0.08`. The harness initially waited
+  unnecessarily because it matched journal agent names case-sensitively; it
+  now normalizes that field. The UI trace also exposed excess task setup and
+  dispatch noise, recorded as a UX follow-up rather than hidden.
