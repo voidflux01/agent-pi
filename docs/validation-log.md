@@ -256,3 +256,8 @@ the authoritative fixture command is `node --test`.
   tools, requiring `dispatch_agents` followed by `advance_phase`; this prevents
   mode cross-talk observed in the first real workflow attempt. The source
   boundary regression and the full local suite pass after this change.
+- A provider-free real Herdr TEAM restart-boundary smoke passed: after startup,
+  an unfinished valid `builder.json` session was retained, a completed
+  `reviewer.json` session was removed, the two journal rows remained intact,
+  and no worker was auto-dispatched. The test uses canonicalized macOS paths
+  and valid Pi session headers so it exercises the actual startup cleanup.
