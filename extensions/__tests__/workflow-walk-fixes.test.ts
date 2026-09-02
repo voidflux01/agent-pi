@@ -78,6 +78,13 @@ describe("orchestrator RESULT trust", () => {
 });
 
 describe("source wiring", () => {
+	it("keeps PIPELINE dispatch separate from CHAIN and standalone subagents", () => {
+		const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "pipeline-team.ts"), "utf8");
+		expect(source).toContain("This is PIPELINE, not CHAIN");
+		expect(source).toContain("Never call run_chain, dispatch_agent, or subagent_create");
+		expect(source).toContain("Use only dispatch_agents");
+	});
+
 	it("keeps full worker transcripts out of structured team/chain/pipeline details", () => {
 		for (const file of ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"]) {
 			const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");

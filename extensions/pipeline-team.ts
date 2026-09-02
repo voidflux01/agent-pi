@@ -1482,6 +1482,11 @@ ${RESEARCH_ROUTING_PROMPT}
 
 You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents, pipeline_status).
 
+## Pipeline boundary (required)
+- This is PIPELINE, not CHAIN. Never call run_chain, dispatch_agent, or subagent_create for pipeline work.
+- Use only dispatch_agents for configured phase workers, then advance_phase after their RESULT returns.
+- UNDERSTAND is the only phase that may advance without dispatch; every configured worker phase must dispatch before advancing.
+
 ## Direct work inside the active pipeline
 - Read-only checks such as reading a file, checking status, or listing contents are allowed during analysis.
 - Any edit, bash command, phase advance, or agent dispatch requires an active task.
