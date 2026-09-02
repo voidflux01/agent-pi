@@ -5,6 +5,34 @@ extension-first architecture. The goal is to improve composition and
 observability without replacing the existing task, approval, security, and
 worker lifecycle boundaries.
 
+## Phase 1 — confirmed design decisions
+
+第一阶段已完成。本阶段确认借鉴的是设计原则和边界，不是直接搬运
+`pi-fabric` 的整体实现：
+
+| 目标 | 确认采用的设计 | 主要边界 |
+|---|---|---|
+| 更快 | 能力注册表、一次编排调用、独立任务并行、资源冲突分波 | 依赖任务保持顺序；非交换写操作不盲目并行 |
+| 更省 | bounded result、运行时归档、显式 join、父子 RunContext | 中间 transcript 不回灌主上下文 |
+| 更稳 | 统一 timeout、cancel、budget、failure cause | 原生/MCP 工具保持 `native_only`，不伪造进程内执行器 |
+| 更容易恢复 | journal + snapshot + read-only recovery projection | 不自动重放；恢复前必须检查当前工作区并显式 dispatch |
+| 更容易审计 | 事件生命周期、工具身份、模式、父子拓扑、workspace delta、verification receipt | 参数和输出均有边界，不保存不必要的敏感原文 |
+| 更容易扩展 | extension executor registry 与统一 capability contract | 新扩展接入注册表即可复用搜索、审批、审计和编排 |
+| 更适合复杂任务 | NORMAL/PLAN/SPEC 与 TEAM/CHAIN/PIPELINE 共用运行时边界 | 各模式保留自己的交互语义，不强行统一成一种 workflow |
+
+### 明确不照搬的部分
+
+- 不替换 Pi 原生工具执行路径；只有明确注册了进程内 executor 的扩展能力才可进入 `compose_exec`。
+- 不把所有任务都改成并行或长链；NORMAL、PLAN、SPEC 默认保持低仪式感，只有结果确实需要时才使用 join。
+- 不做隐式自动恢复或自动重放，避免重启后重复副作用。
+- 暂不引入跨进程 actor/council 拓扑；先验证当前单进程编排、审计和恢复边界的实际收益。
+
+### 阶段出口标准
+
+第一阶段的出口是：设计原则、适用边界、全局目标映射和不采用项已经
+形成本文档；第二阶段负责实现，第三阶段用单元测试、合成评估、真实
+provider smoke 和用户试用数据验证，不以“代码已写完”替代验证。
+
 ## Adopted in this iteration
 
 - Every tool registered through `registerToolWithExecutor` publishes a

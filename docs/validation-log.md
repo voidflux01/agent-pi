@@ -193,3 +193,9 @@ the authoritative fixture command is `node --test`.
   invalid, and unrelated mode-owned files remain protected from accidental
   deletion. Full repository tests after this recovery-boundary fix: 183 Bun
   passed; 957 Vitest passed; 13 skipped.
+- Phase 1 design confirmation is recorded in `PI_FABRIC_ADOPTION.md`, mapping
+  the adopted capability, runtime, recovery, audit, and extension-boundary
+  principles to the seven global goals and listing the deliberately excluded
+  designs. TEAM session-retention policy is now independently covered by three
+  pure-policy tests. Full repository tests after the phase-1 closeout: 183 Bun
+  passed; 960 Vitest passed; 13 skipped.
