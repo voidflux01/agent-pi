@@ -277,3 +277,10 @@ the authoritative fixture command is `node --test`.
   config whose `broken` stdio server exits immediately: `/mcp` surfaced the
   server as failed/disconnected, while no business tool, model request, or
   user MCP configuration was touched.
+- A bounded real Herdr NORMAL multi-file attempt (2026-09-02) modified the
+  two requested files in an isolated workspace, but the harness stopped as
+  soon as file evidence appeared while the model was still running the
+  requested test. It is recorded as partial/inconclusive, not a pass; the
+  terminal showed roughly 24k input tokens despite the intended 12k budget.
+  The temporary harness was removed rather than kept as a misleading green
+  test. No repository or user files were changed.
