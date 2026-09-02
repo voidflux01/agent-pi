@@ -1622,9 +1622,23 @@ ${agentCatalog}`,
 		// here would destroy recovery material owned by those modes.
 		const sessDir = join(_ctx.cwd, ".pi", "agent-sessions");
 		const teamSessionNames = new Set(allAgentDefs.map((def) => `${def.name.toLowerCase().replace(/\s+/g, "-")}.json`));
+		const resumableTeamSessions = new Set<string>();
+		const latestTeamJournal = new Map<string, TaskJournalEntry>();
+		for (const entry of journalList(sessDir).filter((candidate) => candidate.kind === "team")) {
+			const key = entry.agent.toLowerCase().replace(/\s+/g, "-");
+			const previous = latestTeamJournal.get(key);
+			if (!previous || entry.updatedAt >= previous.updatedAt) latestTeamJournal.set(key, entry);
+		}
+		for (const [key, entry] of latestTeamJournal) {
+			const expected = join(sessDir, `${key}.json`);
+			const recorded = entry.sessionFile ? resolve(entry.sessionFile) : "";
+			if (entry.status !== "done" && recorded === resolve(expected) && existsSync(expected)) {
+				resumableTeamSessions.add(`${key}.json`);
+			}
+		}
 		if (existsSync(sessDir)) {
 			for (const f of readdirSync(sessDir)) {
-				if (teamSessionNames.has(f)) {
+				if (teamSessionNames.has(f) && !resumableTeamSessions.has(f)) {
 					try { unlinkSync(join(sessDir, f)); } catch {}
 				}
 			}

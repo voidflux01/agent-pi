@@ -99,6 +99,8 @@ describe("source wiring", () => {
 		const team = readFileSync(join(root, "agent-team.ts"), "utf8");
 		expect(team).toContain("const teamSessionNames = new Set");
 		expect(team).not.toContain('if (f.endsWith(".json"))');
+		expect(team).toContain("const resumableTeamSessions = new Set<string>()");
+		expect(team).toContain("entry.status !== \"done\" && recorded === resolve(expected)");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');
