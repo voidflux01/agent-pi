@@ -36,6 +36,11 @@ function truncateDisplay(text: string, width: number): string {
 	return chars.slice(0, max - 1).join("") + "…";
 }
 
+/** Keep a widget detail on one terminal row; the full task remains in the journal. */
+function singleLineDisplay(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Decide whether a completed widget should get the delayed auto-removal.
  * The pre-spawned scout keeps its state for /subcont, but its active-turn
@@ -102,7 +107,7 @@ export function renderSubagentWidget(
 	lines.push(statusLine);
 
 	// Line 2: summary (current activity) or task preview as fallback
-	const detail = state.summary || state.task;
+	const detail = singleLineDisplay(state.summary || state.task);
 	// Keep the historical 40-character preview contract, then apply the actual
 	// terminal width so narrow panes do not wrap the widget.
 	const compactDetail = detail.length > 40 ? detail.slice(0, 37) + "..." : detail;

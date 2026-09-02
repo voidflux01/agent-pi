@@ -151,6 +151,13 @@ describe("renderSubagentWidget", () => {
 		expect(visible(result.lines[1]).length).toBeLessThanOrEqual(32);
 		expect(result.lines[1]).toContain("…");
 	});
+
+	it("keeps multiline task summaries on one widget row", () => {
+		const result = renderSubagentWidget(makeState({ task: "inspect files\nthen run tests\nreport only the result" }), 80, theme);
+
+		expect(result.lines[1]).not.toContain("\n");
+		expect(result.lines[1]).toContain("inspect files then run tests");
+	});
 });
 
 describe("subagentTitle", () => {

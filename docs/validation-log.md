@@ -304,3 +304,8 @@ the authoritative fixture command is `node --test`.
   while preserving the existing 40-character task preview contract. A narrow
   terminal regression was added; the focused render suite passes 40/40 and
   the full suite passes 183 Bun tests plus 964 Vitest tests (13 skipped).
+- The widget detail path now also folds embedded newlines and repeated
+  whitespace into a single display row before width truncation. The focused
+  render suite passes 41/41 and the full suite passes 183 Bun tests plus 965
+  Vitest tests (13 skipped), preventing multiline task text from disturbing
+  the parent TUI layout.
