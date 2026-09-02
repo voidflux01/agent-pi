@@ -28,6 +28,10 @@ only on the final model message:
 - `/handoff` — the compact objective, task state, children, and next action.
 - `/agents-status` — journal rows, elapsed time, token/cost data, and RunContext links.
 
+For real-provider Herdr runs, set a conservative shared budget first, for
+example `/budget 16000 0.20`. Treat the persisted journal terminal state as
+authoritative; TUI text such as `Working` is only a progress hint.
+
 ## Feedback to record
 
 For each task, capture:

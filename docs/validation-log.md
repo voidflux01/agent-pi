@@ -199,3 +199,10 @@ the authoritative fixture command is `node --test`.
   designs. TEAM session-retention policy is now independently covered by three
   pure-policy tests. Full repository tests after the phase-1 closeout: 183 Bun
   passed; 960 Vitest passed; 13 skipped.
+- A Herdr journal E2E attempt exposed a harness weakness: it used the pane's
+  `Working` text as completion evidence and had no explicit provider budget;
+  the goodboy worker remained journaled as `running` within that wait window.
+  The harness now waits for the worker's journal terminal state, reports the
+  last row on timeout, and sets a conservative `/budget 16000 0.20` before
+  dispatch. This is recorded as an inconclusive provider run, not a product
+  pass or failure.

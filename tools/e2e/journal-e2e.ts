@@ -36,13 +36,18 @@ async function main() {
 
 		const send = (...a: string[]) => execFileSync("herdr", ["pane", ...a], { encoding: "utf8", stdio: ["ignore", "ignore", "ignore"] });
 		const readPane = () => stripAnsi(execFileSync("herdr", ["pane", "read", paneId], { encoding: "utf8", timeout: 20_000 }));
-		const settle = async (maxPolls = 35, quiet = 8000) => {
+		const journalRows = () => {
+			const jp = join(projDir, ".pi", "agent-sessions", "task-journal.jsonl");
+			if (!existsSync(jp)) return [] as any[];
+			return readFileSync(jp, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+		};
+		const waitForAgent = async (agent: string, maxPolls = 30) => {
 			for (let i = 0; i < maxPolls; i++) {
-				await sleep(quiet);
-				const tail = readPane().slice(-900);
-				if (!tail.includes("Working") && i > 2) return i + 1;
+				await sleep(3000);
+				const row = journalRows().find((candidate: any) => candidate.agent === agent);
+				if (row && (row.status === "done" || row.status === "error")) return row;
 			}
-			return maxPolls;
+			return journalRows().find((candidate: any) => candidate.agent === agent);
 		};
 
 		// 2) boot pi in the tab (first keypress can be eaten by zsh init; resend once)
@@ -60,29 +65,25 @@ async function main() {
 		const bootText = readPane();
 		if (!(bootText.includes("Extensions") || bootText.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(bootText))) throw new Error("pi did not boot in tab");
 
+		// Keep this real-provider test bounded. The ceiling is inherited by child
+		// dispatches and is intentionally conservative; it is not a benchmark budget.
+		send("send-text", paneId, "/budget 16000 0.20");
+		send("send-keys", paneId, "enter");
+		await sleep(1000);
+
 		// 3) deliberately contract-breaking run
 		send("send-text", paneId, 'Use the subagent_create tool to make a breaker agent. Task: run `echo gate-test` then reply with exactly one line "done it". Never write ## RESULT or ## END.');
 		send("send-keys", paneId, "enter");
-		await sleep(3000);
+		await sleep(2000);
 		send("send-keys", paneId, "enter"); // guard against swallowed enter
-		await settle();
+		const breakerResult = await waitForAgent("breaker");
 
 		// 4) compliant run — quote the exact block so model drift cannot fail the run
 		send("send-text", paneId, 'Now use subagent_create for a goodboy agent. Task: run `echo hello`, then end your final message with EXACTLY this block:\n## RESULT\ndone: true\nsummary: echo ran\n- files: none\n- verification: echo hello output seen\n- remaining: none\n## END');
 		send("send-keys", paneId, "enter");
-		await sleep(3000);
+		await sleep(2000);
 		send("send-keys", paneId, "enter");
-		await settle();
-		// The row must actually CLOSE (finish() runs); give the widget a moment.
-		for (let i = 0; i < 20; i++) {
-			const jp0 = join(projDir, ".pi", "agent-sessions", "task-journal.jsonl");
-			if (existsSync(jp0)) {
-				const rr = readFileSync(jp0, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-				const gb = rr.find((r: any) => String(r.id).startsWith("goodboy"));
-				if (gb && gb.status !== "dispatched") break;
-			}
-			await sleep(4000);
-		}
+		const goodboyResult = await waitForAgent("goodboy");
 
 		// 5) assert journal
 		const jp = join(projDir, ".pi", "agent-sessions", "task-journal.jsonl");
@@ -93,10 +94,10 @@ async function main() {
 		const warnInPane = readPane().includes("RESULT contract violated");
 
 		// Gate must flag the breaker...
-		if (!breaker || breaker.status !== "done") failures.push(`breaker row missing/not done: ${JSON.stringify(breaker)}`);
+		if (!breaker || breaker.status !== "done") failures.push(`breaker row missing/not done: ${JSON.stringify(breaker)}; terminal wait: ${JSON.stringify(breakerResult)}`);
 		else if (!(breaker.note ?? "").includes("result contract")) failures.push(`breaker note missing contract violation: ${breaker.note}`);
 		// ...and must NOT flag an exactly-compliant goodboy.
-		if (!goodboy || goodboy.status !== "done") failures.push(`goodboy row missing/not done: ${JSON.stringify(goodboy)}`);
+		if (!goodboy || goodboy.status !== "done") failures.push(`goodboy row missing/not done: ${JSON.stringify(goodboy)}; terminal wait: ${JSON.stringify(goodboyResult)}`);
 		else if (goodboy.note) failures.push(`goodboy should be silent, got note: ${goodboy.note}`);
 		// Pane-tail rendering is best-effort: long transcripts scroll the warning out of
 		// the herdr buffer. The durable assertions are the journal rows above; if the
