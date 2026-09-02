@@ -284,6 +284,7 @@ export default function (pi: ExtensionAPI) {
 		// provider-prompt rewrite from the session that was left behind.
 		resetNormalEscalation(normalEscalationState);
 		midRunSystemPrompt = null;
+		resetApprovals();
 		// Match session_start: a new session starts in NORMAL. This also gives
 		// mode-owned extensions a deterministic cancellation boundary for work
 		// that must not cross the session switch.

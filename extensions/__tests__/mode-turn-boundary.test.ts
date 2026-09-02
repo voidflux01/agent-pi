@@ -2,7 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import modeCycler from "../mode-cycler.ts";
-import { setCoordinationMode } from "../lib/coordination-state.ts";
+import { coordinationState, setCoordinationMode } from "../lib/coordination-state.ts";
 import { markPlanApproved, resetApprovals } from "../lib/approval-gate.ts";
 import { NORMAL_RECON_LIMIT } from "../lib/normal-escalation.ts";
 
@@ -151,7 +151,10 @@ describe("set_mode turn boundary", () => {
 		expect(released.every((r) => !r || r.block !== true)).toBe(true);
 
 		await tools.set_mode.execute("mode-1", { mode: "PLAN" }, undefined, undefined, { abort: vi.fn(), hasUI: false });
+		markPlanApproved();
 		await handlers.session_switch({}, { hasUI: false });
+		expect(coordinationState().mode).toBe("NORMAL");
+		expect(coordinationState().planApproved).toBe(false);
 		const providerResult = await handlers.before_provider_request({
 			type: "before_provider_request",
 			payload: { messages: [{ role: "system", content: "NORMAL current" }] },
