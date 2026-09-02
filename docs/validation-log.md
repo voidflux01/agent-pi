@@ -289,3 +289,6 @@ the authoritative fixture command is `node --test`.
   closed and the user's `flb-payment-center` workspace was left untouched.
   This is a harness cleanup follow-up: every failure path should verify that
   spawned Pi panes and the workspace are actually terminal before returning.
+- The shared Herdr cleanup helper then passed a provider-free live smoke:
+  it created temporary workspace `w3P`, closed it, and confirmed the workspace
+  was absent from `herdr workspace list` before returning.
