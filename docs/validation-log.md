@@ -273,3 +273,7 @@ the authoritative fixture command is `node --test`.
   MCP tool was invoked and no provider model request was made. Failure
   injection and restart of the user's external dbx server remain intentionally
   unperformed because they could affect external state.
+- A provider-free real Pi/Herdr MCP failure smoke passed with an isolated
+  config whose `broken` stdio server exits immediately: `/mcp` surfaced the
+  server as failed/disconnected, while no business tool, model request, or
+  user MCP configuration was touched.
