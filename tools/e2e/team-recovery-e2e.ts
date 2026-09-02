@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
 
 const repo = process.argv[2];
 if (!repo) throw new Error("usage: bun tools/e2e/team-recovery-e2e.ts <repo-root>");
@@ -51,6 +52,6 @@ try {
 	if (!rows.some((row: any) => row.id === "team-builder-restart")) throw new Error("unfinished TEAM journal row disappeared");
 	console.log(JSON.stringify({ status: "PASS", provider: "none", retained: "builder.json", removedCompleted: "reviewer.json", rows: rows.length }));
 } finally {
-	try { if (workspaceId) h(["workspace", "close", workspaceId]); } catch {}
+	closeHerdrWorkspace(workspaceId);
 	rmSync(workspace, { recursive: true, force: true });
 }

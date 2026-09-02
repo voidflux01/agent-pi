@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
 
 const REPO = process.argv[2];
 if (!REPO) {
@@ -113,7 +114,7 @@ async function main() {
 		failures.push(String(err?.message ?? err));
 	} finally {
 		try {
-			if (wsId) H(["workspace", "close", wsId]);
+			closeHerdrWorkspace(wsId);
 		} catch {}
 		try {
 			rmSync(projDir, { recursive: true, force: true });

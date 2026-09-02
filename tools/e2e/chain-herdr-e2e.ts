@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
 
 const repo = process.argv[2];
 if (!repo) throw new Error("usage: bun tools/e2e/chain-herdr-e2e.ts <repo-root>");
@@ -62,6 +63,6 @@ try {
 	}
 	console.log(JSON.stringify({ status: "PASS", mode: "CHAIN", providerBudget: "/budget 24000 0.20", chainRows: chainRows.length }));
 } finally {
-	try { if (workspaceId) h(["workspace", "close", workspaceId]); } catch {}
+	closeHerdrWorkspace(workspaceId);
 	rmSync(workspace, { recursive: true, force: true });
 }

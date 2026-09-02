@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
 
 const repo = process.argv[2];
 if (!repo) throw new Error("usage: bun tools/e2e/mcp-failure-e2e.ts <repo-root>");
@@ -40,6 +41,6 @@ try {
 	if (!/(failed|disconnected|not listening)/i.test(rendered)) throw new Error(`MCP failure was not surfaced; tail=${rendered.slice(-1600)}`);
 	console.log(JSON.stringify({ status: "PASS", provider: "none", server: "broken", failureSurfaced: true }));
 } finally {
-	try { if (workspaceId) h(["workspace", "close", workspaceId]); } catch {}
+	closeHerdrWorkspace(workspaceId);
 	rmSync(workspace, { recursive: true, force: true });
 }
