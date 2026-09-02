@@ -346,10 +346,13 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		// A Herdr pane can write a successful process marker even when Pi's
 		// agent turn failed before producing an assistant message. Treat that as
 		// a failed dispatch; otherwise CHAIN/PIPELINE would mark an empty worker
-		// as done and pass an unusable handoff to the next phase.
+		// as done and pass an unusable handoff to the next phase. If Pi did
+		// produce a final assistant message, preserve that useful handoff: a
+		// later provider error (or an older error in a resumed session) must not
+		// turn an otherwise usable scout report into a failed dispatch.
 		const sessionFailure = classifyHerdrSession(spec.sessionFile);
 		const failure = exitCode === 0
-			? sessionFailure || (!outputText?.trim() ? "process_error" : undefined)
+			? (!outputText?.trim() ? sessionFailure || "process_error" : undefined)
 			: classifyFailure("", "exit_code");
 		terminalStatus = exitCode === 0 && !failure ? "done" : "error";
 		const effectiveExitCode = failure ? 1 : exitCode;
