@@ -211,3 +211,6 @@ the authoritative fixture command is `node --test`.
   journal row, both breaker/goodboy rows reached terminal state, the contract
   warning and full archives were present, and the run was bounded by
   `/budget 16000 0.20`.
+- Herdr handoff E2E passed with `PI_OFFLINE=1`: an isolated real Pi TUI
+  discovered the unfinished handoff, rendered `/handoff` with its objective
+  and next action, and preserved the durable snapshot without provider usage.
