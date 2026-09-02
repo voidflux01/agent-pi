@@ -67,7 +67,7 @@ describe("stale session lifecycle protection", () => {
 	it("propagates synchronous tool cancellation into the worker abort boundary", () => {
 		const widget = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(widget).toContain("signal: awaitResult ? signal : undefined");
-		expect(widget).toContain("spawnEpoch !== sessionEpoch || !!options.signal?.aborted");
+		expect(widget).toContain("spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted");
 		expect(widget).toContain("signal?: AbortSignal");
 	});
 

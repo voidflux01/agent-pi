@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { recordRunEvent } from "./evidence-store.ts";
 import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
+import { budgetUsageExceededReason } from "./orchestration-budget.ts";
 
 export interface RunBudget {
 	maxSteps: number;
@@ -34,6 +35,8 @@ export interface OrchestrationRun {
 	budgetExceeded: boolean;
 	eventDir?: string;
 	events: RunEventRecord[];
+	signal: AbortSignal;
+	cancel(reason?: string): void;
 	consumeStep(): void;
 	/** Add measured provider usage and return whether the run remains within its optional ceiling. */
 	recordUsage(usage: Partial<RunUsage>): boolean;
@@ -91,6 +94,8 @@ export function createOrchestrationRun(options: {
 	mode?: string;
 	/** Capture a bounded before/after workspace delta in the run event trail. */
 	workspaceCwd?: string;
+	/** External cancellation boundary inherited by this run. */
+	signal?: AbortSignal;
 } = {}): OrchestrationRun {
 	const runId = randomUUID();
 	const startedAt = Date.now();
@@ -107,6 +112,10 @@ export function createOrchestrationRun(options: {
 	const usage: RunUsage = { totalTokens: 0, costUsd: 0 };
 	let finished = false;
 	let budgetExceeded = false;
+	const abortController = new AbortController();
+	const onExternalAbort = () => abortController.abort(options.signal?.reason || "aborted");
+	if (options.signal?.aborted) onExternalAbort();
+	else options.signal?.addEventListener("abort", onExternalAbort, { once: true });
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
 		const event: RunEventRecord = { id: randomUUID(), runId, type, actor, timestamp: new Date().toISOString(), ...(payload === undefined ? {} : { payload }) };
@@ -124,6 +133,13 @@ export function createOrchestrationRun(options: {
 		budgetExceeded: false,
 		...(eventDir ? { eventDir } : {}),
 		events,
+		signal: abortController.signal,
+		cancel(reason = "cancelled") {
+			if (!abortController.signal.aborted) {
+				record("run.cancel.requested", { reason });
+				abortController.abort(reason);
+			}
+		},
 		consumeStep() {
 			if (budgetExceeded) throw new RunBudgetError(`Run ${runId} cannot start another step after exceeding its token/cost budget`);
 			if (this.stepsUsed >= budget.maxSteps) throw new RunBudgetError(`Run ${runId} exceeded maxSteps=${budget.maxSteps}`);
@@ -141,7 +157,16 @@ export function createOrchestrationRun(options: {
 				&& (budget.maxCostUsd === undefined || this.usage.costUsd <= budget.maxCostUsd);
 			if (!within && !budgetExceeded) {
 				budgetExceeded = true;
-				record("budget.exceeded", { usage: this.usage, budget });
+				const reason = "run token/cost ceiling exceeded";
+				record("budget.exceeded", { usage: this.usage, budget, reason });
+				this.cancel("budget_exceeded");
+			}
+			const globalReason = budgetUsageExceededReason();
+			if (globalReason && !budgetExceeded) {
+				budgetExceeded = true;
+				this.budgetExceeded = true;
+				record("budget.exceeded", { usage: this.usage, reason: globalReason, scope: "shared" });
+				this.cancel("shared_budget_exceeded");
 			}
 			this.budgetExceeded = budgetExceeded;
 			return within;
@@ -173,6 +198,7 @@ export function createOrchestrationRun(options: {
 				...(payload === undefined ? {} : { result: payload }),
 			});
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
+			options.signal?.removeEventListener("abort", onExternalAbort);
 		},
 	};
 	if (activeMarker) {

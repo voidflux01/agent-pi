@@ -357,6 +357,7 @@ export default function (pi: ExtensionAPI) {
 		const ownsOrchestrationRun = !options.orchestrationRun;
 		const orchestrationRun = options.orchestrationRun ?? createOrchestrationRun({
 			context: ctx,
+			signal: options.signal,
 			actor: `subagent:${state.name.toLowerCase()}`,
 			mode: coordinationState().mode,
 			budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
@@ -619,7 +620,7 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				isCancelled: () => spawnEpoch !== sessionEpoch || !!options.signal?.aborted,
+				isCancelled: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
 				}).then(({ exitCode, raw }) => {
 					const parsed = parseToolkitResult(state.name, raw);
 					if (parsed.model) state.model = parsed.model;
@@ -645,7 +646,7 @@ export default function (pi: ExtensionAPI) {
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
-				isAborted: () => spawnEpoch !== sessionEpoch || !!options.signal?.aborted,
+				isAborted: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
 				onProcess: (child) => {
 					if (spawnEpoch === sessionEpoch) state.proc = lifecycle.trackProcess(child as any);
 				},
@@ -839,6 +840,7 @@ export default function (pi: ExtensionAPI) {
 
 			const batchRun = createOrchestrationRun({
 				context: ctx,
+				signal: args.join === true ? signal : undefined,
 				actor: "subagent_batch",
 				mode: coordinationState().mode,
 				budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },

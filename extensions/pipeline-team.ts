@@ -1047,6 +1047,7 @@ export default function (pi: ExtensionAPI) {
 			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
 			const orchestrationRun = createOrchestrationRun({
 				context: ctx,
+				signal,
 				actor: `pipeline:${activeConfig.name}:phase:${phase.def.name}`,
 				mode: "PIPELINE",
 				budget: { maxSteps: Math.max(1, resolved.length) },
@@ -1056,7 +1057,7 @@ export default function (pi: ExtensionAPI) {
 			orchestrationRun.consumeStep();
 			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
 			try {
-				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, signal, orchestrationRun);
+				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
 				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
 			} catch (error) {

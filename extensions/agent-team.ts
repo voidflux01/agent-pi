@@ -907,7 +907,7 @@ export default function (pi: ExtensionAPI) {
 		execute: explicitDispatchHandler("agent-team", async (_toolCallId, params, signal, onUpdate, ctx) => {
 			const { agent, task } = params as { agent: string; task: string };
 			const defModel = agentStates.get(agent.toLowerCase())?.def.model || "";
-			const orchestrationRun = createOrchestrationRun({ context: ctx, actor: "agent-team", mode: "TEAM", budget: { maxSteps: 1 }, workspaceCwd: ctx?.cwd });
+			const orchestrationRun = createOrchestrationRun({ context: ctx, signal, actor: "agent-team", mode: "TEAM", budget: { maxSteps: 1 }, workspaceCwd: ctx?.cwd });
 			orchestrationRun.record("team.started", { agent, task });
 
 			try {
@@ -919,7 +919,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				orchestrationRun.consumeStep();
-				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, signal, orchestrationRun);
+				const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
@@ -1023,6 +1023,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const orchestrationRun = createOrchestrationRun({
 				context: ctx,
+				signal,
 				actor: "agent-team-batch",
 				mode: "TEAM",
 				budget: { maxSteps: jobs.length },
@@ -1033,7 +1034,7 @@ export default function (pi: ExtensionAPI) {
 			const results = await Promise.all(jobs.map(async (job) => {
 				orchestrationRun.consumeStep();
 				try {
-					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, signal, orchestrationRun);
+					const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 					return { agent: job.agent, task: job.task, status: result.exitCode === 0 ? "done" : "error", ...result };
 				} catch (error: any) {
 					return { agent: job.agent, task: job.task, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };

@@ -225,6 +225,11 @@ worker lifecycle boundaries.
 - CHAIN and PIPELINE now aggregate the same measured child usage into their
   parent RunContexts, including failed workers that produced usage, making all
   six modes comparable in status and cost metrics.
+- RunContexts now expose one internal cancellation boundary: external aborts
+  and local/shared actual-spend budget breaches cancel the same worker signal.
+  Synchronous NORMAL/PLAN/SPEC joins and TEAM/CHAIN/PIPELINE batches therefore
+  stop sibling work after a confirmed ceiling breach, while detached background
+  subagents keep their existing lifecycle.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

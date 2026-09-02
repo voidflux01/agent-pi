@@ -558,6 +558,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const orchestrationRun = createOrchestrationRun({
 			context: ctx,
+			signal,
 			parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 			actor: `chain:${activeChain.name}`,
 			mode: "CHAIN",
@@ -681,7 +682,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			orchestrationRun.consumeStep();
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, signal, orchestrationRun);
+			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 
 			if (result.exitCode !== 0) {
 				stepStates[i].status = "error";

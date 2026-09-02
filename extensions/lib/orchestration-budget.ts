@@ -232,3 +232,13 @@ export function budgetBlockReason(): string | undefined {
 	if (budget.costUsd + budget.reservedCostUsd >= budget.maxCostUsd) return `shared cost budget committed ($${budget.costUsd.toFixed(4)}+$${budget.reservedCostUsd.toFixed(4)})`;
 	return undefined;
 }
+
+/** Report only actual spend exhaustion; reservations are admission state, not a
+ * reason to interrupt workers that already own their reserved share. */
+export function budgetUsageExceededReason(): string | undefined {
+	const budget = activeOrchestrationBudget();
+	if (!budget) return undefined;
+	if (budget.totalTokens >= budget.maxTokens) return `shared token budget exhausted (${budget.totalTokens}/${budget.maxTokens})`;
+	if (budget.costUsd >= budget.maxCostUsd) return `shared cost budget exhausted ($${budget.costUsd.toFixed(4)}/$${budget.maxCostUsd.toFixed(4)})`;
+	return undefined;
+}

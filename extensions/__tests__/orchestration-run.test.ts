@@ -7,6 +7,7 @@ import { createOrchestrationRun, RunBudgetError } from "../lib/orchestration-run
 import { activeRunMarkerPath } from "../lib/orchestration-run.ts";
 import { summarizeOrchestrationRun } from "../lib/orchestration-query.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
+import { clearOrchestrationBudget, initOrchestrationBudget, recordBudgetUsage } from "../lib/orchestration-budget.ts";
 
 describe("orchestration run context", () => {
 	test("assigns an id and records a bounded event trail", () => {
@@ -42,9 +43,34 @@ describe("orchestration run context", () => {
 		expect(() => run.consumeStep()).toThrow(RunBudgetError);
 		run.finish("succeeded");
 		expect(run.budgetExceeded).toBe(true);
+		expect(run.signal.aborted).toBe(true);
 		expect(run.usage).toEqual({ totalTokens: 110, costUsd: 1.05 });
-		expect(run.events.map((event) => event.type)).toEqual(["run.started", "usage.updated", "usage.updated", "budget.exceeded", "run.failed"]);
+		expect(run.events.map((event) => event.type)).toEqual(["run.started", "usage.updated", "usage.updated", "budget.exceeded", "run.cancel.requested", "run.failed"]);
 		expect(run.events.at(-1)?.payload).toMatchObject({ usage: { totalTokens: 110, costUsd: 1.05 } });
+	});
+
+	test("combines external cancellation with the run-owned boundary", () => {
+		const controller = new AbortController();
+		const run = createOrchestrationRun({ signal: controller.signal, actor: "test" });
+		expect(run.signal.aborted).toBe(false);
+		controller.abort("user_cancelled");
+		expect(run.signal.aborted).toBe(true);
+		run.finish("cancelled");
+	});
+
+	test("cancels on actual shared spend exhaustion without treating reservations as spend", () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pi-shared-budget-"));
+		try {
+			initOrchestrationBudget(dir, 100, 1);
+			recordBudgetUsage("worker-a", { totalTokens: 100, costUsd: 0.5 });
+			const run = createOrchestrationRun({ actor: "batch-parent" });
+			run.recordUsage({ totalTokens: 1, costUsd: 0.01 });
+			expect(run.signal.aborted).toBe(true);
+			expect(run.events.find((event) => event.type === "budget.exceeded")?.payload).toMatchObject({ scope: "shared" });
+			run.finish("cancelled");
+		} finally {
+			clearOrchestrationBudget();
+		}
 	});
 
 	test("turns a successful finish into failed when one long step crosses the duration ceiling", async () => {
