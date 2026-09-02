@@ -188,3 +188,8 @@ the authoritative fixture command is `node --test`.
 - PIPELINE recovery coverage confirms startup keeps worker session files when a
   valid phase snapshot matches the loaded configuration, while stale or
   incompatible snapshots still trigger bounded cleanup.
+- TEAM startup cleanup now preserves the latest unfinished TEAM role session
+  only when its journal row points to the expected in-root file; completed,
+  invalid, and unrelated mode-owned files remain protected from accidental
+  deletion. Full repository tests after this recovery-boundary fix: 183 Bun
+  passed; 957 Vitest passed; 13 skipped.
