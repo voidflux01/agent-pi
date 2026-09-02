@@ -300,3 +300,9 @@ worker lifecycle boundaries.
 3. Evaluate whether built-in Pi tools should publish capability descriptors, or
    remain on the native tool path until their security and schema contracts are
    equally explicit.
+
+The provider-free evaluation command is now `npm run eval:orchestration`. It
+measures real synthetic wall time for independent parallel work and conflicting
+resource waves, and checks the run-owned budget cancellation signal. Its output
+does not claim provider token/cost savings; those require repeated
+provider-backed runs for each of the six modes.

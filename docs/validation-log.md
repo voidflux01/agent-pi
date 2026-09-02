@@ -177,3 +177,4 @@ the authoritative fixture command is `node --test`.
 - RunContexts now combine external cancellation with a run-owned signal and cancel synchronous worker groups after local or shared actual-spend budget exhaustion; reservations remain admission-only and do not interrupt workers that own their share.
 - Resource-aware scheduling now parses optional PIPELINE resource keys and applies deterministic conflict-free waves to TEAM batches, subagent batches, and parallel PIPELINE phases; pure scheduler and parser regressions pass.
 - Resource declarations and wave membership are now included in TEAM, PIPELINE, and subagent batch RunContext events for post-run auditability.
+- Added `npm run eval:orchestration`: provider-free runtime evaluation passes independent parallel speedup, resource-conflict wave behavior, and budget cancellation; it explicitly reports that provider-backed six-mode metrics remain unmeasured.
