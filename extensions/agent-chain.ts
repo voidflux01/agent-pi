@@ -380,7 +380,8 @@ export default function (pi: ExtensionAPI) {
 			"-p",
 			"--model", model,
 			"--tools", workerTools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : ""),
+			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "") +
+				"\n\nCHAIN HANDOFF CHECK: Before your final message, verify that the last lines are the exact ## RESULT ... ## END block required above. Do not omit it even for a read-only plan or review.",
 			"--session", agentSessionFile,
 		];
 

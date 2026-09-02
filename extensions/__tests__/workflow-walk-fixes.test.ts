@@ -103,6 +103,7 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "lib", "team-session-cleanup.ts"), "utf8")).toContain("entry.status === \"done\"");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("originalTask: originalPrompt");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("CHAIN HANDOFF CHECK");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("scheduleResourceWaves(jobs, jobs.length)");

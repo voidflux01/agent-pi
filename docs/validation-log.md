@@ -234,3 +234,7 @@ the authoritative fixture command is `node --test`.
   result contract was malformed and the model drifted into a manual fallback.
   This is recorded as a failed/inconclusive CHAIN workflow, not a pass; the
   provider run was capped at `/budget 24000 0.20`.
+- After adding the concise CHAIN handoff contract reminder, the same bounded
+  real Herdr workflow passed: Planner → Builder → Reviewer completed as three
+  terminal `chain` journal rows and the parent returned `CHAIN-TASK-PASS` under
+  `/budget 24000 0.20`, without manual fallback or repository changes.
