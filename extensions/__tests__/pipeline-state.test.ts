@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readPipelineSnapshot, writePipelineSnapshot } from "../lib/pipeline-state.ts";
+import { pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "../lib/pipeline-state.ts";
 
 const phase = { name: "understand", status: "active" as const, summary: "clarify", dispatchCount: 0, lastDispatchSuccess: false };
 
@@ -22,5 +22,26 @@ describe("durable pipeline state", () => {
 		const linkDir = mkdtempSync(join(tmpdir(), "agent-pi-pipeline-link-"));
 		symlinkSync(target, join(linkDir, "pipeline-state.json"));
 		expect(readPipelineSnapshot(linkDir)).toBeUndefined();
+	});
+
+	test("preserves worker-session material only for a matching phase sequence", () => {
+		const snapshot = {
+			version: 1 as const,
+			pipeline: "plan-build",
+			currentPhaseIndex: 0,
+			taskSummary: "task",
+			accContext: "",
+			planOutput: "",
+			reviewOutput: "",
+			reviewLoopCount: 0,
+			phases: [
+				{ name: "plan", status: "active" as const, summary: "", dispatchCount: 1, lastDispatchSuccess: true },
+				{ name: "build", status: "pending" as const, summary: "", dispatchCount: 0, lastDispatchSuccess: false },
+			],
+			updatedAt: new Date().toISOString(),
+		};
+		expect(pipelineSnapshotMatchesPhaseNames(snapshot, ["plan", "build"])).toBe(true);
+		expect(pipelineSnapshotMatchesPhaseNames(snapshot, ["understand", "plan"])).toBe(false);
+		expect(pipelineSnapshotMatchesPhaseNames(undefined, ["plan", "build"])).toBe(false);
 	});
 });

@@ -25,6 +25,14 @@ export interface PipelineSnapshot {
 	updatedAt: string;
 }
 
+export function pipelineSnapshotMatchesPhaseNames(snapshot: PipelineSnapshot | undefined, phaseNames: string[]): boolean {
+	return Boolean(
+		snapshot &&
+		snapshot.phases.length === phaseNames.length &&
+		snapshot.phases.every((phase, index) => phase.name === phaseNames[index]),
+	);
+}
+
 export function pipelineSnapshotPath(sessionDir: string): string { return join(sessionDir, "pipeline-state.json"); }
 
 export function readPipelineSnapshot(sessionDir: string): PipelineSnapshot | undefined {

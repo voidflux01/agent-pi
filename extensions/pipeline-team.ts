@@ -70,7 +70,7 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
-import { clearPipelineSnapshot, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
+import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 
 // ── Types ────────────────────────────────────────
@@ -275,8 +275,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function pipelineSnapshotMatchesConfig(snapshot: NonNullable<ReturnType<typeof readPipelineSnapshot>>, config: PipelineConfig): boolean {
-		return config.phases.length === snapshot.phases.length &&
-			config.phases.every((phase, index) => phase.name === snapshot.phases[index]?.name);
+		return pipelineSnapshotMatchesPhaseNames(snapshot, config.phases.map((phase) => phase.name));
 	}
 
 	// ── Load Config ──────────────────────────────
