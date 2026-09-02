@@ -218,3 +218,6 @@ the authoritative fixture command is `node --test`.
   executed `set_mode → show_plan → result`, returned `PLAN-TASK-PASS`, made no
   file changes, and created no worker journal, confirming the interactive PLAN
   path without launching additional agents.
+- A low-cost real Herdr SPEC task passed with `/budget 8000 0.10`: the TUI
+  executed `set_mode → show_spec → result`, returned `SPEC-TASK-PASS`, ran no
+  worker, and made no implementation changes in the disposable workspace.
