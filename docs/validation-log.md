@@ -185,3 +185,6 @@ the authoritative fixture command is `node --test`.
   CHAIN/PIPELINE-owned workers before replacement-session work can dispatch.
 - Session-switch source coverage also confirms all session-owned viewer/server
   extensions close their local resources; the sounds viewer stops playback.
+- PIPELINE recovery coverage confirms startup keeps worker session files when a
+  valid phase snapshot matches the loaded configuration, while stale or
+  incompatible snapshots still trigger bounded cleanup.

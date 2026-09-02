@@ -231,6 +231,9 @@ worker lifecycle boundaries.
 - CHAIN and PIPELINE now aggregate the same measured child usage into their
   parent RunContexts, including failed workers that produced usage, making all
   six modes comparable in status and cost metrics.
+- PIPELINE startup now preserves `pipeline-*.json` worker sessions when a
+  valid phase snapshot matches the loaded configuration, keeping the material
+  needed for `/pipeline-resume` instead of only the phase metadata.
 - RunContexts now expose one internal cancellation boundary: external aborts
   and local/shared actual-spend budget breaches cancel the same worker signal.
   Synchronous NORMAL/PLAN/SPEC joins and TEAM/CHAIN/PIPELINE batches therefore

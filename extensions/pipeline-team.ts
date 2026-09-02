@@ -253,7 +253,7 @@ export default function (pi: ExtensionAPI) {
 		const snapshot = readPipelineSnapshot(sessionDir);
 		if (!snapshot) return false;
 		const config = pipelineConfigs.find((candidate) => candidate.name === snapshot.pipeline);
-		if (!config || config.phases.length !== snapshot.phases.length || config.phases.some((phase, index) => phase.name !== snapshot.phases[index]?.name)) return false;
+		if (!config || !pipelineSnapshotMatchesConfig(snapshot, config)) return false;
 		activeConfig = config;
 		setActivePipeline(config.name);
 		currentPhaseIndex = snapshot.currentPhaseIndex;
@@ -272,6 +272,11 @@ export default function (pi: ExtensionAPI) {
 		}));
 		updateWidget();
 		return true;
+	}
+
+	function pipelineSnapshotMatchesConfig(snapshot: NonNullable<ReturnType<typeof readPipelineSnapshot>>, config: PipelineConfig): boolean {
+		return config.phases.length === snapshot.phases.length &&
+			config.phases.every((phase, index) => phase.name === snapshot.phases[index]?.name);
 	}
 
 	// ── Load Config ──────────────────────────────
@@ -1534,17 +1539,22 @@ ${contextSummary}${planSection}${reviewSection}
 		});
 		contextWindow = _ctx.model?.contextWindow || 0;
 
-		// Wipe pipeline session files
+		loadConfig(_ctx.cwd);
+
+		// Preserve worker sessions when a valid snapshot still matches the loaded
+		// pipeline. They are the resume material behind /pipeline-resume; deleting
+		// them here would leave only phase metadata and force every worker to start
+		// from scratch after a parent restart.
 		const sessDir = join(_ctx.cwd, ".pi", "agent-sessions");
-		if (existsSync(sessDir)) {
+		const snapshot = readPipelineSnapshot(sessDir);
+		const resumable = snapshot && pipelineConfigs.some((config) => pipelineSnapshotMatchesConfig(snapshot, config));
+		if (!resumable && existsSync(sessDir)) {
 			for (const f of readdirSync(sessDir)) {
 				if (f.startsWith("pipeline-") && f.endsWith(".json")) {
 					try { unlinkSync(join(sessDir, f)); } catch {}
 				}
 			}
 		}
-
-		loadConfig(_ctx.cwd);
 
 		if (pipelineConfigs.length === 0) {
 			activeConfig = null;
