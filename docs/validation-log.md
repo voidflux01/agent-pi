@@ -267,3 +267,9 @@ the authoritative fixture command is `node --test`.
   crash during the first dispatch could cause safe startup cleanup to remove a
   resumable worker session. The source regression and restart smoke pass after
   the fix.
+- Real MCP discovery was checked in an isolated Pi/Herdr session using the
+  configured `/Users/jingefang/.pi/agent/mcp.json`: `/mcp` connected to `dbx`
+  and reported `13/13` direct tools (~1,751 tokens of metadata). No business
+  MCP tool was invoked and no provider model request was made. Failure
+  injection and restart of the user's external dbx server remain intentionally
+  unperformed because they could affect external state.
