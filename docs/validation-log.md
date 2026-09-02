@@ -178,3 +178,4 @@ the authoritative fixture command is `node --test`.
 - Resource-aware scheduling now parses optional PIPELINE resource keys and applies deterministic conflict-free waves to TEAM batches, subagent batches, and parallel PIPELINE phases; pure scheduler and parser regressions pass.
 - Resource declarations and wave membership are now included in TEAM, PIPELINE, and subagent batch RunContext events for post-run auditability.
 - Added `npm run eval:orchestration`: provider-free runtime evaluation passes independent parallel speedup, resource-conflict wave behavior, and budget cancellation; it explicitly reports that provider-backed six-mode metrics remain unmeasured.
+- Tool registry regression confirms runtime-provided schemas are preserved on discovered native-only capabilities and cannot thereby become in-process executors.

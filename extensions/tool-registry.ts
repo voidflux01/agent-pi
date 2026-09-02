@@ -142,7 +142,7 @@ function summarizeParameters(description: string): string {
 export class ToolRegistry {
 	private tools: Map<string, ToolEntry> = new Map();
 
-	buildIndex(allTools: { name: string; description?: string }[]): void {
+	buildIndex(allTools: { name: string; description?: string; parameters?: unknown }[]): void {
 		this.tools.clear();
 
 		for (const tool of allTools) {
@@ -158,7 +158,7 @@ export class ToolRegistry {
 			};
 			this.tools.set(tool.name, entry);
 			if (BUILTIN_TOOLS.includes(tool.name) || tool.name.startsWith("mcp__")) {
-				registerDiscoveredCapability({ name: tool.name, provider: tool.name.startsWith("mcp__") ? "mcp" : "builtin", description: desc });
+				registerDiscoveredCapability({ name: tool.name, provider: tool.name.startsWith("mcp__") ? "mcp" : "builtin", description: desc, inputSchema: tool.parameters });
 			}
 		}
 	}
@@ -234,7 +234,7 @@ export function getToolRegistry(): ToolRegistry {
 }
 
 /** Refresh the shared index so tools loaded after session_start are discoverable. */
-export function refreshToolRegistry(pi: { getAllTools: () => { name: string; description?: string }[] }): ToolRegistry {
+export function refreshToolRegistry(pi: { getAllTools: () => { name: string; description?: string; parameters?: unknown }[] }): ToolRegistry {
 	const registry = getToolRegistry();
 	registry.buildIndex(pi.getAllTools());
 	return registry;

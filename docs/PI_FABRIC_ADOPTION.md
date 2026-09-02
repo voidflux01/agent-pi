@@ -237,6 +237,9 @@ worker lifecycle boundaries.
 - Resource declarations and chosen wave membership are recorded in the parent
   RunContext, so a later audit can explain why work ran concurrently or was
   serialized.
+- Discovered builtin/MCP descriptors now retain any runtime-provided input
+  schema while remaining `native_only`; discovery and inspection improve
+  without widening `compose_exec`'s executable surface.
 - Tool-gate de-duplication is scoped to the Pi session lifecycle; `/new`,
   session switch, fork, and tree boundaries clear request ids and pending
   executions so audit records cannot be lost across session reuse.

@@ -40,4 +40,11 @@ describe("capability registry", () => {
 		expect(descriptor.risk).toBe("network");
 		expect(descriptor.execution).toBe("native_only");
 	});
+
+	test("retains discovered native schemas for inspection without enabling execution", () => {
+		const schema = Type.Object({ path: Type.String() });
+		const descriptor = registerDiscoveredCapability({ name: "find", provider: "builtin", description: "Find files", inputSchema: schema });
+		expect(descriptor.inputSchema).toBe(schema);
+		expect(descriptor.execution).toBe("native_only");
+	});
 });
