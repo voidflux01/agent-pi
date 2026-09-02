@@ -27,6 +27,15 @@ export interface SubRenderResult {
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/** Truncate display text before styling so ANSI escape sequences cannot affect the limit. */
+function truncateDisplay(text: string, width: number): string {
+	const max = Math.max(1, Math.floor(width));
+	const chars = Array.from(text);
+	if (chars.length <= max) return text;
+	if (max <= 1) return chars.slice(0, max).join("");
+	return chars.slice(0, max - 1).join("") + "…";
+}
+
 /**
  * Decide whether a completed widget should get the delayed auto-removal.
  * The pre-spawned scout keeps its state for /subcont, but its active-turn
@@ -83,22 +92,22 @@ export function renderSubagentWidget(
 	}
 
 	const statusColor = state.status === "running" ? "accent" : state.status === "done" ? "success" : "error";
-	const statusLine = theme.fg(statusColor, theme.bold(spinner + title));
-	const stats = theme.fg("dim", `  ${Math.round(state.elapsed / 1000)}s · Tools: ${state.toolCount}`);
+	const prefix = truncateDisplay(spinner + title, width);
+	const rawSuffix = `  ${Math.round(state.elapsed / 1000)}s · Tools: ${state.toolCount}${turnLabel}${modelSuffix}${timeoutLabel}`;
+	const suffixWidth = Math.max(0, Math.floor(width) - Array.from(prefix).length);
+	const suffix = truncateDisplay(rawSuffix, suffixWidth);
+	const statusLine = theme.fg(statusColor, theme.bold(prefix)) + theme.fg("dim", suffix);
 
 	// Line 1: status + compact stats + model (summary shown on line 2)
-	lines.push(
-		statusLine + stats +
-		theme.fg("dim", turnLabel) +
-		theme.fg("muted", modelSuffix + timeoutLabel)
-	);
+	lines.push(statusLine);
 
 	// Line 2: summary (current activity) or task preview as fallback
 	const detail = state.summary || state.task;
-	const detailPreview = detail.length > 40
-		? detail.slice(0, 37) + "..."
-		: detail;
-	lines.push(theme.fg("muted", `  └─ ${detailPreview}`));
+	// Keep the historical 40-character preview contract, then apply the actual
+	// terminal width so narrow panes do not wrap the widget.
+	const compactDetail = detail.length > 40 ? detail.slice(0, 37) + "..." : detail;
+	const detailPreview = truncateDisplay(`  └─ ${compactDetail}`, Math.max(1, width));
+	lines.push(theme.fg("muted", detailPreview));
 
 	return { lines, borderCount: 1 };
 }

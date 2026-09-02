@@ -299,3 +299,8 @@ the authoritative fixture command is `node --test`.
   The workspace was closed through the verified cleanup helper. The test did
   not expose usage fields in its task journal, so token/cost metrics are not
   claimed from this run.
+- The subagent widget renderer was corrected after inspecting the live TUI:
+  it now applies terminal-width truncation to both status and detail lines,
+  while preserving the existing 40-character task preview contract. A narrow
+  terminal regression was added; the focused render suite passes 40/40 and
+  the full suite passes 183 Bun tests plus 964 Vitest tests (13 skipped).

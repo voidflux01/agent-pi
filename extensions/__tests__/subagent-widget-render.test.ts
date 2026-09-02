@@ -25,6 +25,10 @@ function makeState(overrides: Partial<SubRenderState> = {}): SubRenderState {
 	};
 }
 
+function visible(text: string): string {
+	return text.replace(/\[[^\]]+\]|<\/?b>/g, "");
+}
+
 describe("widget cleanup policy", () => {
 	it("removes the active persistent scout widget but keeps scout state", () => {
 		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 2 }, true)).toBe(true);
@@ -133,6 +137,19 @@ describe("renderSubagentWidget", () => {
 		const toolsIdx = line.indexOf("Tools:");
 		const afterTools = line.slice(toolsIdx);
 		expect(afterTools).not.toContain("|");
+	});
+
+	it("keeps both rendered lines within a narrow terminal width", () => {
+		const state = makeState({
+			name: "VERY-LONG-REVIEWER",
+			task: "a very long task description that must not wrap the widget",
+			model: "provider/very-long-model-name",
+		});
+		const result = renderSubagentWidget(state, 32, theme);
+
+		expect(visible(result.lines[0]).length).toBeLessThanOrEqual(32);
+		expect(visible(result.lines[1]).length).toBeLessThanOrEqual(32);
+		expect(result.lines[1]).toContain("…");
 	});
 });
 
