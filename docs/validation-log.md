@@ -206,3 +206,8 @@ the authoritative fixture command is `node --test`.
   last row on timeout, and sets a conservative `/budget 16000 0.20` before
   dispatch. This is recorded as an inconclusive provider run, not a product
   pass or failure.
+- The same journal E2E passed after adding the 15-second startup
+  reconciliation grace: real Herdr Pi TUI workers survived the parent's fresh
+  journal row, both breaker/goodboy rows reached terminal state, the contract
+  warning and full archives were present, and the run was bounded by
+  `/budget 16000 0.20`.

@@ -61,6 +61,9 @@ export function journalPath(sessionDir: string): string {
 
 /** A sub-agent session file not written for this long is considered idle/dead. */
 export const RECONCILE_ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+/** A child extension can reconcile its parent's freshly-dispatched row before
+ * the transport has written the pid/session evidence. Do not call that crash. */
+export const RECONCILE_STARTUP_GRACE_MS = 15_000;
 
 const JOURNAL_LOCK_ATTEMPTS = 25;
 const JOURNAL_LOCK_WAIT_MS = 20;
@@ -192,6 +195,12 @@ function classifyCrashedRun(
 			// session file missing/unreadable → fall through to pid/staleness
 		}
 	}
+	// Herdr/TUI children load the same extension set as the parent. Their
+	// startup reconciliation may race the parent's dispatch journal append and
+	// the first session/pid evidence. Keep this very recent row pending; a later
+	// startup will still reconcile it if it remains evidence-less.
+	const rowAge = Date.now() - Math.max(e.startedAt || 0, e.updatedAt || 0);
+	if (rowAge >= 0 && rowAge < RECONCILE_STARTUP_GRACE_MS) return undefined;
 	// A live pid means the headless fallback is genuinely still running.
 	if (pidAlive(e.pid) === true) return undefined;
 	return false;

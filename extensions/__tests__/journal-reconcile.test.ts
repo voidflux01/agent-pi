@@ -92,6 +92,22 @@ describe("reconcileJournal", () => {
 		expect(text).not.toContain("reconciled");
 	});
 
+	it("leaves a just-dispatched evidence-less row pending during child startup", () => {
+		const now = Date.now();
+		const row = baseRow({
+			id: "just-dispatched-1",
+			agent: "fresh-child",
+			startedAt: now,
+			updatedAt: now,
+			sessionFile: join(dir, "not-created-yet.jsonl"),
+		});
+		writeJournal([row]);
+		reconcileJournal(dir);
+		const updated = JSON.parse(readJournal().trim());
+		expect(updated.status).toBe("running");
+		expect(updated.note).toBeUndefined();
+	});
+
 	it("marks stale evidence-less rows as error with a reconciled note", () => {
 		const staleSess = fakeSessionFile(false, 30 * 60_000);
 		const rowA = baseRow({ id: "dead-a-1", agent: "a", sessionFile: staleSess });
