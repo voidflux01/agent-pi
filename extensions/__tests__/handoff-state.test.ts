@@ -1,7 +1,7 @@
 // ABOUTME: Tests the compact handoff snapshot format and durable round trip.
 
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -49,6 +49,19 @@ describe("handoff state", () => {
 			expect(readHandoff(workspace)).toBeUndefined();
 			expect(handoffPath(workspace)).toContain("handoff.json");
 		} finally {
+			rmSync(workspace, { recursive: true, force: true });
+		}
+	});
+
+	it("accepts an equivalent workspace reached through a symlink", () => {
+		const workspace = mkdtempSync(join(tmpdir(), "handoff-realpath-"));
+		const alias = join(tmpdir(), `handoff-alias-${process.pid}-${Date.now()}`);
+		try {
+			symlinkSync(workspace, alias, "dir");
+			writeHandoff(workspace, buildHandoffSnapshot({ workspace, objective: "Continue through alias" }));
+			expect(readHandoff(alias)?.objective).toBe("Continue through alias");
+		} finally {
+			rmSync(alias, { force: true });
 			rmSync(workspace, { recursive: true, force: true });
 		}
 	});

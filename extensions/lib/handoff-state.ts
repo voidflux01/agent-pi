@@ -1,8 +1,8 @@
 // ABOUTME: Durable, compact handoff snapshots for continuing work across Pi sessions.
 // ABOUTME: The snapshot is a projection of task/journal/verification facts; it is not a second source of truth.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 export type HandoffStatus = "in_progress" | "completed" | "interrupted";
 
@@ -52,6 +52,14 @@ export function handoffPath(workspace: string): string {
 	return join(workspace, ".pi", HANDOFF_FILE);
 }
 
+function canonicalWorkspace(workspace: string): string {
+	try {
+		return realpathSync(workspace);
+	} catch {
+		return resolve(workspace);
+	}
+}
+
 function trim(value: unknown, max: number): string {
 	return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -61,7 +69,8 @@ export function readHandoff(workspace: string): HandoffSnapshot | undefined {
 		const parsed = JSON.parse(readFileSync(handoffPath(workspace), "utf8")) as HandoffSnapshot;
 		if (
 			parsed?.version !== 1 ||
-			parsed.workspace !== workspace ||
+			typeof parsed.workspace !== "string" ||
+			canonicalWorkspace(parsed.workspace) !== canonicalWorkspace(workspace) ||
 			typeof parsed.objective !== "string" ||
 			!(["in_progress", "completed", "interrupted"] as string[]).includes(parsed.status) ||
 			typeof parsed.mode !== "string" ||

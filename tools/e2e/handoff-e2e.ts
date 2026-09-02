@@ -47,9 +47,14 @@ async function main() {
 
 		send("send-text", paneId, "pi");
 		send("send-keys", paneId, "enter");
+		let booted = false;
 		for (let i = 0; i < 20; i++) {
 			await sleep(2000);
 			const text = readPane();
+			if (text.includes("Extensions") || text.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(text)) {
+				booted = true;
+				break;
+			}
 			if (text.includes("Unfinished handoff found")) break;
 			if (i === 8) {
 				send("send-text", paneId, "pi");
@@ -58,6 +63,9 @@ async function main() {
 		}
 
 		const boot = readPane();
+		if (!booted && !(boot.includes("Extensions") || boot.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(boot))) {
+			failures.push(`pi did not boot in isolated pane; tail=${boot.slice(-400).replace(/\s+/g, " ")}`);
+		}
 		if (!boot.includes("Unfinished handoff found: handoff E2E task")) failures.push("startup did not discover unfinished handoff");
 
 		send("send-text", paneId, "/handoff");
