@@ -1616,4 +1616,29 @@ ${contextSummary}${planSection}${reviewSection}
 		clearPipelineUI();
 		widgetCtx = undefined;
 	});
+
+	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
+		// /new can switch sessions without a shutdown event. Invalidate and stop
+		// every pipeline-owned worker before the replacement session is usable.
+		lifecycle.stopAll();
+		for (const phase of phaseStates) {
+			for (const agent of phase.agents) {
+				if (agent.timer) {
+					clearInterval(agent.timer);
+					agent.timer = undefined;
+				}
+				if (agent.proc && agent.status === "running") {
+					try { agent.proc.kill("SIGTERM"); } catch {}
+					agent.proc = undefined;
+				}
+			}
+		}
+		phaseStates = [];
+		activeConfig = null;
+		setActivePipeline(null);
+		unwatchMode?.();
+		unwatchMode = undefined;
+		widgetCtx = ctx;
+		clearPipelineUI();
+	}));
 }

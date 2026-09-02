@@ -150,6 +150,9 @@ worker lifecycle boundaries.
 - TEAM, CHAIN, and PIPELINE standard Pi workers now pass the same 15-minute
   orchestration deadline into the shared transport, keeping all six modes'
   standard worker paths aligned on timeout and cancellation behavior.
+- A session switch is now an explicit cancellation boundary: mode state returns
+  to NORMAL and CHAIN/PIPELINE stop owned workers, timers, widgets, and stale
+  callbacks before the replacement session can dispatch work.
 - External toolkit workers now use the same default deadline in both headless
   and Herdr transports; timeout termination is journaled as a failed run while
   cancellation remains distinguishable.

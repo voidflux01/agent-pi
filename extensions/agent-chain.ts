@@ -1597,4 +1597,25 @@ ${agentCatalog}
 		hideChainWidget(_ctx);
 		widgetCtx = undefined;
 	});
+
+	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
+		// /new is not guaranteed to emit session_shutdown. Stop every chain-owned
+		// process/timer and invalidate callbacks before the replacement session
+		// can issue another dispatch.
+		lifecycle.stopAll();
+		if (currentChainProc) {
+			try { currentChainProc.kill("SIGTERM"); } catch {}
+			currentChainProc = null;
+		}
+		currentChainTimer = null;
+		unwatchMode?.();
+		unwatchMode = undefined;
+		stepStates = [];
+		activeChain = null;
+		setActiveChain(null);
+		selectedStepIndex = -1;
+		pendingReset = true;
+		widgetCtx = ctx;
+		hideChainWidget(ctx);
+	}));
 }

@@ -181,3 +181,5 @@ the authoritative fixture command is `node --test`.
 - Added `npm run eval:orchestration`: provider-free runtime evaluation passes independent parallel speedup, resource-conflict wave behavior, and budget cancellation; it explicitly reports that provider-backed six-mode metrics remain unmeasured.
 - Tool registry regression confirms runtime-provided schemas are preserved on discovered native-only capabilities and cannot thereby become in-process executors.
 - Real provider entry smoke for all six modes passed 6/6 in parallel isolated workspaces; the measured range includes process/provider startup and is not a substitute for task-matched workflow metrics.
+- Session-switch source coverage confirms new sessions reset to NORMAL and stop
+  CHAIN/PIPELINE-owned workers before replacement-session work can dispatch.

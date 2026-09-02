@@ -125,6 +125,18 @@ describe("source wiring", () => {
 		expect(chain).toContain("!lifecycle.isCurrent(runEpoch) || !!signal?.aborted");
 		expect(pipeline).toContain("isAborted: () => !!signal?.aborted");
 	});
+	it("makes session switches a cancellation boundary for every orchestration mode", () => {
+		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+		const mode = readFileSync(join(root, "mode-cycler.ts"), "utf8");
+		const chain = readFileSync(join(root, "agent-chain.ts"), "utf8");
+		const pipeline = readFileSync(join(root, "pipeline-team.ts"), "utf8");
+		expect(mode).toContain('pi.on("session_switch"');
+		expect(mode).toContain('setCoordinationMode("NORMAL", ctx)');
+		expect(chain).toContain('pi.on("session_switch"');
+		expect(chain).toContain("lifecycle.stopAll()");
+		expect(pipeline).toContain('pi.on("session_switch"');
+		expect(pipeline).toContain("lifecycle.stopAll()");
+	});
 	it("gates advance_phase on dispatchCount", () => {
 		const src = readFileSync(join(__dirname, "..", "pipeline-team.ts"), "utf8");
 		expect(src).toContain("phaseRequiresAgentDispatch");

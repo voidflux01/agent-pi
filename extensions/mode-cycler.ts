@@ -284,6 +284,10 @@ export default function (pi: ExtensionAPI) {
 		// provider-prompt rewrite from the session that was left behind.
 		resetNormalEscalation(normalEscalationState);
 		midRunSystemPrompt = null;
+		// Match session_start: a new session starts in NORMAL. This also gives
+		// mode-owned extensions a deterministic cancellation boundary for work
+		// that must not cross the session switch.
+		setCoordinationMode("NORMAL", ctx);
 		// Re-apply current mode widgets after banner is shown to ensure correct rendering order
 		// The banner is shown in agent-banner.ts's session_switch handler, so we need to
 		// re-set widgets here to ensure mode-block (if any) renders before banner is re-set
