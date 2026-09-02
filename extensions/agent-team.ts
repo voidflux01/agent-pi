@@ -624,7 +624,10 @@ export default function (pi: ExtensionAPI) {
 			task,
 			model: isToolkitCliAgent(canonicalName) ? undefined : model,
 			cwd: runCwd,
-			sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
+			// Record the target on the initial dispatch too. On a first run
+			// state.sessionFile is empty, but the worker is already writing this
+			// agentSessionFile; a parent restart must be able to retain it.
+			sessionFile: isToolkitCliAgent(canonicalName) ? undefined : agentSessionFile,
 			resumed: !!state.sessionFile,
 			status: "dispatched",
 			startedAt: Date.now(),

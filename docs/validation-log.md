@@ -261,3 +261,9 @@ the authoritative fixture command is `node --test`.
   `reviewer.json` session was removed, the two journal rows remained intact,
   and no worker was auto-dispatched. The test uses canonicalized macOS paths
   and valid Pi session headers so it exercises the actual startup cleanup.
+- That restart smoke also led to a production fix: first-time TEAM dispatches
+  now persist the target `agentSessionFile` in the journal before spawning the
+  worker. Previously the field used the empty prior-session value, so a parent
+  crash during the first dispatch could cause safe startup cleanup to remove a
+  resumable worker session. The source regression and restart smoke pass after
+  the fix.

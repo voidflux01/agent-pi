@@ -85,6 +85,11 @@ describe("source wiring", () => {
 		expect(source).toContain("Use only dispatch_agents");
 	});
 
+	it("records the first TEAM worker's target session before it starts", () => {
+		const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "agent-team.ts"), "utf8");
+		expect(source).toContain("sessionFile: isToolkitCliAgent(canonicalName) ? undefined : agentSessionFile");
+	});
+
 	it("keeps full worker transcripts out of structured team/chain/pipeline details", () => {
 		for (const file of ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"]) {
 			const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");
