@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import { unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalList, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
@@ -25,6 +25,10 @@ const g = globalThis as any;
 
 function cwdOf(ctx: any): string {
 	try { return ctx?.cwd || process.cwd(); } catch { return process.cwd(); }
+}
+
+function handoffClearMarkerPath(workspace: string): string {
+	return `${handoffPath(workspace)}.cleared`;
 }
 
 function sessionIdOf(ctx: any): string | undefined {
@@ -113,6 +117,7 @@ export default function (pi: ExtensionAPI) {
 	const persist = (ctx: any, status?: HandoffSnapshot["status"]) => {
 		const snapshot = snapshotFrom(ctx, { status });
 		if (!hasMeaningfulHandoff(snapshot)) return;
+		if (existsSync(handoffClearMarkerPath(snapshot.workspace))) return;
 		try { writeHandoff(snapshot.workspace, snapshot); } catch {}
 		dirty = false;
 		pendingStatus = undefined;
@@ -121,6 +126,7 @@ export default function (pi: ExtensionAPI) {
 		// A later meaningful action starts a fresh handoff lifecycle. This lets a
 		// user clear stale work and then begin a genuinely new task in this session.
 		clearedThisSession = false;
+		try { unlinkSync(handoffClearMarkerPath(cwdOf(ctx))); } catch {}
 		dirty = true;
 		if (status) pendingStatus = status;
 		if (timer) return;
@@ -152,13 +158,18 @@ export default function (pi: ExtensionAPI) {
 				dirty = false;
 				pendingStatus = undefined;
 				clearedThisSession = true;
+				try { writeFileSync(handoffClearMarkerPath(workspace), `${new Date().toISOString()}\n`, { encoding: "utf8", mode: 0o600 }); } catch {}
 				ctx.ui.notify("Task handoff cleared.", "success");
 				return;
 			}
 			if (String(args || "").trim() === "resume") {
 				if (!saved) { ctx.ui.notify("No task handoff found for this workspace.", "info"); return; }
 				pendingPrompt = saved;
-				ctx.ui.notify("Handoff queued for the next turn.", "info");
+				ctx.ui.notify("Resuming task handoff…", "info");
+				// A command handler does not itself start an agent turn. Send a small
+				// user message so the pending handoff is consumed by
+				// before_agent_start immediately instead of appearing to do nothing.
+				await pi.sendUserMessage("Continue the unfinished task from the queued handoff. Re-check the workspace and proceed from its next action.");
 				return;
 			}
 			if (String(args || "").trim() === "complete") {
@@ -204,6 +215,7 @@ export default function (pi: ExtensionAPI) {
 		// handoff belongs to the parent session. Never consume or mutate it from
 		// a SCOUT/TEAM/CHAIN/Pipeline worker.
 		if (process.env.PI_SUBAGENT === "1") return;
+		if (existsSync(handoffClearMarkerPath(cwdOf(ctx)))) return;
 		const saved = readHandoff(cwdOf(ctx));
 		if (saved && saved.status !== "completed" && saved.sessionId !== sessionIdOf(ctx)) {
 			pendingPrompt = saved;
@@ -240,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 		if (timer) clearTimeout(timer);
 		unsubscribeMode();
 		if (clearedThisSession) return;
+		if (existsSync(handoffClearMarkerPath(cwdOf(ctx)))) return;
 		const saved = readHandoff(cwdOf(ctx));
 		if (saved?.status === "completed" && !dirty) return;
 		if (dirty || changedFiles(cwdOf(ctx)) || currentTasks().length > 0) persist(ctx, pendingStatus || "in_progress");

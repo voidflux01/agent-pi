@@ -81,10 +81,12 @@ describe("handoff state", () => {
 		const workspace = mkdtempSync(join(tmpdir(), "handoff-extension-"));
 		const handlers = new Map<string, Function>();
 		const notifications: string[] = [];
+		const sentMessages: string[] = [];
 		let command: any;
 		const pi = {
 			registerCommand(_name: string, definition: any) { command = definition; },
 			registerTool() {},
+			sendUserMessage(message: string) { sentMessages.push(message); },
 			on(name: string, handler: Function) { handlers.set(name, handler); },
 		};
 		const ctx: any = {
@@ -106,6 +108,8 @@ describe("handoff state", () => {
 			expect(readHandoff(workspace)?.status).toBe("interrupted");
 			const resumed = await handlers.get("before_agent_start")!({}, ctx);
 			expect(resumed.systemPrompt).toContain("Resume this");
+			await command.handler("resume", ctx);
+			expect(sentMessages).toEqual(["Continue the unfinished task from the queued handoff. Re-check the workspace and proceed from its next action."]);
 			(globalThis as any).__piTaskList = { tasks: [{ id: 1, text: "Continue", status: "inprogress" }] };
 			await handlers.get("tool_result")!({ toolName: "tasks", result: { details: {} } }, ctx);
 			await new Promise((resolve) => setTimeout(resolve, 550));
