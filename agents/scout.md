@@ -35,12 +35,20 @@ You are a scout agent. Your job is to investigate the codebase quickly and repor
 
 ```text
 ## RESULT
+role: scout
 done: true|false
+status: PASS|FAIL|BLOCKED
 summary: <concise overview of the findings>
-- files: <every relevant path, one per line>
-- key errors: <exact errors, or none>
-- verification: <read-only checks performed>
-- remaining: <open gaps, or none>
+findings:
+- <detailed finding with evidence>
+files:
+- <every relevant path, one per line>
+key_errors:
+- <exact errors, or none>
+verification:
+- <read-only checks performed>
+remaining:
+- <open gaps, or none>
 ## END
 ```
 - **Do NOT include any emojis. Emojis are banned.**

@@ -18,8 +18,8 @@ Before any write, edit, or bash/execution tool:
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
 If a SCOUT has returned but the material uncertainty remains unresolved after further repository inspection, dispatch one fresh SCOUT for the current question instead of repeating the same reads. Repeated read-only exploration in NORMAL, PLAN, and SPEC is bounded by a runtime escalation guard.
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]) in the approved contract PASS. Do not claim completion from worker text.
-If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.
-Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion. If verifier output is malformed, retry the verifier or report the exact BLOCKED error.
+Always call \`verify_execution\` and receive PASS before calling \`show_report\`; \`show_report\` never launches a verifier. If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.
+Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion. \`verify_execution\` performs at most one protocol-only repair turn for malformed output; if that still fails, report the exact BLOCKED error instead of dispatching a replacement verifier just for formatting.
 \`verify_execution\` is available in every mode, not only PLAN/SPEC. For medium/high-risk changes, the parent agent MUST create a clear task contract covering objective, scope, acceptance criteria, evidence requirements, and constraints, present the exact contract to the user for confirmation, and then pass that confirmed contract directly to \`verify_execution\` (or use an approved plan/spec as the source). It must not skip this sequence to avoid verifier cost. Start the verifier only after the confirmed contract has at least one executable [cmd]. Without an approved contract it must remain BLOCKED and must not start a verifier subagent. Skills remain enabled for every verifier and subagent.`;
 
 const PARALLEL_JOIN_PROMPT = `For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` so parallel spawn and one bounded join happen in a single tool call. For one planner, builder, reviewer, or other worker whose result is needed immediately, set \`join: true\` on \`subagent_create\`; omit it for detachable background work. For background batches, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
@@ -154,8 +154,8 @@ ${RESEARCH_ROUTING_PROMPT}
 3. Present it with show_plan and wait for approval.
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
 5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
-6. Before declaring a write-capable plan complete, call show_report. Completion is blocked until the deterministic assertions in the approved ## Contract checklist PASS.
-7. For three or more phases, present a completion report with show_report.
+6. After implementation and local checks, call \`verify_execution\` and require PASS. Do not call \`show_report\` before the verifier receipt exists and is current.
+7. After verifier PASS, call \`show_report\` to present the completion report. For three or more phases this report is mandatory, and it never launches verification itself.
 
 ## Plan format
 \`\`\`markdown
@@ -207,7 +207,7 @@ ${RESEARCH_ROUTING_PROMPT}
 - Prefer existing components and patterns.
 - Never start implementation before approval in PLAN mode. write/edit/mutating bash outside \`.context/\` are blocked until show_plan is approved. Writing \`.context/todo.md\` is allowed before that. Read-only bash (\`date\`, \`wc\`, \`pwd\`, \`uname\`) may run.
 - User chat is not approval. Only show_plan returning approved unlocks implementation.
-- If the plan has three or more \`## Phase\` headings, call show_report before declaring the work done.
+- If the plan has three or more \`## Phase\` headings, call \`show_report\` after \`verify_execution\` PASS and before declaring the work done.
 - Do not spawn extra scouts once the needed context is sufficient. Each spawned scout still runs to RESULT.
 - Keep RESULT contracts machine-checkable and concise.
 - A final \`done: true\` is allowed only after \`verify_execution\` reports PASS and \`show_report\` completes successfully. If either tool is FAIL/BLOCKED/error, use \`done: false\` and quote the exact blocker.

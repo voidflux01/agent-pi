@@ -52,11 +52,15 @@ function receipt(bound: AcceptanceContract, manifestHash = "m1", status: Determi
 }
 
 describe("completion gate (contract-bound)", () => {
-	it("does not gate user /report or show_report without a bound contract", () => {
+	it("leaves user and generic reports ungated but hard-gates PLAN/SPEC reports", () => {
 		expect(verificationRequired({ surface: "user-report", contract: contract() })).toBe(false);
 		expect(completeDecision({ surface: "user-report", contract: contract() }).allowed).toBe(true);
-		expect(verificationRequired({ surface: "plan-show-report" })).toBe(false);
-		expect(completeDecision({ surface: "plan-show-report" }).allowed).toBe(true);
+		expect(verificationRequired({ surface: "agent-show-report" })).toBe(false);
+		expect(completeDecision({ surface: "agent-show-report" }).allowed).toBe(true);
+		for (const surface of ["plan-show-report", "spec-show-report"] as const) {
+			expect(verificationRequired({ surface })).toBe(true);
+			expect(completeDecision({ surface }).allowed).toBe(false);
+		}
 	});
 
 	it("gates every show_report once a verifiable contract is bound, in any mode", () => {
@@ -138,8 +142,8 @@ describe("shipped wiring", () => {
 
 	it("gates agent show_report and leaves user /report ungated", () => {
 		const src = readFileSync(join(root, "..", "completion-report.ts"), "utf8");
-		expect(src).toContain('surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report"');
-		expect(src).toContain("runAcceptanceVerifier");
+		expect(src).toContain('mode === "PLAN" ? "plan-show-report" : mode === "SPEC" ? "spec-show-report" : "agent-show-report"');
+		expect(src).not.toContain("runAcceptanceVerifier");
 		expect(src).toContain("buildWorkspaceManifest");
 		const reportStart = src.indexOf('pi.registerCommand("report"');
 		expect(reportStart).toBeGreaterThan(0);

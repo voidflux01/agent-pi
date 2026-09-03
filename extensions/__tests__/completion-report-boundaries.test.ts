@@ -25,4 +25,12 @@ describe("completion report boundaries", () => {
 		expect(source).toContain("not a Git repository");
 		expect(source).toContain("Do not output done:true");
 	});
+
+	it("never launches verification while preparing a report", () => {
+		const source = readFileSync(new URL("../completion-report.ts", import.meta.url), "utf8");
+		expect(source).not.toContain("runAcceptanceVerifier");
+		expect(source).toContain("show_report never starts a verifier");
+		expect(source).toContain('mode === "PLAN"');
+		expect(source).toContain('mode === "SPEC"');
+	});
 });

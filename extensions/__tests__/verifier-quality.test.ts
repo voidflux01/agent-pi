@@ -11,8 +11,62 @@ function contract(text: string) {
 	return bindAcceptanceContract(text + suffix, "plan");
 }
 
-const validVerifierResult = `## VERIFIER RESULT
-{"status":"PASS","summary":"clean","requirements":[],"contract":{"status":"PASS","findings":[]},"review":{"status":"PASS","findings":[]},"behavior":{"status":"PASS","findings":[],"tests":{"discovered":1,"executed":1,"failed":0,"skipped":0}},"quality":{"status":"PASS","findings":[]},"security":{"status":"PASS","findings":[]},"hard_blockers":[],"warnings":[]}
+const validVerifierResult = `## RESULT
+role: verifier
+done: true
+status: PASS
+summary: clean
+findings:
+- clean audit
+files:
+- src/example.ts:1
+verification:
+- PASS | npm test | 1 test passed
+key_errors:
+- none
+remaining:
+- none
+
+## Requirements
+### REQ-001
+status: PASS
+requirement: requested behavior works
+evidence: src/example.ts:1 and npm test passed
+files:
+- src/example.ts:1
+
+## Contract
+status: PASS
+findings:
+- complete
+
+## Review
+status: PASS
+
+## Behavior
+status: PASS
+tests_discovered: 1
+tests_executed: 1
+tests_failed: 0
+tests_skipped: 0
+findings:
+- npm test passed
+
+## Quality
+status: PASS
+findings:
+- clean
+
+## Security
+status: PASS
+findings:
+- clean
+
+## Hard Blockers
+- none
+
+## Warnings
+- none
 ## END`;
 
 describe("acceptance contract quality", () => {
@@ -56,43 +110,72 @@ describe("acceptance contract quality", () => {
 		expect(prompt).toContain("read-only verification commands");
 		const source = readFileSync(new URL("../lib/verifier-subagent.ts", import.meta.url), "utf8");
 		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
-		expect(source).toContain('"--tools", "read,bash,grep,find,ls"');
+		expect(source).toContain('launch(initialPrompt, "read,bash,grep,find,ls", "audit")');
+		expect(source).toContain('launch(repairPrompt, "read", "repair")');
 		expect(source).toContain('herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts")');
 		expect(source).toContain('herdrLabel: "VERIFIER"');
+		expect(source).toContain("withSessionResume");
+		expect(source).toContain("Do not redo the audit");
 	});
 
 	it("passes deterministic evidence to the verifier and forbids stranded statuses", () => {
 		const prompt = buildVerifierPrompt(contract(`# Plan: x\n\n## Contract\n- [cmd] mvnd -q test\n`), "1. [cmd] mvnd -q test => pass");
 		expect(prompt).toContain("deterministic evidence runner has already executed");
 		expect(prompt).toContain("never invent UNVERIFIED");
+		expect(prompt).toContain("## RESULT");
+		expect(prompt).not.toContain("## VERIFIER RESULT");
+		expect(prompt).toContain("Do not use JSON");
 	});
 
 	it("accepts a valid result followed by trailing assistant text", () => {
 		expect(parseVerifierReport(`${validVerifierResult}\n验收完成。`)).toMatchObject({ status: "PASS", summary: "clean" });
 	});
 
+	it("accepts a complete Markdown result when the model omits the END marker", () => {
+		const withoutEnd = validVerifierResult.replace(/\n## END$/, "");
+		expect(parseVerifierReport(withoutEnd)).toMatchObject({ status: "PASS", summary: "clean" });
+	});
+
+	it("rejects an incomplete Markdown report when the END marker is missing", () => {
+		const truncated = validVerifierResult.slice(0, validVerifierResult.indexOf("## Security"));
+		expect(parseVerifierReport(truncated)).toBeUndefined();
+	});
+
 	it("uses the last valid result when an earlier block is malformed", () => {
-		expect(parseVerifierReport(`## VERIFIER RESULT\nnot json\n## END\n\n${validVerifierResult}`)?.status).toBe("PASS");
+		expect(parseVerifierReport(`## RESULT\ndone: true\nsummary: malformed\n## END\n\n${validVerifierResult}`)?.status).toBe("PASS");
 	});
 
-	it("normalizes legacy UNVERIFIED and accepts the verbose end marker", () => {
-		const json = validVerifierResult
-			.replace(/^## VERIFIER RESULT\n/, "")
-			.replace(/\n## END$/, "")
-			.replace('"status":"PASS"', '"status":"UNVERIFIED"');
-		const legacy = `## VERIFIER RESULT\n\`\`\`json\n${json}\n\`\`\`\n## END VERIFIER RESULT`;
-		const report = parseVerifierReport(legacy);
-		expect(report?.status).toBe("BLOCKED");
+	it("rejects the removed verifier-specific JSON protocol", () => {
+		const legacy = `## VERIFIER RESULT\n{"status":"PASS","summary":"clean"}\n## END VERIFIER RESULT`;
+		expect(parseVerifierReport(legacy)).toBeUndefined();
 	});
 
-	it("normalizes the legacy static-audit payload instead of reporting no result", () => {
-		const legacy = `## VERIFIER RESULT
-\`\`\`json
-{"status":"UNVERIFIED","verdict":"STATIC-ALL-PASS-CMD-NOT-RUN","reason":"cargo test NOT EXECUTED","checks":[{"assertion":"[cmd] cargo test","result":"NOT_RUN","evidence":"no shell"}]}
-\`\`\`
-## END VERIFIER RESULT`;
-		const report = parseVerifierReport(legacy);
-		expect(report).toMatchObject({ status: "BLOCKED", summary: "cargo test NOT EXECUTED" });
-		expect(report?.hard_blockers).toContain("cargo test NOT EXECUTED");
+	it("rejects a contradictory PASS with hard blockers", () => {
+		const contradictory = validVerifierResult.replace("## Hard Blockers\n- none", "## Hard Blockers\n- cargo test was not run");
+		expect(parseVerifierReport(contradictory)).toBeUndefined();
+	});
+
+	it("parses structured Markdown review findings and blocked evidence", () => {
+		const blocked = validVerifierResult
+			.replace("status: PASS\nsummary: clean", "status: BLOCKED\nsummary: cargo evidence missing")
+			.replace("## Review\nstatus: PASS", `## Review
+status: PASS
+### REV-001
+severity: LOW
+category: testing
+title: Missing app-layer test
+location: src/app.ts:10
+evidence: Search found no matching test
+recommendation: Add a focused unit test`)
+			.replace("## Behavior\nstatus: PASS", "## Behavior\nstatus: BLOCKED")
+			.replace("## Hard Blockers\n- none", "## Hard Blockers\n- cargo test was not run");
+		const report = parseVerifierReport(blocked);
+		expect(report).toMatchObject({
+			status: "BLOCKED",
+			summary: "cargo evidence missing",
+			behavior: { status: "BLOCKED", tests: { discovered: 1, executed: 1, failed: 0, skipped: 0 } },
+			review: { findings: [{ id: "REV-001", severity: "LOW", category: "testing", location: "src/app.ts:10" }] },
+			hard_blockers: ["cargo test was not run"],
+		});
 	});
 });

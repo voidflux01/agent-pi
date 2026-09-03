@@ -3,6 +3,8 @@
 // ABOUTME: commands are BLOCKED, not guessed.
 
 import { execFile, type ExecFileException } from "node:child_process";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 import type { ContractAssertion, VerificationStatus } from "./execution-contract.ts";
 
 export interface AssertionResult {
@@ -27,6 +29,21 @@ export interface VerifierConfig {
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
+export function verificationEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	// Desktop-launched Pi processes often receive a minimal PATH even though
+	// user toolchains are installed in standard per-user locations.
+	const userHome = base.HOME || base.USERPROFILE || homedir();
+	const existing = (base.PATH || "").split(delimiter).filter(Boolean);
+	const commonUserBins = [
+		join(userHome, ".cargo", "bin"),
+		join(userHome, ".local", "bin"),
+		join(userHome, ".bun", "bin"),
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+	];
+	return { ...base, PATH: [...new Set([...existing, ...commonUserBins])].join(delimiter) };
+}
+
 function runCommand(
 	raw: string,
 	command: string,
@@ -37,6 +54,7 @@ function runCommand(
 	return new Promise(resolveResult => {
 		execFile(command, args, {
 			cwd,
+			env: verificationEnvironment(),
 			timeout: timeoutMs,
 			encoding: "utf8",
 			maxBuffer: 4 * 1024 * 1024,

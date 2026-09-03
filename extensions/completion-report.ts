@@ -19,15 +19,13 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import {
-	bumpVerifierAttempt,
+	coordinationState,
 	getExecutionContract,
 	getVerifierReceipt,
-	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
 import { completeDecision } from "./lib/execution-gate.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
-import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -498,6 +496,7 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Open a completion report viewer in the browser. Shows a summary of work done, " +
 			"files changed with unified diffs, and per-file rollback controls.\n\n" +
+			"In PLAN and SPEC modes, verify_execution must PASS before this tool is called; show_report never starts a verifier itself.\n\n" +
 			"Automatically gathers git diff data from the working directory. " +
 			"Includes task completion data from .context/todo.md if available.\n\n" +
 			"The user can review diffs, rollback individual files or all changes, " +
@@ -516,35 +515,16 @@ export default function (pi: ExtensionAPI) {
 			let contract = getExecutionContract();
 			const manifest = contract ? buildWorkspaceManifest(cwd, contract.fingerprint) : undefined;
 			const currentHash = manifest?.hash;
-			let receipt = getVerifierReceipt();
-			const surface = contract?.source === "spec" ? "spec-show-report" : "plan-show-report";
-			let gate = completeDecision({
+			const receipt = getVerifierReceipt();
+			const mode = coordinationState().mode;
+			const surface = mode === "PLAN" ? "plan-show-report" : mode === "SPEC" ? "spec-show-report" : "agent-show-report";
+			const gate = completeDecision({
 				surface,
 				contract,
 				receipt,
 				workspaceManifestHash: currentHash,
 			});
-			if (!gate.allowed && contract && !String(gate.reason || "").startsWith("合同不可验证")) {
-				const verification = await runAcceptanceVerifier({
-					cwd,
-					contract,
-					attempt: bumpVerifierAttempt(),
-					parentRunId: process.env.PI_AGENT_PI_RUN_ID,
-				});
-				if (verification.receipt) {
-					setVerifierReceipt(verification.receipt);
-					receipt = verification.receipt;
-					gate = completeDecision({
-						surface,
-						contract,
-						receipt,
-						workspaceManifestHash: currentHash,
-					});
-				} else {
-					return { content: [{ type: "text" as const, text: `Completion report blocked: ${verification.error || gate.reason}. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
-				}
-			}
-			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason}. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
+			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason} Call verify_execution first; show_report never starts a verifier. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
 
 			// Check if we're in a git repo
 			if (!isGitRepo(cwd)) {

@@ -106,4 +106,34 @@ Tests cover search.
 		expect(plan.contractPath).toMatch(/\.context\/todo\.md$/);
 		expect(spec.contractPath).toMatch(/context-os\/specs\/login\/spec\.md$/);
 	});
+
+	it("parses nested fields from the canonical ## Contract format", () => {
+		const nested = `# Plan: fallback title
+
+## Contract
+### Objective
+Add meal tracking.
+### Scope
+Only db/app/ui.
+### Acceptance Criteria
+Meals persist after restart.
+### Verification Commands
+- [cmd] cargo test
+- [cmd] cargo build
+### Evidence Requirements
+Test and build output.
+### Constraints
+Do not modify main.rs.
+`;
+		const bound = bindAcceptanceContract(nested, "plan");
+		expect(bound).toMatchObject({
+			objective: "Add meal tracking.",
+			scope: "Only db/app/ui.",
+			acceptanceCriteria: "Meals persist after restart.",
+			evidenceRequirements: "Test and build output.",
+			constraints: "Do not modify main.rs.",
+		});
+		expect(bound.assertions).toHaveLength(2);
+		expect(bound.mandatory).toHaveLength(2);
+	});
 });

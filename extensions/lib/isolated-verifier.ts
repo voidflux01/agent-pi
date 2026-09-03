@@ -66,7 +66,7 @@ export async function runAcceptanceVerifier(input: {
 		contractText: input.contractText,
 		signal: input.signal,
 	});
-	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 VERIFIER RESULT。" };
+	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 Markdown ## RESULT。" };
 	const report: VerifierSubagentReport = {
 		...subagent.report,
 		contract: quality.status === "PASS" ? subagent.report.contract : { status: "BLOCKED", findings: [...subagent.report.contract.findings, ...quality.findings] },

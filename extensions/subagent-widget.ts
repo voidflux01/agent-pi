@@ -790,7 +790,7 @@ export default function (pi: ExtensionAPI) {
 				const problems = state.contractProblems.join("; ");
 				state.turnCount++;
 				state.contractProblems = undefined;
-				const repairPrompt = `Your previous turn completed the requested work but violated the output protocol: ${problems}. Do not redo the investigation or modify anything. Return only the required final ## RESULT block now, with done: true if the requested work completed or done: false with the exact blocker. End with exactly ## END.`;
+				const repairPrompt = `Your previous turn completed the requested work but violated the output protocol: ${problems}. Do not redo the investigation, call tools, or modify anything. Return only the required final ## RESULT block now with role, done, status, and summary. done says whether the run reached a result; status must be PASS, FAIL, or BLOCKED. End with exactly ## END.`;
 				const repaired = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, repairPrompt, ctx, { signal: awaitResult ? signal : undefined }))();
 				state.completion = repaired;
 				return {

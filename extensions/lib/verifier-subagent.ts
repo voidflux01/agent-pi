@@ -9,6 +9,8 @@ import { childEnvironment } from "./child-runtime.ts";
 import { currentDispatchAuthorization, createSubagentRuntime } from "./dispatch-runtime.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
+import { extractResultBlock } from "./agent-result-contract.ts";
+import { withSessionResume } from "./subagent-recovery.ts";
 
 export interface VerifierSubagentReport {
 	status: "PASS" | "FAIL" | "BLOCKED";
@@ -30,7 +32,7 @@ export interface VerifierSubagentResult {
 	runId?: string;
 }
 
-const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required VERIFIER RESULT JSON output contract supplied in the task prompt.`;
+const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required shared Markdown RESULT contract supplied in the task prompt.`;
 
 function verifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
 	const assertions = contract.assertions.map((a) => `- ${a.raw}`).join("\n");
@@ -75,71 +77,205 @@ Perform all of these checks:
 
 Use PASS only when every material requirement has representative evidence and no hard blocker remains. Use FAIL for a demonstrated implementation/test failure. Use BLOCKED when the contract or evidence is insufficient to support a delivery decision. Every finding must include a concrete file, line, command, test name, or search result where possible.
 
-Your final response MUST be exactly one JSON object between these markers. Do not use a markdown code fence and do not put prose outside the block. The only allowed status values are PASS, FAIL, and BLOCKED. If evidence is insufficient, use BLOCKED (never invent UNVERIFIED):
-## VERIFIER RESULT
-{
-  "status": "PASS|FAIL|BLOCKED",
-  "summary": "...",
-  "requirements": [{"requirement":"...","status":"PASS|FAIL|BLOCKED","evidence":"...","files":["..."]}],
-  "contract": {"status":"PASS|FAIL|BLOCKED","findings":["..."]},
-  "review": {"status":"PASS|FAIL|BLOCKED","findings":[{"id":"REV-001","severity":"CRITICAL|HIGH|MEDIUM|LOW","category":"correctness|security|regression|performance|maintainability|testing|scope","title":"...","evidence":"...","location":"path:line","recommendation":"..."}]},
-  "behavior": {"status":"PASS|FAIL|BLOCKED","findings":["..."],"tests":{"discovered":0,"executed":0,"failed":0,"skipped":0}},
-  "quality": {"status":"PASS|WARN|FAIL","findings":["..."]},
-  "security": {"status":"PASS|WARN|FAIL","findings":["..."]},
-  "hard_blockers": ["..."],
-  "warnings": ["..."]
-}
+Your final response MUST be exactly one shared Markdown result block. Do not use JSON, YAML, tables, code fences, or prose outside the block. Keep every named field on one line; put longer material in list items. Use one ### REQ-nnn block per acceptance requirement and one ### REV-nnn block per review finding. Omit REV blocks when there are no review findings. The only overall, requirement, contract, review, and behavior status values are PASS, FAIL, and BLOCKED. Quality and security additionally allow WARN. If evidence is insufficient, use BLOCKED (never invent UNVERIFIED):
+## RESULT
+role: verifier
+done: true
+status: PASS|FAIL|BLOCKED
+summary: one concise delivery decision
+findings:
+- concise top-level finding
+files:
+- path:line
+verification:
+- PASS|FAIL|BLOCKED | exact command or check | evidence
+key_errors:
+- none or exact error
+remaining:
+- none or unresolved action
 
-	## END`;
+## Requirements
+### REQ-001
+status: PASS|FAIL|BLOCKED
+requirement: exact acceptance requirement
+evidence: concrete implementation and behavioral evidence
+files:
+- path:line
+
+## Contract
+status: PASS|FAIL|BLOCKED
+findings:
+- concrete contract finding
+
+## Review
+status: PASS|FAIL|BLOCKED
+### REV-001
+severity: CRITICAL|HIGH|MEDIUM|LOW
+category: correctness|security|regression|performance|maintainability|testing|scope
+title: concise title
+location: path:line
+evidence: concrete evidence
+recommendation: concrete remediation
+
+## Behavior
+status: PASS|FAIL|BLOCKED
+tests_discovered: 0
+tests_executed: 0
+tests_failed: 0
+tests_skipped: 0
+findings:
+- concrete behavioral finding
+
+## Quality
+status: PASS|WARN|FAIL
+findings:
+- concrete quality finding
+
+## Security
+status: PASS|WARN|FAIL
+findings:
+- concrete security finding
+
+## Hard Blockers
+- none or exact blocker
+
+## Warnings
+- none or warning
+## END`;
 }
 
 export function buildVerifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
 	return verifierPrompt(contract, deterministicEvidence, contractText);
 }
 
-export function parseVerifierReport(output: string): VerifierSubagentReport | undefined {
-	// The child session's last assistant message can contain a valid result
-	// followed by a short closing sentence. Do not require ## END to be the
-	// end of the entire message; locate the last structurally valid block.
-	const matches = [...output.matchAll(/^## VERIFIER RESULT[ \t]*\r?\n([\s\S]*?)^## END(?: VERIFIER RESULT)?[ \t]*$/gm)];
-	for (let index = matches.length - 1; index >= 0; index--) {
-		try {
-			const body = matches[index][1].trim();
-			const fenced = body.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/i);
-			let value = JSON.parse(fenced ? fenced[1].trim() : body);
-			if (!value || !["PASS", "FAIL", "BLOCKED", "UNVERIFIED"].includes(value.status)) continue;
-			// Older verifier prompts used UNVERIFIED. Preserve its conservative
-			// meaning as BLOCKED so it cannot strand the protocol as "invalid".
-			if (value.status === "UNVERIFIED") {
-				const reason = typeof value.reason === "string" ? value.reason : typeof value.verdict === "string" ? value.verdict : "Verifier evidence is insufficient";
-				value = {
-					status: "BLOCKED",
-					summary: typeof value.summary === "string" ? value.summary : reason,
-					requirements: Array.isArray(value.checks) ? value.checks.map((check: { assertion?: string; result?: string; evidence?: string }) => ({ requirement: check.assertion || "legacy verifier check", status: check.result || "BLOCKED", evidence: check.evidence || "", files: [] })) : [],
-					contract: { status: "BLOCKED", findings: [reason] },
-					review: { status: "BLOCKED", findings: [] },
-					behavior: { status: "BLOCKED", findings: [reason], tests: { discovered: 0, executed: 0, failed: 0, skipped: 0 } },
-					quality: { status: "WARN", findings: [] },
-					security: { status: "WARN", findings: [] },
-					hard_blockers: [reason],
-					warnings: [],
-				};
-			}
-			if (typeof value.summary !== "string") continue;
-			if (!Array.isArray(value.requirements) || !value.contract || !value.review || !value.behavior || !value.quality || !value.security) continue;
-			if (!Array.isArray(value.hard_blockers) || !Array.isArray(value.warnings)) continue;
-			if (!["PASS", "FAIL", "BLOCKED"].includes(value.contract.status)) continue;
-			if (!["PASS", "FAIL", "BLOCKED"].includes(value.behavior.status)) continue;
-			if (!["PASS", "FAIL", "BLOCKED"].includes(value.review.status) || !Array.isArray(value.review.findings)) continue;
-			if (!["PASS", "WARN", "FAIL"].includes(value.quality.status)) continue;
-			if (!["PASS", "WARN", "FAIL"].includes(value.security.status)) continue;
-			if (value.status === "PASS" && (value.hard_blockers.length > 0 || value.contract.status !== "PASS" || value.review.status !== "PASS" || value.behavior.status !== "PASS" || value.quality.status === "FAIL" || value.security.status === "FAIL")) continue;
-			return value as VerifierSubagentReport;
-		} catch {
-			// A malformed earlier block must not hide a later valid block.
-		}
+const VERIFICATION_STATUSES = new Set(["PASS", "FAIL", "BLOCKED"]);
+const QUALITY_STATUSES = new Set(["PASS", "WARN", "FAIL"]);
+const REVIEW_SEVERITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+
+function field(text: string, name: string): string {
+	const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return text.match(new RegExp(`^${escaped}:\\s*(.*?)\\s*$`, "im"))?.[1]?.trim() || "";
+}
+
+function section(text: string, name: string): string | undefined {
+	const lines = text.split(/\r?\n/);
+	const heading = `## ${name}`.toLowerCase();
+	const start = lines.findIndex(line => line.trim().toLowerCase() === heading);
+	if (start < 0) return undefined;
+	const body: string[] = [];
+	for (let index = start + 1; index < lines.length; index++) {
+		if (/^##\s+/.test(lines[index].trim())) break;
+		body.push(lines[index]);
 	}
-	return undefined;
+	return body.join("\n").trim();
+}
+
+function listAfterField(text: string, name: string): string[] {
+	const lines = text.split(/\r?\n/);
+	const start = lines.findIndex(line => line.trim().toLowerCase() === `${name.toLowerCase()}:`);
+	if (start < 0) return [];
+	const values: string[] = [];
+	for (let index = start + 1; index < lines.length; index++) {
+		const line = lines[index].trim();
+		if (!line) continue;
+		const item = line.match(/^[-*]\s+(.+)$/)?.[1]?.trim();
+		if (!item) break;
+		if (!/^none$/i.test(item)) values.push(item);
+	}
+	return values;
+}
+
+function sectionList(text: string | undefined): string[] {
+	if (!text) return [];
+	return text.split(/\r?\n/).map(line => line.trim().match(/^[-*]\s+(.+)$/)?.[1]?.trim()).filter((value): value is string => !!value && !/^none$/i.test(value));
+}
+
+function repeatedBlocks(text: string, prefix: "REQ" | "REV"): Array<{ id: string; body: string }> {
+	const lines = text.split(/\r?\n/);
+	const blocks: Array<{ id: string; body: string[] }> = [];
+	for (const line of lines) {
+		const match = line.trim().match(new RegExp(`^###\\s+(${prefix}-\\d+)\\s*$`, "i"));
+		if (match) { blocks.push({ id: match[1].toUpperCase(), body: [] }); continue; }
+		if (blocks.length > 0) blocks[blocks.length - 1].body.push(line);
+	}
+	return blocks.map(block => ({ id: block.id, body: block.body.join("\n").trim() }));
+}
+
+function integerField(text: string, name: string): number | undefined {
+	const value = field(text, name);
+	if (!/^\d+$/.test(value)) return undefined;
+	return Number(value);
+}
+
+export function parseVerifierReport(output: string): VerifierSubagentReport | undefined {
+	const extracted = extractResultBlock(output);
+	if (!extracted.found) return undefined;
+	const body = extracted.result;
+	const common = body.split(/^##\s+/m, 1)[0];
+	const role = field(common, "role").toLowerCase();
+	const done = field(common, "done").toLowerCase();
+	const status = field(common, "status").toUpperCase();
+	const summary = field(common, "summary");
+	if (role !== "verifier" || done !== "true" || !VERIFICATION_STATUSES.has(status) || !summary) return undefined;
+
+	const requirementsSection = section(body, "Requirements");
+	const contractSection = section(body, "Contract");
+	const reviewSection = section(body, "Review");
+	const behaviorSection = section(body, "Behavior");
+	const qualitySection = section(body, "Quality");
+	const securitySection = section(body, "Security");
+	if ([requirementsSection, contractSection, reviewSection, behaviorSection, qualitySection, securitySection].some(value => value === undefined)) return undefined;
+
+	const requirements = repeatedBlocks(requirementsSection!, "REQ").map(block => ({
+		requirement: field(block.body, "requirement"),
+		status: field(block.body, "status").toUpperCase(),
+		evidence: field(block.body, "evidence"),
+		files: listAfterField(block.body, "files"),
+	}));
+	if (requirements.some(item => !item.requirement || !item.evidence || !VERIFICATION_STATUSES.has(item.status))) return undefined;
+
+	const contractStatus = field(contractSection!, "status").toUpperCase();
+	const reviewStatus = field(reviewSection!, "status").toUpperCase();
+	const behaviorStatus = field(behaviorSection!, "status").toUpperCase();
+	const qualityStatus = field(qualitySection!, "status").toUpperCase();
+	const securityStatus = field(securitySection!, "status").toUpperCase();
+	if (![contractStatus, reviewStatus, behaviorStatus].every(value => VERIFICATION_STATUSES.has(value))) return undefined;
+	if (![qualityStatus, securityStatus].every(value => QUALITY_STATUSES.has(value))) return undefined;
+
+	const reviewFindings = repeatedBlocks(reviewSection!, "REV").map(block => ({
+		id: block.id,
+		severity: field(block.body, "severity").toUpperCase(),
+		category: field(block.body, "category").toLowerCase(),
+		title: field(block.body, "title"),
+		location: field(block.body, "location"),
+		evidence: field(block.body, "evidence"),
+		recommendation: field(block.body, "recommendation"),
+	}));
+	if (reviewFindings.some(item => !REVIEW_SEVERITIES.has(item.severity) || !item.title || !item.location || !item.evidence || !item.recommendation)) return undefined;
+
+	const tests = {
+		discovered: integerField(behaviorSection!, "tests_discovered"),
+		executed: integerField(behaviorSection!, "tests_executed"),
+		failed: integerField(behaviorSection!, "tests_failed"),
+		skipped: integerField(behaviorSection!, "tests_skipped"),
+	};
+	if (Object.values(tests).some(value => value === undefined)) return undefined;
+	const hardBlockers = sectionList(section(body, "Hard Blockers"));
+	const warnings = sectionList(section(body, "Warnings"));
+	if (status === "PASS" && (hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) return undefined;
+
+	return {
+		status: status as VerifierSubagentReport["status"],
+		summary,
+		requirements,
+		contract: { status: contractStatus, findings: listAfterField(contractSection!, "findings") },
+		review: { status: reviewStatus, findings: reviewFindings },
+		behavior: { status: behaviorStatus, findings: listAfterField(behaviorSection!, "findings"), tests },
+		quality: { status: qualityStatus, findings: listAfterField(qualitySection!, "findings") },
+		security: { status: securityStatus, findings: listAfterField(securitySection!, "findings") },
+		hard_blockers: hardBlockers,
+		warnings,
+	};
 }
 
 function readAssistantTranscript(sessionFile: string): string {
@@ -175,37 +311,45 @@ export async function runVerifierSubagent(input: {
 	const sessionFile = join(sessionDir, `verifier-${Date.now()}.jsonl`);
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
-	const initialPrompt = [
-		VERIFIER_SYSTEM_PROMPT,
-		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
-		"Audit the workspace now and return the required VERIFIER RESULT JSON block.",
-	].join("\n\n");
-	const command = [
-		"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
-		...(input.model ? ["--model", input.model] : []),
-		"--tools", "read,bash,grep,find,ls",
-		initialPrompt,
-	];
-	const result = await createSubagentRuntime({
+	const launch = (prompt: string, tools: string, suffix: string) => createSubagentRuntime({
 		authorization: currentDispatchAuthorization(),
-		command,
+		command: withSessionResume([
+			"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
+			...(input.model ? ["--model", input.model] : []),
+			"--tools", tools,
+			prompt,
+		], sessionFile),
 		cwd: input.cwd,
 		env: childEnvironment({ PI_SUBAGENT: "1", PI_AGENT_NAME: "verifier", PI_SESSION_FILE: sessionFile }),
 		launchDir: extDir,
-		launchId: `verifier-${Date.now()}`,
+		launchId: `verifier-${suffix}-${Date.now()}`,
 		parentRunId: input.parentRunId,
 		mode: input.mode,
 		sessionFile,
 		herdrDoneExtPath,
 		herdrLabel: "VERIFIER",
-		herdrPaneKey: `verifier-${Date.now()}`,
+		herdrPaneKey: `verifier-${suffix}-${Date.now()}`,
 		pollTimeoutMs: input.pollTimeoutMs ?? AGENT_PI_CONFIG.workers.timeoutsMs.verifier,
 		isAborted: () => !!input.signal?.aborted,
 	});
-	const outputText = result.outputText || "";
-	const transcriptText = readAssistantTranscript(sessionFile);
-	const report = result.exitCode === 0 ? parseVerifierReport(`${transcriptText}\n${outputText}`) : undefined;
+	const initialPrompt = [
+		VERIFIER_SYSTEM_PROMPT,
+		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
+		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
+	].join("\n\n");
+	const result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
+	let outputText = result.outputText || "";
+	let report = result.exitCode === 0 ? parseVerifierReport(`${readAssistantTranscript(sessionFile)}\n${outputText}`) : undefined;
 	if (result.exitCode !== 0) return { outputText, runId: result.runId, error: result.stderr || result.failure || "verifier subagent failed" };
-	if (!report) return { outputText, runId: result.runId, error: "verifier subagent returned no valid VERIFIER RESULT" };
-	return { report, outputText, runId: result.runId };
+	let runId = result.runId;
+	if (!report && !input.signal?.aborted) {
+		const repairPrompt = `Your audit is complete, but your previous final response violated the shared Markdown RESULT protocol. Do not redo the audit, inspect files, call tools, or modify anything. Reformat the conclusions already in this conversation into exactly one complete ## RESULT block using the required verifier sections and fields. Use status PASS, FAIL, or BLOCKED; never use JSON or code fences. End with exactly ## END.`;
+		const repaired = await launch(repairPrompt, "read", "repair");
+		outputText = [outputText, repaired.outputText || ""].filter(Boolean).join("\n");
+		runId = repaired.runId || runId;
+		if (repaired.exitCode === 0) report = parseVerifierReport(`${readAssistantTranscript(sessionFile)}\n${outputText}`);
+		else return { outputText, runId, error: repaired.stderr || repaired.failure || "verifier protocol repair failed" };
+	}
+	if (!report) return { outputText, runId, error: "verifier subagent returned no valid Markdown ## RESULT after one protocol-only repair" };
+	return { report, outputText, runId };
 }

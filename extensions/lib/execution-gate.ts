@@ -9,7 +9,7 @@ import { bindAcceptanceContract, type AcceptanceContract } from "./execution-con
 import type { VerifierReceipt } from "./verifier-runtime.ts";
 import { canComplete } from "./verifier-runtime.ts";
 
-export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "user-report";
+export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "agent-show-report" | "user-report";
 
 export const INCOMPLETE_CONTRACT_REASON =
 	"合同不可验证：需要至少一条 [cmd] 可执行验收命令。自然语言条目由 verifier 审查，不能替代命令执行。\n" +
@@ -23,9 +23,10 @@ export function verificationRequired(input: {
 	contract?: AcceptanceContract;
 }): boolean {
 	if (input.surface === "user-report") return false;
-	if (input.surface === "pipeline-complete") return true;
+	if (["pipeline-complete", "plan-show-report", "spec-show-report"].includes(input.surface)) return true;
 	// A bound contract (even one without executable commands) gates plan/spec
-	// show_report — an unverifiable contract must refuse completion, not skip it.
+	// and generic agent show_report — an unverifiable contract must refuse
+	// completion, not skip it.
 	return !!input.contract;
 }
 

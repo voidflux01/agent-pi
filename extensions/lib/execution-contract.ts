@@ -29,12 +29,21 @@ export function planFingerprint(markdown: string): string {
 	return createHash("sha256").update(markdown, "utf8").digest("hex");
 }
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function extractSection(markdown: string, heading: string): string | undefined {
-	const re = new RegExp(`^##\\s+${heading}\\s*$`, "im");
+	// Plan contracts live below `## Contract`, so their fields are `###`
+	// headings. Also accept top-level `##` fields for older standalone
+	// contracts. A section ends at the next heading of the same or higher
+	// level, not at a deeper subsection.
+	const re = new RegExp(`^(#{2,6})\\s+${escapeRegExp(heading)}\\s*$`, "im");
 	const match = re.exec(markdown);
 	if (!match) return undefined;
 	const rest = markdown.slice(match.index + match[0].length);
-	const next = rest.search(/^##\s+/m);
+	const level = match[1].length;
+	const next = rest.search(new RegExp(`^#{1,${level}}\\s+`, "m"));
 	return (next === -1 ? rest : rest.slice(0, next)).trim();
 }
 
@@ -115,10 +124,11 @@ export function extractContractAssertions(markdown: string, headings: string[]):
 
 function buildContract(markdown: string, source: AcceptanceContract["source"], headings: string[], contractPath?: string): AcceptanceContract {
 	const assertions = extractContractAssertions(markdown, headings);
+	const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || markdown.split("\n").find(line => line.trim())?.trim() || "untitled";
 	return {
 		version: 3,
 		source,
-		objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || markdown.split("\n").find(line => line.trim())?.trim() || "untitled",
+		objective: sectionText(markdown, ["Objective"]) || title,
 		scope: sectionText(markdown, ["Scope"]),
 		acceptanceCriteria: sectionText(markdown, ["Acceptance Criteria", "Requirements"]),
 		evidenceRequirements: sectionText(markdown, ["Evidence Requirements", "Evidence"]),

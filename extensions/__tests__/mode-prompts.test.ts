@@ -41,6 +41,8 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain("Never emit `done: true`");
 		expect(PLAN_PROMPT).toContain("completionBlocked: true");
 		expect(PLAN_PROMPT).toContain("done: false");
+		expect(PLAN_PROMPT).toContain("Always call `verify_execution` and receive PASS before calling `show_report`");
+		expect(PLAN_PROMPT.indexOf("call `verify_execution` and require PASS")).toBeLessThan(PLAN_PROMPT.indexOf("After verifier PASS, call `show_report`"));
 	});
 
 	it("documents command-only deterministic assertions", () => {
@@ -86,7 +88,7 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 
 	it("does not allow a worker report to replace verify_execution", () => {
 		expect(PLAN_PROMPT).toContain("Never substitute a manually spawned reviewer");
-		expect(SPEC_PROMPT).toContain("retry the verifier or report the exact BLOCKED error");
+		expect(SPEC_PROMPT).toContain("instead of dispatching a replacement verifier just for formatting");
 	});
 
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {

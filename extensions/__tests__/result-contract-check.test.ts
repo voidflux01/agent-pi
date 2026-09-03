@@ -12,7 +12,9 @@ import {
 const GOOD = [
 	"working...",
 	"## RESULT",
+	"role: tester",
 	"done: true",
+	"status: PASS",
 	"summary: added the parser and two unit tests",
 	"- files: src/parser.ts",
 	"- verification: bun test -> 12 pass",
@@ -45,13 +47,19 @@ describe("checkResultCompliance", () => {
 	});
 
 	test('flags a missing "done:" line', () => {
-		const bad = "## RESULT\nsummary: looks fine\n## END";
+		const bad = "## RESULT\nrole: tester\nstatus: PASS\nsummary: looks fine\n## END";
 		expect(checkResultCompliance(bad).problems).toContain('missing "done:" line');
 	});
 
 	test('flags a missing "summary:" line', () => {
-		const bad = "## RESULT\ndone: false\n## END";
+		const bad = "## RESULT\nrole: tester\ndone: false\nstatus: BLOCKED\n## END";
 		expect(checkResultCompliance(bad).problems).toContain('missing "summary:"');
+	});
+
+	test('requires shared "role:" and "status:" lines', () => {
+		const bad = "## RESULT\ndone: true\nsummary: looks fine\n## END";
+		expect(checkResultCompliance(bad).problems).toContain('missing "role:" line');
+		expect(checkResultCompliance(bad).problems).toContain('missing or invalid "status:" line');
 	});
 
 	test("flags an unclosed block", () => {

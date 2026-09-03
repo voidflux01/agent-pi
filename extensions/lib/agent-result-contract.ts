@@ -50,6 +50,7 @@ export function buildWorkerInitialPrompt(opts: {
 	additionalInstructions?: string;
 }): string {
 	const role = opts.role ? `You are the ${opts.role} worker.` : "You are a delegated worker.";
+	const resultRole = opts.role?.trim() || "worker";
 	return [
 		role,
 		stripEmbeddedResultProtocol(opts.rolePrompt),
@@ -62,7 +63,9 @@ export function buildWorkerInitialPrompt(opts: {
 		"",
 		"Return one result block at the end. Put detailed investigation results, file:line references, and code snippets under findings; summary is only a short index. Do not emit any other result block.",
 		"## RESULT",
+		`role: ${resultRole}`,
 		"done: true|false",
+		"status: PASS|FAIL|BLOCKED",
 		"summary: one or two lines describing the outcome",
 		"findings:",
 		"- detailed findings, evidence, and relevant code snippets",
@@ -70,11 +73,11 @@ export function buildWorkerInitialPrompt(opts: {
 		"queries: omit when false; focused questions when true",
 		"reason: omit when false; blocking external fact when true",
 		"files: none or every created/modified path",
-		"key errors: none or exact errors and resolutions",
+		"key_errors: none or exact errors and resolutions",
 		"verification: exact commands/tests and their outcome, or not run",
 		"remaining: none or unresolved items",
 		"## END",
-		"Do not put prose after ## END. If the task failed, use done: false and record the exact blocker under key errors and remaining.",
+		"Do not put prose after ## END. done means whether this run reached a result; status carries the outcome. A completed audit may use done: true with status: BLOCKED. If the run was interrupted before reaching a result, use done: false and record the exact blocker under key_errors and remaining.",
 	].filter((part) => part !== undefined && part !== "").join("\n");
 }
 
@@ -306,8 +309,8 @@ export interface ResultCompliance {
 /**
  * Deterministic, zero-token RESULT-contract gate. Tiber-inspired delivery
  * check, simplified to pure mechanics: a finished sub-agent transcript must
- * contain a ## RESULT block with a "done:" line, a "summary:" line, and an
- * exact "## END" closer. Content quality is deliberately NOT judged here.
+ * contain a ## RESULT block with role/done/status/summary fields and an exact
+ * "## END" closer. Content quality is deliberately NOT judged here.
  */
 export function checkResultCompliance(fullText: string): ResultCompliance {
 	const text = fullText ?? "";
@@ -328,8 +331,12 @@ export function checkResultCompliance(fullText: string): ResultCompliance {
 		}
 	}
 	if (!closed) problems.push("block not closed with ## END");
+	if (!/(^|\n)\s*role:\s*[a-z0-9_-]+\s*($|\n)/i.test(text))
+		problems.push('missing "role:" line');
 	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(text))
 		problems.push('missing "done:" line');
+	if (!/(^|\n)\s*status:\s*(PASS|FAIL|BLOCKED)\s*($|\n)/i.test(text))
+		problems.push('missing or invalid "status:" line');
 	if (!/(^|\n)\s*summary:\s*\S/i.test(text)) problems.push('missing "summary:"');
 	return { ok: problems.length === 0, problems };
 }

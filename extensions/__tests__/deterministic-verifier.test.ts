@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runAssertion, runDeterministicVerification } from "../lib/deterministic-verifier.ts";
+import { delimiter, join } from "node:path";
+import { runAssertion, runDeterministicVerification, verificationEnvironment } from "../lib/deterministic-verifier.ts";
 import { parseAssertion } from "../lib/execution-contract.ts";
 
 let cwd = "";
@@ -12,6 +12,11 @@ afterEach(() => { try { rmSync(cwd, { recursive: true, force: true }); } catch {
 const root: () => string = () => cwd;
 
 describe("[cmd] assertions", () => {
+	it("adds common user toolchain directories to a minimal PATH", () => {
+		const env = verificationEnvironment({ HOME: "/tmp/example-home", PATH: "/usr/bin" });
+		expect(env.PATH?.split(delimiter)).toContain("/tmp/example-home/.cargo/bin");
+	});
+
 	it("passes when the command exits 0", async () => {
 		const result = await runAssertion(parseAssertion(`[cmd] ${process.execPath} -e "process.exit(0)"`) as never, root());
 		expect(result.status).toBe("pass");
