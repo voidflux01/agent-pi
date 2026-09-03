@@ -106,6 +106,14 @@ describe("decideApprovalGate", () => {
 		expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName: "bash", args: { command } }).block).toBe(false);
 	});
 
+	it("allows read-only grep piped through sed before SPEC approval", () => {
+		const command = 'grep -n "Vault\\|vault" src/ui.rs | sed -n 1,40p';
+		expect(isReadOnlyBash({ command: 'grep -n "Vault\\|vault" src/ui.rs' })).toBe(true);
+		expect(isReadOnlyBash({ command: "sed -n 1,40p src/ui.rs" })).toBe(true);
+		expect(isReadOnlyBash({ command })).toBe(true);
+		expect(decideApprovalGate({ mode: "SPEC", approved: false, toolName: "bash", args: { command } }).block).toBe(false);
+	});
+
 	it("allows narrowly-scoped read-only Git inspection", () => {
 		for (const command of ["git log --oneline -5", "git status --short", "git status --porcelain -uno"]) {
 			expect(isReadOnlyBash({ command })).toBe(true);
@@ -124,6 +132,8 @@ describe("decideApprovalGate", () => {
 			"git config --list",
 			"git -C /tmp/other status",
 			"git log --format=%H",
+			"sed -i 's/a/b/' file.ts",
+			"sed -n '1,40p;w out.txt' file.ts",
 		]) expect(isReadOnlyBash({ command })).toBe(false);
 	});
 

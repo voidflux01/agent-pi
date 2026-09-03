@@ -132,6 +132,7 @@ Spawn with:
 \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
 This call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. Do not scan those areas yourself while the scout runs. Scout reconnaissance is read-only and may run before the task list exists.
 Narrow work: at most one scout. Never spawn four scouts by default.
+After show_plan approval, repository reads are unrestricted and do not trigger the read-escalation guard. Approval does not remove the option to scout: if implementation still spans multiple files, follows an unfamiliar call chain, or lacks exact context, dispatch one fresh read-only scout before editing.
 If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
 
 When external research is needed, dispatch one \`researcher\` with \`subagent_create\`; it is read-only reconnaissance and may run before the task list exists. If the external questions are already known and independent of the local scout, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\` to avoid a model round trip. Pass both reports to the planner.
@@ -219,6 +220,8 @@ ${RESEARCH_ROUTING_PROMPT}
 For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default (one scout and, when needed, one researcher). Ask one focused round of questions that fully resolves the material unknowns.
 
 ## Workflow
+
+After show_spec approval, repository reads are unrestricted and do not trigger the read-escalation guard. Approval does not remove the option to scout: for a complex or multi-file implementation, an unfamiliar call chain, or missing exact code context, dispatch one fresh read-only scout before editing. Do not dispatch one merely because SPEC is active.
 
 ### Phase 1: Initialize Spec
 Create a dated spec folder:

@@ -219,6 +219,11 @@ export default function (pi: ExtensionAPI) {
 		const mode = coordinationState().mode;
 		if (mode !== "NORMAL" && mode !== "PLAN" && mode !== "SPEC") {
 			resetNormalEscalation(normalEscalationState);
+		} else if ((mode === "PLAN" || mode === "SPEC") && approvalStateForMode(mode)) {
+			// Once PLAN/SPEC is approved, repository reads are part of the
+			// authorized implementation workflow, not stalled reconnaissance.
+			// Do not carry pre-approval pressure into the unlocked phase.
+			resetNormalEscalation(normalEscalationState);
 		} else {
 			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.arguments || event.params || event.input);
 			if (escalation.block) {

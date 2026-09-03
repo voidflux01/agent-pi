@@ -189,6 +189,8 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
 		expect(SPEC_PROMPT).toContain("Do not spawn a scout just because SPEC is active");
 		expect(SPEC_PROMPT).toContain("never spawn more than one by default");
+		expect(SPEC_PROMPT).toContain("After show_spec approval, repository reads are unrestricted");
+		expect(SPEC_PROMPT).toContain("Approval does not remove the option to scout");
 	});
 
 	it("keeps Phase 2 questions.md, with grill as enhancement only", () => {

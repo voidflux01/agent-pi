@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import modeCycler from "../mode-cycler.ts";
 import { coordinationState, setCoordinationMode } from "../lib/coordination-state.ts";
-import { markPlanApproved, resetApprovals } from "../lib/approval-gate.ts";
+import { markPlanApproved, markSpecApproved, resetApprovals } from "../lib/approval-gate.ts";
 import { NORMAL_RECON_LIMIT } from "../lib/normal-escalation.ts";
 
 function registerModeTool() {
@@ -145,6 +145,27 @@ describe("set_mode turn boundary", () => {
 			expect(scout.every((r) => !r || r.block !== true)).toBe(true);
 			const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
 			expect(released.every((r) => !r || r.block !== true)).toBe(true);
+		}
+	});
+
+	it("does not escalate reads after SPEC approval", async () => {
+		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const modeTools: any[] = [];
+		const pi: any = {
+			registerTool(def: any) { modeTools.push(def); },
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (event: any, ctx?: any) => any) {
+				if (event === "tool_call") toolCallHandlers.push(handler);
+			},
+		};
+		modeCycler(pi);
+		await modeTools[0].execute("mode-approved-recon", { mode: "SPEC" }, undefined, undefined, { abort: vi.fn() });
+		markSpecApproved();
+
+		for (let i = 0; i < NORMAL_RECON_LIMIT * 2; i++) {
+			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}
 	});
 

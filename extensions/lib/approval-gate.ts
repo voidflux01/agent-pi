@@ -163,7 +163,7 @@ const READ_ONLY_BASH_BINS = new Set([
 	"date", "uname", "pwd", "whoami", "hostname", "wc", "echo", "printf",
 	"true", "false", "basename", "dirname", "nproc", "arch", "id", "printenv",
 	"cd", "ls", "find", "grep", "rg", "ffgrep", "head", "tail", "sort", "cut", "tr",
-	"cat", "file", "stat", "du", "df", "realpath",
+	"cat", "file", "stat", "du", "df", "realpath", "sed",
 ]);
 
 // Keep Git support deliberately narrow. `git` has many commands that can
@@ -258,6 +258,17 @@ function readOnlyBashTokens(segment: string): string[] | undefined {
 	return tokens.length ? tokens : undefined;
 }
 
+/** Allow only sed's non-mutating line-printing form. */
+function isReadOnlySed(tokens: string[]): boolean {
+	if (tokens[0] !== "sed") return false;
+	let index = 1;
+	if (tokens[index] === "-n") index++;
+	if (index >= tokens.length) return false;
+	const script = tokens[index++];
+	if (!/^\d+(?:,\d+)?p$/.test(script)) return false;
+	return tokens.slice(index).every((token) => !token.startsWith("-"));
+}
+
 /** True for inspection-only bash, including safe composed read-only commands. */
 export function isReadOnlyBash(args: unknown): boolean {
 	const command = bashCommand(args);
@@ -269,6 +280,7 @@ export function isReadOnlyBash(args: unknown): boolean {
 		if (!tokens) return false;
 		const bin = tokens[0]?.replace(/^\/(?:usr\/)?bin\//, "") ?? "";
 		if (bin === "git") return isReadOnlyGit(tokens);
+		if (bin === "sed") return isReadOnlySed(tokens);
 		if (!READ_ONLY_BASH_BINS.has(bin)) return false;
 		return !tokens.some((token) => /^(?:--?(?:exec|execdir|delete|ok)|-delete|-exec|-execdir|-ok)$/.test(token));
 	});
