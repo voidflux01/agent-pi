@@ -56,7 +56,7 @@ export function decideGateClaim(
 	if (pending.length === 0) {
 		return {
 			block: true,
-			reason: "All tasks are done. You MUST use `tasks add` for new tasks or `tasks new-list` to start a fresh list before using any other tools.",
+			reason: "All work tasks are done. You may still run `verify_execution` and `show_report`; use `tasks add` or `tasks new-list` before starting more work.",
 		};
 	}
 	if (active.length === 0) {

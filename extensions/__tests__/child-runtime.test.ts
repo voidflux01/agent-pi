@@ -1,7 +1,22 @@
 import { describe, expect, it } from "bun:test";
-import { childEnvironment, ensurePiTool } from "../lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool, projectWorkerTools } from "../lib/child-runtime.ts";
 
 describe("child process environment boundary", () => {
+	it("projects parent read tools without inheriting write, network, or workflow tools", () => {
+		const parentTools = [
+			{ name: "read" },
+			{ name: "grep" },
+			{ name: "new_read_tool", description: "read files" },
+			{ name: "write" },
+			{ name: "web_search", description: "search the web" },
+			{ name: "tasks", description: "manage tasks" },
+			{ name: "bash" },
+		];
+		expect(projectWorkerTools("read,grep", parentTools, "recon")).toBe("read,grep,new_read_tool,bash");
+		expect(projectWorkerTools("read,grep", parentTools, "readonly")).toBe("read,grep,new_read_tool");
+		expect(projectWorkerTools("read,write,edit,bash", parentTools, "execution")).toBe("read,write,edit,bash,grep,new_read_tool");
+	});
+
 	it("adds ask_parent once without disturbing the tool allowlist", () => {
 		expect(ensurePiTool("read,bash", "ask_parent")).toBe("read,bash,ask_parent");
 		expect(ensurePiTool("read,ask_parent,bash", "ask_parent")).toBe("read,ask_parent,bash");

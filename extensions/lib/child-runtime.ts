@@ -1,6 +1,8 @@
 // ABOUTME: Builds a least-privilege environment for delegated Pi workers.
 // ABOUTME: Keeps runtime basics while preventing accidental propagation of API keys and session secrets.
 
+import { classifyTool, type ToolIntent } from "./tool-classification.ts";
+
 const SAFE_ENV_NAMES = new Set([
 	"HOME", "PATH", "SHELL", "TERM", "COLORTERM", "LANG", "TMPDIR", "TMP", "TEMP",
 	"PWD", "USER", "LOGNAME", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
@@ -34,4 +36,31 @@ export function childEnvironment(overrides: Record<string, string | undefined> =
 export function ensurePiTool(tools: string, toolName: string): string {
 	const names = tools.split(",").map((name) => name.trim()).filter(Boolean);
 	return names.includes(toolName) ? names.join(",") : [...names, toolName].join(",");
+}
+
+export interface ParentToolMetadata { name: string; description?: string }
+export type WorkerToolPolicy = "readonly" | "recon" | "execution";
+
+/** Project only safe parent capabilities into a child worker. */
+export function projectWorkerTools(
+	declaredTools: string,
+	parentTools: readonly ParentToolMetadata[] = [],
+	policy: WorkerToolPolicy = "readonly",
+): string {
+	const result = declaredTools.split(",").map((name) => name.trim()).filter(Boolean);
+	const have = new Set(result);
+	const readIntents = new Set<ToolIntent>(["read", "recon"]);
+	for (const tool of parentTools) {
+		const name = String(tool.name || "").trim();
+		if (!name || have.has(name)) continue;
+		const classification = classifyTool(name, tool.description || "");
+		if (readIntents.has(classification.intent)) {
+			result.push(name);
+			have.add(name);
+		}
+	}
+	// Bash is an execution-capable tool, so it is inherited only by workers
+	// whose role explicitly permits bounded read-only shell inspection.
+	if (policy === "recon" && parentTools.some((tool) => tool.name === "bash") && !have.has("bash")) result.push("bash");
+	return result.join(",");
 }

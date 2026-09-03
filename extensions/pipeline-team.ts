@@ -48,7 +48,7 @@ import {
 	setExecutionContract,
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
-import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
@@ -496,7 +496,10 @@ export default function (pi: ExtensionAPI) {
 			updatedAt: Date.now(),
 		});
 
-		let workerTools = ensurePiTool(agentDef.tools, "ask_parent");
+		const role = agentDef.name.toLowerCase();
+		const policy = isExecutionWorker(agentDef.name) ? "execution" : role === "scout" || role === "researcher" ? "recon" : "readonly";
+		let workerTools = projectWorkerTools(agentDef.tools, pi.getAllTools(), policy);
+		workerTools = ensurePiTool(workerTools, "ask_parent");
 		if (agentDef.name.toLowerCase() === "researcher") {
 			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
 		}

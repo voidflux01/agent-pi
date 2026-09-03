@@ -83,6 +83,11 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).not.toContain("dispatch_agent");
 	});
 
+	it("does not allow a worker report to replace verify_execution", () => {
+		expect(PLAN_PROMPT).toContain("Never substitute a manually spawned reviewer");
+		expect(SPEC_PROMPT).toContain("retry the verifier or report the exact BLOCKED error");
+	});
+
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {
 		expect(PLAN_PROMPT).toContain("by default for repository reconnaissance");
 		expect(PLAN_PROMPT).toContain("two or more files");

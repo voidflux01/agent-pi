@@ -50,7 +50,7 @@ ${task}
 
 ${context}
 
-Return source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failed lookups. Do not modify files or run shell commands.
+Return source URLs, retrieval dates, verified facts, uncertainty, conflicts, and failed lookups. Do not modify files. If local repository context is needed, use bash only for bounded read-only inspection commands; never write, install, test, commit, or change repository state.
 
 Recovery for blocked URL fetches: if a direct fetch is blocked by SSRF protection, fake-IP resolution, robots policy, or a network boundary, do not retry the same URL repeatedly. Try a canonical equivalent host or an official mirror when the source identity remains clear. Use a proxy argument only if the selected tool schema explicitly supports it and a configured proxy is available; never invent proxy values. If it still fails, use search-result evidence or another independent source and record the failed URL and reason.`;
 }

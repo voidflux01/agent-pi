@@ -5,7 +5,7 @@ import { isToolkitCliAgent } from "./toolkit-cli.ts";
 import { RECON_TOOL_NAMES } from "./tool-classification.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "dispatch_team_batch", "team_batch_recover", "subagent_wait", "ask_user", "run_chain",
+	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "dispatch_team_batch", "team_batch_recover", "subagent_wait", "ask_user", "run_chain", "verify_execution", "show_report",
 	"advance_phase", "pipeline_status",
 ] as const;
 

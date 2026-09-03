@@ -24,7 +24,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { formatDuration } from "./lib/duration-format.ts";
-import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { renderSubagentWidget, parseSubName, shouldScheduleWidgetRemoval } from "./lib/subagent-render.ts";
@@ -385,7 +385,9 @@ export default function (pi: ExtensionAPI) {
 		const extDir = path.dirname(fileURLToPath(import.meta.url));
 
 		// Tools: use agent definition tools if available, else default set
-		let tools = agentDef?.tools || "read,bash,grep,find,ls";
+		const role = state.name.toLowerCase();
+		const policy = isExecutionWorker(state.name) ? "execution" : role === "scout" || role === "researcher" ? "recon" : "readonly";
+		let tools = projectWorkerTools(agentDef?.tools || "read,bash,grep,find,ls", pi.getAllTools(), policy);
 		if (state.name.toLowerCase() === "researcher") {
 			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
 		}

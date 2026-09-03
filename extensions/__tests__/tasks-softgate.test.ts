@@ -30,6 +30,7 @@ describe("tasks gate decision", () => {
 		const d = decideGateClaim([{ id: 1, status: "done" }]);
 		expect(d.block).toBe(true);
 		expect(d.reason).toContain("new-list");
+		expect(d.reason).toContain("verify_execution");
 	});
 
 	it("allows an empty list in NORMAL so the agent can create its first task", () => {
@@ -71,6 +72,8 @@ describe("strict gate integration", () => {
 			const done = await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
 			expect(done.details.tasks[0].status).toBe("done");
 			expect((await handlers.get("tool_call")!({ toolName: "bash" }, ctx)).block).toBe(true);
+			expect((await handlers.get("tool_call")!({ toolName: "verify_execution" }, ctx)).block).toBe(false);
+			expect((await handlers.get("tool_call")!({ toolName: "show_report" }, ctx)).block).toBe(false);
 		} finally {
 			if (previousStrict === undefined) delete process.env.PI_TASKS_STRICT;
 			else process.env.PI_TASKS_STRICT = previousStrict;

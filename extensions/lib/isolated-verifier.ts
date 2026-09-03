@@ -48,21 +48,24 @@ export async function runAcceptanceVerifier(input: {
 	model?: string;
 	}): Promise<{ receipt?: VerifierReceipt; error?: string }> {
 	const before = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
+	const quality = inspectContractQuality(input.contract);
+	const deterministic = await runDeterministicVerification(input.contract, input.cwd, input.config);
+	const deterministicEvidence = deterministic.results.map((result, index) => `${index + 1}. ${result.raw} => ${result.status}${result.note ? ` (${result.note})` : ""}`).join("\n");
 	const subagent = await runVerifierSubagent({
 		cwd: input.cwd,
 		contract: input.contract,
 		parentRunId: input.parentRunId,
 		mode: input.mode,
 		model: input.model,
+		deterministicEvidence,
 	});
-	const quality = inspectContractQuality(input.contract);
 	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 VERIFIER RESULT。" };
 	const report: VerifierSubagentReport = {
 		...subagent.report,
 		contract: quality.status === "PASS" ? subagent.report.contract : { status: "BLOCKED", findings: [...subagent.report.contract.findings, ...quality.findings] },
 		hard_blockers: [...subagent.report.hard_blockers, ...quality.findings],
 	};
-	let verification = await runDeterministicVerification(input.contract, input.cwd, input.config);
+	let verification = deterministic;
 	const after = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	if (after.hash !== before.hash) {
 		verification = { status: "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[workspace] verifier command mutation", status: "blocked", note: "verification commands changed the workspace" }] };

@@ -33,7 +33,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
 import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { childEnvironment, ensurePiTool } from "./lib/child-runtime.ts";
+import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 
 import { statusButton } from "./lib/pipeline-render.ts";
@@ -600,7 +600,9 @@ export default function (pi: ExtensionAPI) {
 				rmSync(path, { force: true });
 			}
 		} catch {}
-		let tools = state.def.tools;
+		const role = canonicalName.toLowerCase();
+		const policy = isExecutionWorker(canonicalName) ? "execution" : role === "scout" || role === "researcher" ? "recon" : "readonly";
+		let tools = projectWorkerTools(state.def.tools, pi.getAllTools(), policy);
 		if (canonicalName.toLowerCase() === "researcher") {
 			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
 		}

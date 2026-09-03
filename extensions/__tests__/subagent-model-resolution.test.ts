@@ -40,7 +40,7 @@ function makeKnownAgents(config: AgentModelsConfig): Map<string, AgentDef> {
 		agents.set(name, {
 			name,
 			description: `${name} agent`,
-			tools: name === "builder" ? "read,write,edit,bash,grep,find,ls" : "read,grep,find,ls",
+			tools: name === "builder" ? "read,write,edit,bash,grep,find,ls" : "read,bash,grep,find,ls",
 			model: buildModelString(entry),
 			systemPrompt: `You are a ${name} agent.`,
 			file: `/path/to/${name}.md`,
@@ -171,7 +171,7 @@ describe("tools resolution from agent defs", () => {
 	const knownAgents = makeKnownAgents(config);
 
 	it("scout gets read-only tools", () => {
-		expect(resolveAgentByName("SCOUT", knownAgents)?.tools).toBe("read,grep,find,ls");
+		expect(resolveAgentByName("SCOUT", knownAgents)?.tools).toBe("read,bash,grep,find,ls");
 	});
 
 	it("builder gets full tools", () => {
