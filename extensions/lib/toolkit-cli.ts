@@ -25,6 +25,7 @@ import {
 	stampHerdrPaneIdentityAsync,
 	launchDonePath,
 	herdrPaneAutoCloseMs,
+	scheduleHerdrPaneClose,
 } from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
@@ -553,7 +554,7 @@ export function toolkitHerdrLabel(agentName: string, paneTitle?: string): string
 	return agent;
 }
 
-/** Compatibility hook: parent-controlled disposal is the only close policy. */
+/** Shared close policy for toolkit panes: success lingers, errors remain visible. */
 export function toolkitHerdrAutoCloseMs(kind: "success" | "error" = "success"): number | null {
 	return herdrPaneAutoCloseMs(kind);
 }
@@ -730,6 +731,10 @@ export async function runToolkitDispatch(opts: {
 								agent: herdrAgent,
 								state: failed ? "unknown" : "idle",
 							});
+							if (!failed) {
+								const linger = toolkitHerdrAutoCloseMs("success");
+								if (linger !== null) scheduleHerdrPaneClose(tab, linger);
+							}
 			return settleRun({
 				exitCode: cancelledRun ? 130 : (rc ?? 1),
 				raw: rawOut,

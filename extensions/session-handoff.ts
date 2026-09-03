@@ -198,7 +198,7 @@ export default function (pi: ExtensionAPI) {
 		if (process.env.PI_SUBAGENT === "1") return;
 		// resume_handoff is a read operation. It must not make an otherwise idle
 		// session dirty, or shutdown will resurrect the handoff as in_progress.
-		if (["tasks", "set_mode", "dispatch_agent", "dispatch_agents", "verify_execution", "show_report"].includes(event.toolName)) {
+		if (["tasks", "set_mode", "subagent_create", "subagent_create_batch", "verify_execution", "show_report"].includes(event.toolName)) {
 			const details = event.result?.details;
 			const completed = event.toolName === "show_report" && details?.completionBlocked !== true && details?.error !== true;
 			schedule(ctx, completed ? "completed" : undefined);

@@ -1,5 +1,5 @@
 // ABOUTME: Delegation guard - blocks model-driven shadow fleets.
-// ABOUTME: A bash call that spawns headless pi bypasses dispatch_agent:
+// ABOUTME: A bash call that spawns headless pi bypasses subagent_create:
 // ABOUTME no journal row, no herdr visibility, no RESULT contract, no
 // ABOUTME archived transcript. Blocked with guidance to use team tools.
 // ABOUTME Opt out with PI_DELEGATION_GUARD=0.
@@ -23,8 +23,8 @@ export default function delegationGuard(pi: ExtensionAPI) {
 				"(no task-journal entry, no herdr tab, no ## RESULT contract, no transcript archive).",
 				"",
 				"Do one of these instead:",
-				"- delegate with the dispatch_agent tool (single agent),",
-				"  run_chain/dispatch_agents for chains/pipelines, or subagent_create.",
+				"- delegate with the subagent_create tool (single or batch agent),",
+				"  and never spawn a headless agent directly from bash.",
 				"- if you truly need a bare process here, ask the user to set PI_DELEGATION_GUARD=0.",
 			].join("\n"),
 		};

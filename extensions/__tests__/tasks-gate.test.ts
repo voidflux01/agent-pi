@@ -14,28 +14,23 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("set_mode", true)).toBe(true);
 	});
 
-	it("should bypass for 'dispatch_agent' tool in NORMAL mode", () => {
-		expect(shouldBypassTaskGate("dispatch_agent")).toBe(true);
+	it("should bypass for 'subagent_create' tool in NORMAL mode", () => {
+		expect(shouldBypassTaskGate("subagent_create")).toBe(true);
 	});
 
 	it("should not bypass delegated work in orchestration modes", () => {
-		expect(shouldBypassTaskGate("dispatch_agent", true)).toBe(false);
-		expect(shouldBypassTaskGate("dispatch_agents", true)).toBe(false);
-		expect(shouldBypassTaskGate("run_chain", true)).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create", true)).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create_batch", true)).toBe(false);
 		expect(shouldBypassTaskGate("advance_phase", true)).toBe(false);
 		expect(shouldBypassTaskGate("compose_exec", true)).toBe(false);
 	});
 
-	it("should bypass for 'dispatch_agents' tool", () => {
-		expect(shouldBypassTaskGate("dispatch_agents")).toBe(true);
+	it("should bypass for 'subagent_create_batch' tool", () => {
+		expect(shouldBypassTaskGate("subagent_create_batch")).toBe(true);
 	});
 
 	it("should bypass for 'ask_user' tool (communication tool)", () => {
 		expect(shouldBypassTaskGate("ask_user")).toBe(true);
-	});
-
-	it("should bypass for 'run_chain' tool (orchestration tool)", () => {
-		expect(shouldBypassTaskGate("run_chain")).toBe(true);
 	});
 
 	it("should NOT bypass for 'bash' tool", () => {
@@ -169,14 +164,14 @@ describe("scout reconnaissance bypass", () => {
 		expect(isScoutRecon("subagent_create_batch", { agents: [] })).toBe(false);
 	});
 
-	it("does not treat TEAM dispatch_agent as recon", () => {
-		expect(isScoutRecon("dispatch_agent", { agent: "scout" })).toBe(false);
-		expect(shouldBypassTaskGate("dispatch_agent", true, { agent: "scout" })).toBe(false);
+	it("does not treat arbitrary subagent work as recon", () => {
+		expect(isScoutRecon("subagent_create", { name: "builder" })).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create", true, { name: "builder" })).toBe(false);
 	});
 
-	it("classifies TEAM batch dispatch and recovery at the shared gate", () => {
-		expect(shouldBypassTaskGate("dispatch_team_batch", true)).toBe(false);
-		expect(shouldBypassTaskGate("dispatch_team_batch", false)).toBe(true);
+	it("classifies subagent batch and recovery at the shared gate", () => {
+		expect(shouldBypassTaskGate("subagent_create_batch", true)).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create_batch", false)).toBe(true);
 		expect(shouldBypassTaskGate("team_batch_recover", true)).toBe(true);
 	});
 

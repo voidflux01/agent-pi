@@ -33,10 +33,10 @@ import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
 import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, type AgentDef, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
-import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
+import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel, closeHerdrTabAsync, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
@@ -120,6 +120,7 @@ interface SubState {
 	turnCount: number;     // increments each time /subcont continues this agent
 	summary?: string;      // pre-written summary shown in widget (no markdown)
 	proc?: any;            // active ChildProcess ref (for kill on /subrm)
+	herdrPane?: HerdrTabRef; // visible pane owned by the current/last Herdr turn
 	autoRemove?: boolean;      // parent-explicit auto-remove permission (default: false)
 	model?: string;            // resolved model string for display
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
@@ -161,6 +162,12 @@ export default function (pi: ExtensionAPI) {
 
 	function clearWidgetCurrent(key: string): void {
 		try { widgetCtx?.ui?.setWidget?.(key, undefined); } catch {}
+	}
+
+	function closeStatePane(state: SubState): void {
+		const pane = state.herdrPane;
+		state.herdrPane = undefined;
+		if (pane) void closeHerdrTabAsync(pane);
 	}
 
 	// ── Agent definition registry (loaded from .md files + models.json) ───────
@@ -309,6 +316,10 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 		options: { orchestrationRun?: OrchestrationRun; onSettled?: (status: "succeeded" | "failed" | "cancelled") => void; signal?: AbortSignal } = {},
 	): Promise<string> {
+		// A repair/continuation reuses the persisted conversation, but each Herdr
+		// pane is a single-turn surface. Close the previous surface before the
+		// next turn so repeated repairs do not accumulate visible windows.
+		closeStatePane(state);
 		// Snapshot all session-bound values before any asynchronous work starts.
 		// A child may finish after /new, /resume, or extension reload, at which
 		// point dereferencing the captured ctx throws and can kill pi.
@@ -642,7 +653,7 @@ export default function (pi: ExtensionAPI) {
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// Keep watchdog, epoch, and follow-up policies local to this widget.
 			const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
-			runDispatch({
+			createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
 				cwd: spawnCwd,
@@ -653,6 +664,7 @@ export default function (pi: ExtensionAPI) {
 				herdrDoneExtPath,
 				herdrLabel: paneTitle,
 				herdrPaneKey: `sa-${state.id}`,
+				onHerdrPane: (ref) => { state.herdrPane = ref; },
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
@@ -1116,6 +1128,7 @@ export default function (pi: ExtensionAPI) {
 			if (state.proc && state.status === "running") {
 				await killGracefully(state.proc);
 			}
+			closeStatePane(state);
 			if (commandEpoch !== sessionEpoch) {
 				return { content: [{ type: "text", text: `Session changed while removing SA${args.id}.` }] };
 			}
@@ -1163,6 +1176,7 @@ export default function (pi: ExtensionAPI) {
 
 			for (const [id, state] of Array.from(agents.entries())) {
 				if (state.status === "done" || state.status === "error") {
+					closeStatePane(state);
 					ctx.ui.setWidget(`sub-${id}`, undefined);
 					widgetBoxes.delete(id);
 					agents.delete(id);
@@ -1172,6 +1186,7 @@ export default function (pi: ExtensionAPI) {
 						killPromises.push(killGracefully(state.proc));
 					}
 					state.status = "error";
+					closeStatePane(state);
 					state.textChunks.push(`\n[CLEANUP] Killed after ${Math.round(state.elapsed / 1000)}s (stale).`);
 					ctx.ui.setWidget(`sub-${id}`, undefined);
 					widgetBoxes.delete(id);
@@ -1420,6 +1435,7 @@ export default function (pi: ExtensionAPI) {
 			if (state.proc && state.status === "running") {
 				killPromises.push(killGracefully(state.proc));
 			}
+			closeStatePane(state);
 			try { ctx?.ui?.setWidget?.(`sub-${id}`, undefined); } catch {}
 		}
 		await Promise.all(killPromises);
@@ -1454,9 +1470,10 @@ export default function (pi: ExtensionAPI) {
 				lifecycle.clearProcess(proc);
 				killPromises.push(killGracefully(proc));
 			}
-			else if (state.proc) {
+			if (state.proc) {
 				lifecycle.clearProcess(state.proc);
 			}
+			closeStatePane(state);
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
 		await Promise.all(killPromises);
@@ -1522,6 +1539,7 @@ export default function (pi: ExtensionAPI) {
 			else if (state.proc) {
 				lifecycle.clearProcess(state.proc);
 			}
+			closeStatePane(state);
 			ctx.ui.setWidget(`sub-${id}`, undefined);
 		}
 		await Promise.all(killPromises);

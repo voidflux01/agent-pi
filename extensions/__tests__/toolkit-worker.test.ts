@@ -318,8 +318,8 @@ describe("visible external runtime helpers", () => {
 		expect(toolkitHerdrLabel("omp-agent")).toBe("omp-agent");
 	});
 
-	it("keeps worker panes open until explicit parent disposal", () => {
-		expect(toolkitHerdrAutoCloseMs()).toBeNull();
+	it("closes successful worker panes after the default linger and keeps errors", () => {
+		expect(toolkitHerdrAutoCloseMs()).toBe(30_000);
 		expect(toolkitHerdrAutoCloseMs("error")).toBeNull();
 	});
 });

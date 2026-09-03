@@ -9,7 +9,7 @@ export const PINNED_ORCHESTRATION_TOOLS = [
 	"subagent_create_batch",
 	"subagent_wait",
 	"show_plan",
-	"dispatch_agent",
+	"subagent_create",
 	"ask_user",
 ] as const;
 

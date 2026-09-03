@@ -1,5 +1,5 @@
 // ABOUTME: Sequential pipeline orchestrator that chains agent steps with prompt templates.
-// ABOUTME: Each step's output feeds into the next via $INPUT; provides run_chain tool and /chain command.
+// ABOUTME: Each step's output feeds into the next via $INPUT; uses subagent_create and /chain command.
 /**
  * Agent Chain — Sequential pipeline orchestrator
  *
@@ -10,7 +10,7 @@
  * $ORIGINAL is always the user's original prompt.
  *
  * The primary Pi agent has NO codebase tools — it can ONLY kick off the
- * pipeline via the `run_chain` tool. On boot you select a chain; the
+	 * pipeline via subagent_create. On boot you select a chain; the
  * agent decides when to run it based on the user's prompt.
  *
  * Agents maintain session context within a Pi session — re-running the
@@ -51,7 +51,7 @@ import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt, workerHitToolCap, workerTimeoutMs } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
-import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
@@ -478,7 +478,7 @@ export default function (pi: ExtensionAPI) {
 			// Transport mechanics live in one runtime. This caller keeps only
 			// chain-specific parsing and widget state.
 			const launch = applyWorkerLaunchPolicy(["pi", ...args], agentDef.name);
-			const runtimePromise = runDispatch({
+			const runtimePromise = createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
 				cwd: ctx.cwd,
@@ -724,10 +724,10 @@ export default function (pi: ExtensionAPI) {
 		return completed;
 	}
 
-	// ── run_chain Tool ──────────────────────────
+	// ── Retired chain tool implementation (not registered) ─────────────
 
 	registerToolWithExecutor(pi, {
-		name: "run_chain",
+		name: "__removed_run_chain",
 		label: "Run Chain",
 		description: "Execute the active agent chain pipeline. Each step runs sequentially — output from one step feeds into the next. Agents maintain session context across runs.",
 		parameters: Type.Object({
@@ -781,7 +781,7 @@ export default function (pi: ExtensionAPI) {
 			const task = (args as any).task || "";
 			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
 			const text =
-				theme.fg("toolTitle", theme.bold("run_chain ")) +
+					theme.fg("toolTitle", theme.bold("retired_chain ")) +
 				theme.fg("accent", activeChain?.name || "?") +
 				theme.fg("dim", " — ") +
 				theme.fg("muted", preview);
@@ -1260,7 +1260,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 
 ${RESEARCH_ROUTING_PROMPT}
 
-You orchestrate via \`run_chain\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After run_chain returns, quote the step summaries from ## RESULT.
+			You orchestrate via \`subagent_create\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After the workers return, quote the step summaries from ## RESULT.
 
 ${GRILL_ME_SECTION}
 
@@ -1273,7 +1273,7 @@ ${steps}
 
 ${agentCatalog}
 
-## When to Use run_chain
+## When to Use subagent_create
 - Significant work: new features, refactors, multi-file changes, anything non-trivial
 - Tasks that benefit from the full pipeline: planning, building, reviewing
 - When you want structured, multi-agent collaboration on a problem
@@ -1283,8 +1283,8 @@ ${agentCatalog}
 - Quick questions to the user are fine; use NORMAL for trivial one-file edits
 - Any leftover edit or execution still requires an active task
 
-## How run_chain Works
-- Pass a clear task description to run_chain
+## How sequential subagent_create Works
+- Pass a clear task description to subagent_create
 - Each step's output feeds into the next step as $INPUT
 - Agents maintain session context — they remember previous work within this session
 - You can run the chain multiple times with different tasks if needed
@@ -1539,7 +1539,7 @@ ${agentCatalog}
 			return currentChainProc !== null;
 		};
 
-		// run_chain is registered as a tool — available alongside all default tools
+		// Chain execution is retired; subagent_create is the sole worker entrypoint.
 
 		_ctx.ui.setStatus("agent-chain", `Chain: ${activeChain!.name} (${activeChain!.steps.length} steps)`);
 		// Footer: use footer.ts only — do not overwrite

@@ -15,8 +15,10 @@ import {
 	readLastAssistantText,
 	cleanupLaunchFiles,
 	registerHerdrPane,
+	scheduleHerdrPaneClose,
 	sendCommandToPaneAsync,
 	updateHerdrPaneStatus,
+	herdrPaneAutoCloseMs,
 	visiblePiTuiCommand,
 	waitForLaunchStart,
 	writeLaunchScript,
@@ -74,6 +76,8 @@ export interface DispatchRuntimeSpec {
 	onStderr?: (chunk: string) => void;
 	onHerdrUpdate?: () => void;
 	onTransport?: (transport: Exclude<DispatchTransport, "auto">) => void;
+	/** Receives the visible Herdr pane owned by this dispatch. */
+	onHerdrPane?: (ref: HerdrTabRef) => void;
 	/** Injected in tests; defaults to node's spawn. */
 	spawnProcess?: typeof spawn;
 }
@@ -309,6 +313,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		}
 
 		ownedByHerdr = true;
+		spec.onHerdrPane?.(tab);
 		spec.onTransport?.("herdr");
 		registerHerdrPane(spec.cwd, {
 			key: spec.herdrPaneKey || spec.launchId,
@@ -372,6 +377,13 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		if (refs) cleanupLaunchFiles(refs);
 		if (tab) {
 			updateHerdrPaneStatus(spec.cwd, spec.herdrPaneKey || spec.launchId, terminalStatus, tab);
+			// If launch acknowledgement failed, the pane was created but never
+			// became an owned worker. Do not leave that orphaned pane behind.
+			if (!ownedByHerdr) void closeHerdrTabAsync(tab);
+			else if (terminalStatus === "done") {
+				const linger = herdrPaneAutoCloseMs("success");
+				if (linger !== null) scheduleHerdrPaneClose(tab, linger);
+			}
 		}
 	}
 }
@@ -383,7 +395,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
  * same screen); a pane that has taken ownership is never duplicated by a
  * second child.
  */
-export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult> {
+export async function createSubagentRuntime(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult> {
 	if (!authorizationMatchesActive(spec.authorization)) {
 		const message = "Dispatch refused: an explicit tool or command authorization is required";
 		updateJournal(spec, { status: "error", exitCode: 126, note: message });
@@ -429,3 +441,6 @@ export async function run(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRes
 	spec.onTransport?.("headless");
 	return settleRun(result);
 }
+
+/** @deprecated Use createSubagentRuntime; retained for external extension compatibility. */
+export const run = createSubagentRuntime;

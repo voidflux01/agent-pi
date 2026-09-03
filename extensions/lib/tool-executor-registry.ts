@@ -10,6 +10,7 @@ export interface RegisteredToolDefinition {
 }
 
 const EXECUTOR_KEY = "__piRegisteredToolExecutors";
+const REMOVED_AGENT_TOOLS = new Set(["dispatch_agent", "dispatch_agents", "dispatch_team_batch", "run_chain"]);
 
 function executorMap(): Record<string, RegisteredToolDefinition["execute"]> {
 	const g = globalThis as any;
@@ -21,6 +22,7 @@ function executorMap(): Record<string, RegisteredToolDefinition["execute"]> {
 
 /** Register a tool and publish its handler for in-process tool composition. */
 export function registerToolWithExecutor(pi: { registerTool: (definition: any) => void }, definition: RegisteredToolDefinition & Record<string, any>): void {
+	if (REMOVED_AGENT_TOOLS.has(definition.name) || definition.name.startsWith("__removed_")) return;
 	pi.registerTool(definition);
 	executorMap()[definition.name] = definition.execute;
 	registerCapability({

@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childEnvironment } from "./child-runtime.ts";
-import { currentDispatchAuthorization, run as runDispatch } from "./dispatch-runtime.ts";
+import { currentDispatchAuthorization, createSubagentRuntime } from "./dispatch-runtime.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
 
 export interface VerifierSubagentReport {
@@ -145,19 +145,21 @@ export async function runVerifierSubagent(input: {
 	auditOnly?: boolean;
 	deterministicEvidence?: string;
 	pollTimeoutMs?: number;
+	signal?: AbortSignal;
 }): Promise<VerifierSubagentResult> {
 	const sessionDir = join(input.cwd, ".pi", "agent-sessions", "verifier");
 	mkdirSync(sessionDir, { recursive: true });
 	const sessionFile = join(sessionDir, `verifier-${Date.now()}.jsonl`);
 	const extDir = dirname(fileURLToPath(import.meta.url));
+	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
 	const command = [
-		"pi", "--mode", "json", "-p", "--session", sessionFile,
+		"pi", "--thinking", "medium", "--mode", "json", "-p", "--session", sessionFile,
 		...(input.model ? ["--model", input.model] : []),
 		"--tools", "read,bash,grep,find,ls",
 		"--append-system-prompt", verifierPrompt(input.contract, input.auditOnly, input.deterministicEvidence),
 		"Audit the workspace now and return the required VERIFIER RESULT JSON block.",
 	];
-	const result = await runDispatch({
+	const result = await createSubagentRuntime({
 		authorization: currentDispatchAuthorization(),
 		command,
 		cwd: input.cwd,
@@ -167,7 +169,11 @@ export async function runVerifierSubagent(input: {
 		parentRunId: input.parentRunId,
 		mode: input.mode,
 		sessionFile,
+		herdrDoneExtPath,
+		herdrLabel: "VERIFIER",
+		herdrPaneKey: `verifier-${Date.now()}`,
 		pollTimeoutMs: input.pollTimeoutMs ?? 10 * 60_000,
+		isAborted: () => !!input.signal?.aborted,
 	});
 	const outputText = result.outputText || "";
 	const transcriptText = readAssistantTranscript(sessionFile);

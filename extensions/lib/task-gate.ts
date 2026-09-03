@@ -5,12 +5,12 @@ import { isToolkitCliAgent } from "./toolkit-cli.ts";
 import { RECON_TOOL_NAMES } from "./tool-classification.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "dispatch_agent", "dispatch_agents", "dispatch_team_batch", "team_batch_recover", "subagent_wait", "ask_user", "run_chain", "verify_execution", "show_report",
+	"tasks", "set_mode", "subagent_create", "subagent_create_batch", "team_batch_recover", "subagent_wait", "ask_user", "verify_execution", "show_report",
 	"advance_phase", "pipeline_status",
 ] as const;
 
 /** Non-read-only workflow tools that require an active task in orchestration modes. */
-export const TASK_EXECUTION_TOOLS = ["dispatch_agent", "dispatch_agents", "dispatch_team_batch", "run_chain", "advance_phase", "compose_exec"] as const;
+export const TASK_EXECUTION_TOOLS = ["subagent_create", "subagent_create_batch", "advance_phase", "compose_exec"] as const;
 
 export const READ_ONLY_BYPASS_TOOLS = RECON_TOOL_NAMES;
 

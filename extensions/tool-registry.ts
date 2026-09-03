@@ -58,12 +58,12 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "agents",
-		names: ["dispatch_agent", "subagent_create", "subagent_create_batch", "subagent_wait", "subagent_continue", "subagent_remove", "subagent_list"],
+		names: ["subagent_create", "subagent_create_batch", "subagent_wait", "subagent_continue", "subagent_remove", "subagent_list"],
 		keywords: ["agent", "subagent", "dispatch", "spawn"],
 	},
 	{
 		category: "workflow",
-		names: ["tasks", "set_mode", "advance_phase", "dispatch_agents", "pipeline_status", "run_chain", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover", "resume_handoff"],
+		names: ["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover", "resume_handoff"],
 		keywords: ["task", "mode", "pipeline", "phase", "workflow", "chain"],
 	},
 	{

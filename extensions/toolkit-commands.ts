@@ -20,7 +20,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { TOOLKIT_WORKER_MODEL } from "./lib/toolkit-cli.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
-import { currentDispatchAuthorization, run as runDispatch, explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchRuntimeResult } from "./lib/dispatch-runtime.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -213,9 +213,9 @@ export default function (pi: ExtensionAPI) {
 						const MAX_WORKER_CAPTURE = 64 * 1024;
 						let output = "";
 						let outputTruncated = false;
-						let result: Awaited<ReturnType<typeof runDispatch>>;
+						let result: DispatchRuntimeResult;
 						try {
-							result = await explicitDispatchHandler("subagent-command", () => runDispatch({
+							result = await explicitDispatchHandler("subagent-command", () => createSubagentRuntime({
 								authorization: currentDispatchAuthorization(),
 								command: ["pi",
 									"--mode", "json",

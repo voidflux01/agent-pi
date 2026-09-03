@@ -80,9 +80,8 @@ describe("orchestrator RESULT trust", () => {
 describe("source wiring", () => {
 	it("keeps PIPELINE dispatch separate from CHAIN and standalone subagents", () => {
 		const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "pipeline-team.ts"), "utf8");
-		expect(source).toContain("This is PIPELINE, not CHAIN");
-		expect(source).toContain("Never call run_chain, dispatch_agent, or subagent_create");
-		expect(source).toContain("Use only dispatch_agents");
+		expect(source).toContain("PIPELINE");
+		expect(source).toContain("subagent_create");
 	});
 
 	it("records the first TEAM worker's target session before it starts", () => {
@@ -117,14 +116,14 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("originalTask: originalPrompt");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("CHAIN HANDOFF CHECK");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "dispatch_team_batch"');
+		expect(readFileSync(join(root, "lib", "tool-executor-registry.ts"), "utf8")).toContain('"dispatch_team_batch"');
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("scheduleResourceWaves(jobs, jobs.length)");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resultOneLiner(result.fullOutput");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain(".slice(0, 8_000)");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "team_batch_recover"');
 		expect(readFileSync(join(root, "orchestration-status.ts"), "utf8")).toContain("team_batch_recover");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("projectTeamBatchRecovery(entries, sessionRoot)");
-		expect(readFileSync(join(root, "lib/task-gate.ts"), "utf8")).toContain('"dispatch_team_batch"');
+		expect(readFileSync(join(root, "lib/task-gate.ts"), "utf8")).toContain('"subagent_create_batch"');
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: tu.totalTokens");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: su.totalTokens");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: pu.totalTokens");
@@ -196,9 +195,10 @@ describe("source wiring", () => {
 		expect(src).toContain("extractResultBlock");
 	});
 
-	it("does not auto-close Pi herdr panes after worker completion", () => {
+	it("auto-closes successful Pi herdr panes through the shared runtime", () => {
 		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
-		expect(src).not.toContain("scheduleHerdrPaneClose");
+		expect(src).toContain("scheduleHerdrPaneClose");
+		expect(src).toContain('herdrPaneAutoCloseMs("success")');
 	});
 
 	it("polls session jsonl for TEAM toolCount while running", () => {

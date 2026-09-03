@@ -1,6 +1,6 @@
 // ABOUTME: Pure detector for model-driven nested pi launches ("shadow fleets").
 // ABOUTME: A parent model that shells out `pi -p ...` / `pi --mode json ...`
-// ABOUTME bypasses dispatch_agent entirely: no task journal row, no herdr tab,
+// ABOUTME bypasses subagent_create entirely: no task journal row, no herdr tab,
 // ABOUTME no RESULT contract, no full-transcript archive. This probe flags
 // ABOUTME such commands so the delegation-guard extension can block them and
 // ABOUTME route the model back to the team tools.

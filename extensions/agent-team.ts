@@ -1,10 +1,10 @@
 // ABOUTME: Multi-agent team dispatcher with specialist agents and grid dashboard.
-// ABOUTME: Primary agent delegates via dispatch_agent tool; teams defined in .pi/agents/teams.yaml.
+// ABOUTME: Primary agent delegates via subagent_create tool; teams defined in .pi/agents/teams.yaml.
 /**
  * Agent Team — Dispatcher-only orchestrator with grid dashboard
  *
  * The primary Pi agent has NO codebase tools. It can ONLY delegate work
- * to specialist agents via the `dispatch_agent` tool. Each specialist
+ * to specialist agents via the `subagent_create` tool. Each specialist
  * maintains its own Pi session for cross-invocation memory.
  *
  * Loads agent definitions from agents/*.md, .claude/agents/*.md, .pi/agents/*.md.
@@ -46,7 +46,7 @@ import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts"
 import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
-import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
@@ -859,7 +859,7 @@ export default function (pi: ExtensionAPI) {
 			// Standard Pi transport is centralized. Team-specific state, context
 			// warnings and result composition stay here.
 			const launch = applyWorkerLaunchPolicy(["pi", ...args], canonicalName);
-			runDispatch({
+			createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
 				cwd: runCwd,
@@ -901,10 +901,10 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	// ── dispatch_agent Tool (registered at top level) ──
+	// ── Retired TEAM single-dispatch implementation (not registered) ──
 
 	registerToolWithExecutor(pi, {
-		name: "dispatch_agent",
+		name: "__removed_dispatch_agent",
 		label: "Dispatch Agent",
 		description: "Dispatch a task to a specialist agent. The agent will execute the task and return the result. Use the system prompt to see available agent names. When reporting the outcome to the user: lead with the result and the next decision; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
 		parameters: Type.Object({
@@ -1013,9 +1013,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	registerToolWithExecutor(pi, {
-		name: "dispatch_team_batch",
+		name: "__removed_dispatch_team_batch",
 		label: "Dispatch Team Batch",
-		description: "Dispatch multiple independent TEAM tasks concurrently and return bounded summaries in one call. Use only when tasks have separate owners and neither depends on another result; use dispatch_agent for sequential work.",
+		description: "Retired TEAM batch implementation; use subagent_create_batch for independent tasks.",
 		parameters: Type.Object({
 			jobs: Type.Array(Type.Object({
 				agent: Type.String({ maxLength: 160, description: "Team member name (case-insensitive)" }),
@@ -1086,7 +1086,7 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "team_batch_recover",
 		label: "Recover Team Batch",
-		description: "Inspect a stale TEAM batch and return bounded worker resume candidates. Read-only: it never dispatches or mutates work; explicitly use dispatch_agent for selected candidates after re-checking the workspace.",
+		description: "Inspect a stale TEAM batch and return bounded worker resume candidates. Read-only; use subagent_resume after re-checking the workspace.",
 		parameters: Type.Object({
 			run_id: Type.String({ maxLength: 128, description: "Persisted TEAM batch RunContext id" }),
 		}),
@@ -1103,7 +1103,7 @@ export default function (pi: ExtensionAPI) {
 			const resumable = candidates.filter((candidate) => candidate.canResume);
 			const lines = [
 				`TEAM batch ${runId}: ${resumable.length}/${candidates.length} worker(s) have a safe persisted session to resume.`,
-				...candidates.map((candidate) => `${candidate.status.padEnd(10)} ${candidate.agent} ${candidate.id}${candidate.canResume ? " resumable — dispatch_agent after workspace re-check" : " inspect/re-dispatch required"} task=${candidate.task.replace(/\s+/g, " ")}`),
+				...candidates.map((candidate) => `${candidate.status.padEnd(10)} ${candidate.agent} ${candidate.id}${candidate.canResume ? " resumable — subagent_resume after workspace re-check" : " inspect/re-dispatch required"} task=${candidate.task.replace(/\s+/g, " ")}`),
 			];
 			return { content: [{ type: "text", text: lines.join("\n").slice(0, 8_000) }], details: { found: true, runId, candidates } };
 		},
@@ -1486,10 +1486,10 @@ export default function (pi: ExtensionAPI) {
 
 ## Context gathering
 When the task involves unfamiliar code, multiple files, a call chain, or existing patterns, dispatch the scout first for bounded, read-only reconnaissance before sending work to builders or reviewers. For a small task with known files and symbols, you may dispatch the appropriate specialist directly. Do not inspect the codebase yourself.
-Example: \`dispatch_agent { agent: "scout", task: "Map the relevant files and report paths, symbols, and risks." }\`` : `
+Example: \`subagent_create { name: "scout", task: "Map the relevant files and report paths, symbols, and risks." }\`` : `
 
 ## Context gathering
-No scout is active. Use dispatch_agent with the listed specialist whose tools fit the investigation.`;
+No scout is active. Use subagent_create with the listed specialist whose tools fit the investigation.`;
 
 		return {
 			systemPrompt: `You are the coordinator for TEAM mode.
@@ -1499,7 +1499,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${RESEARCH_ROUTING_PROMPT}
 
 ## Tool boundary
-You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through dispatch_agent. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.
+You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through subagent_create. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.
 
 ${GRILL_ME_SECTION}
 
@@ -1511,8 +1511,8 @@ ${scoutSection}
 ## Dispatch rules
 - Keep each dispatch focused on one outcome.
 - When two or more tasks have independent owners and do not need each other's
-  intermediate result, use \`dispatch_team_batch\` to run them concurrently in
-  one bounded call. Keep dependent work sequential with \`dispatch_agent\`.
+  intermediate result, use \`subagent_create_batch\` to run them concurrently in
+  one bounded call. Keep dependent work sequential with \`subagent_create\`.
 - Use Builder agents for changes and Reviewer agents for verification/testing; the
   current TEAM roster has no separate Tester role.
 - Do not dispatch merely to add ceremony.

@@ -58,7 +58,7 @@ import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, regi
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
-import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt, workerHitToolCap, workerTimeoutMs } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
@@ -590,7 +590,7 @@ export default function (pi: ExtensionAPI) {
 			// Transport mechanics are shared; the pipeline owns phase scheduling
 			// and only consumes text/status callbacks for its widget.
 			const launch = applyWorkerLaunchPolicy(["pi", ...args], agentDef.name);
-			const runtimePromise = runDispatch({
+			const runtimePromise = createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
 				cwd: ctx.cwd,
@@ -874,7 +874,7 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "advance_phase",
 		label: "Advance Phase",
-		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require dispatch_agents first — do not advance on a self-written summary.",
+		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require subagent_create first — do not advance on a self-written summary.",
 		parameters: Type.Object({
 			summary: Type.String({ description: "Summary of what was accomplished in this phase / the clarified task" }),
 			skip_to: Type.Optional(Type.String({ description: "Optional: skip to a specific phase name (e.g. 'plan' to skip gather)" })),
@@ -891,7 +891,7 @@ export default function (pi: ExtensionAPI) {
 			if (phaseRequiresAgentDispatch(current.def) && ((current.dispatchCount || 0) === 0 || !current.lastDispatchSuccess)) {
 				const hint = current.def.agents[0]?.role || "the configured agent";
 				return {
-					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call dispatch_agents successfully (e.g. ${hint}), resolve all agent errors, wait for ## RESULT, then advance_phase with that summary.` }],
+					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call subagent_create successfully (e.g. ${hint}), resolve all agent errors, wait for ## RESULT, then advance_phase with that summary.` }],
 					details: { error: true, phase: current.def.name },
 				};
 			}
@@ -1007,7 +1007,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	registerToolWithExecutor(pi, {
-		name: "dispatch_agents",
+		name: "__removed_dispatch_agents",
 		label: "Dispatch Agents",
 		description: "Dispatch one or more agents for the current pipeline phase. Agents run in parallel or sequential mode depending on the phase configuration. Use this in phases 2-5 to do the actual work. When reporting outcomes to the user: lead with results and next decisions; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
 		parameters: Type.Object({
@@ -1133,7 +1133,7 @@ export default function (pi: ExtensionAPI) {
 			const agents = (args as any).agents || [];
 			const roles = agents.map((a: any) => a.role).join(", ");
 			const text =
-				theme.fg("toolTitle", theme.bold("dispatch_agents ")) +
+			theme.fg("toolTitle", theme.bold("retired_dispatch ")) +
 				theme.fg("accent", `${agents.length} agent(s)`) +
 				theme.fg("dim", " — ") +
 				theme.fg("muted", roles);
@@ -1454,7 +1454,7 @@ Call \`advance_phase\` with a comprehensive task summary when ready to proceed.`
 		} else if (phase.def.name === "gather") {
 			phaseInstructions = `## Phase Instructions: GATHER
 				You are in the GATHER phase. Dispatch scout agents to explore the codebase in parallel. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
-				Use \`dispatch_agents\` to send multiple scouts concurrently.
+				Use \`subagent_create_batch\` to send multiple scouts concurrently.
 				${RESEARCH_ROUTING_PROMPT}
 				Review their findings, then call \`advance_phase\` with a summary.
 
@@ -1463,13 +1463,13 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
-You are in the PLAN phase. Dispatch a planner with \`dispatch_agents\` — do not write the plan yourself.
+				You are in the PLAN phase. Dispatch a planner with \`subagent_create\` — do not write the plan yourself.
 The planner's output must include a ## Contract section with executable assertions: [cmd] <command>, [file] <path>, or [match] <regex> :: <path>. Pipeline complete is refused without at least one executable assertion.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
 			phaseInstructions = `## Phase Instructions: ${phaseName}
-Dispatch builder agents with \`dispatch_agents\`. Do not implement files yourself.
+				Dispatch builder agents with \`subagent_create\`. Do not implement files yourself.
 Wait for ## RESULT, then call \`advance_phase\`.`;
 
 		} else if (phase.def.name === "review") {
@@ -1478,7 +1478,7 @@ You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_m
 Dispatch a reviewer agent to audit the implementation.
 After reviewing the output:
 - If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the ## Contract assertions to PASS deterministically, including plan-build pipelines whose last phase is build.
-- If issues found and loops remaining → use \`dispatch_agents\` to fix issues, then review again
+				- If issues found and loops remaining → use \`subagent_create\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}
 
@@ -1489,11 +1489,10 @@ ${ORCHESTRATED_TASK_PROMPT}
 
 ${RESEARCH_ROUTING_PROMPT}
 
-You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents, pipeline_status).
+				You have full codebase tools AND pipeline tools (advance_phase, subagent_create, pipeline_status).
 
 ## Pipeline boundary (required)
-- This is PIPELINE, not CHAIN. Never call run_chain, dispatch_agent, or subagent_create for pipeline work.
-- Use only dispatch_agents for configured phase workers, then advance_phase after their RESULT returns.
+				- This is PIPELINE. Use subagent_create for configured phase workers, then advance_phase after their RESULT returns.
 - UNDERSTAND is the only phase that may advance without dispatch; every configured worker phase must dispatch before advancing.
 
 ## Direct work inside the active pipeline
@@ -1519,8 +1518,8 @@ ${taskSummary || "(Phase 1: Ask the user what they want to accomplish)"}
 ${contextSummary}${planSection}${reviewSection}
 
 ## Tools
-- \`advance_phase\`: Move to next phase after this phase's dispatch_agents have finished (required summary from their RESULT)
-- \`dispatch_agents\`: Send agents to work (array of {role, task})
+				- \`advance_phase\`: Move to next phase after this phase's subagent_create workers have finished (required summary from their RESULT)
+				- \`subagent_create\`: Send agents to work (one task or a batch)
 - \`pipeline_status\`: Check current pipeline state
 - Plus all standard codebase tools (read, write, edit, bash, etc.)`,
 		};

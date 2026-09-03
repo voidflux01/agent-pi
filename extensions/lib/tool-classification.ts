@@ -12,8 +12,8 @@ export interface ToolClassification {
 export const RECON_TOOL_NAMES = ["read", "grep", "ffgrep", "find", "ls", "glob"] as const;
 const RECON_TOOLS = new Set<string>(RECON_TOOL_NAMES);
 const WRITE_TOOLS = new Set(["write", "edit", "write_file", "edit_file"]);
-const AGENT_TOOLS = new Set(["dispatch_agent", "subagent_create", "subagent_create_batch", "subagent_wait", "subagent_continue", "subagent_remove", "subagent_list"]);
-const WORKFLOW_TOOLS = new Set(["tasks", "set_mode", "advance_phase", "dispatch_agents", "pipeline_status", "run_chain", "cycle_memory", "compose_exec", "call_tool", "tool_search"]);
+const AGENT_TOOLS = new Set(["subagent_create", "subagent_create_batch", "subagent_wait", "subagent_continue", "subagent_remove", "subagent_list"]);
+const WORKFLOW_TOOLS = new Set(["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "tool_search"]);
 const UI_TOOLS = new Set(["ask_user", "show_plan", "show_file", "show_report", "show_spec"]);
 const NETWORK_READ_TOOLS = new Set(["fetch_content", "get_search_content", "security_news", "source_check", "web_search", "network_inspect", "safe_port_scan"]);
 const NETWORK_EXECUTE_TOOLS = new Set(["agent_browser", "mcp", "mcpscript"]);

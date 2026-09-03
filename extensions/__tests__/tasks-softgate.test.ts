@@ -149,7 +149,7 @@ describe("mode-aware gate integration", () => {
 				const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
 				setCoordinationMode(mode);
 				tasksExtension(pi as any);
-				for (const toolName of ["bash", "dispatch_agent", "advance_phase"]) {
+				for (const toolName of ["bash", "subagent_create", "advance_phase"]) {
 					const blocked = await handlers.get("tool_call")!({ toolName }, ctx);
 					expect(blocked.block, `${mode} should gate ${toolName}`).toBe(true);
 				}
@@ -175,10 +175,10 @@ describe("mode-aware gate integration", () => {
 				tasksExtension(pi as any);
 				await tool.execute("new-list", { action: "new-list", text: `${mode} work` }, undefined, undefined, ctx);
 				await tool.execute("add", { action: "add", text: "perform work" }, undefined, undefined, ctx);
-				const idle = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			const idle = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 				expect(idle.block, `${mode} should gate idle tasks`).toBe(true);
 				await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
-				const active = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			const active = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 				expect(active.block, `${mode} should allow an active task`).toBe(false);
 			}
 		} finally {
@@ -204,14 +204,14 @@ describe("mode-aware gate integration", () => {
 			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
 
 			setCoordinationMode("SPEC");
-			const beforeRefresh = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			const beforeRefresh = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 			expect(beforeRefresh.block).toBe(true);
 			expect(beforeRefresh.reason).toContain("Rebuild it with `tasks new-list`");
 
 			await tool.execute("new-list", { action: "new-list", text: "spec implementation" }, undefined, undefined, ctx);
 			await tool.execute("add", { action: "add", text: "concrete spec step" }, undefined, undefined, ctx);
 			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
-			const afterRefresh = await handlers.get("tool_call")!({ toolName: "dispatch_agent" }, ctx);
+			const afterRefresh = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 			expect(afterRefresh.block).toBe(false);
 		} finally {
 			setCoordinationMode(previous);

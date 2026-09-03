@@ -281,7 +281,7 @@ describe("dispatch sites stay watchable (anti-drift)", () => {
 		it(`${f} delegates standard Pi transport to the shared runtime`, () => {
 			const src = readFileSync(join(__dirname, "..", f), "utf8");
 			expect(src).toContain('from "./lib/dispatch-runtime.ts"');
-			expect(src).toContain("runDispatch({");
+		expect(src).toContain("createSubagentRuntime({");
 			// Transport details must not drift back into individual orchestrators.
 			expect(src).not.toMatch(/spawn\(\s*["']pi["']/);
 		});

@@ -46,6 +46,7 @@ export async function runAcceptanceVerifier(input: {
 	parentRunId?: string;
 	mode?: string;
 	model?: string;
+	signal?: AbortSignal;
 	}): Promise<{ receipt?: VerifierReceipt; error?: string }> {
 	const before = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	const quality = inspectContractQuality(input.contract);
@@ -58,6 +59,7 @@ export async function runAcceptanceVerifier(input: {
 		mode: input.mode,
 		model: input.model,
 		deterministicEvidence,
+		signal: input.signal,
 	});
 	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 VERIFIER RESULT。" };
 	const report: VerifierSubagentReport = {

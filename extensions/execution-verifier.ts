@@ -51,7 +51,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Verify Execution",
 		description: "Run the independent verifier subagent. With an approved contract it performs acceptance verification; without one it performs a code-change audit and never grants completion.",
 		parameters: Params,
-		execute: explicitDispatchHandler("subagent-tool", async (_id, _params, _signal, _update, ctx) => {
+		execute: explicitDispatchHandler("subagent-tool", async (_id, _params, signal, _update, ctx) => {
 			let contract = getExecutionContract();
 			const objective = ((_params as { objective?: string })?.objective || "Review the current code changes for correctness, tests, quality, security, and regressions.").trim();
 			if (!contract) {
@@ -62,6 +62,7 @@ export default function (pi: ExtensionAPI) {
 					parentRunId: process.env.PI_AGENT_PI_RUN_ID,
 					mode: coordinationState().mode,
 					auditOnly: true,
+					signal,
 				});
 				const status = audit.report?.status || "BLOCKED";
 				return {
@@ -92,6 +93,7 @@ export default function (pi: ExtensionAPI) {
 				attempt,
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
+				signal,
 			});
 			if (!verification.receipt) {
 				orchestrationRun.record("verification.completed", { status: "BLOCKED", error: verification.error });

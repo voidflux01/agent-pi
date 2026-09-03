@@ -75,7 +75,7 @@ another-team:
 - Session files stored in `.pi/agent-sessions/`
 
 ### Agent Orchestration Patterns
-- **Dispatcher**: Primary agent delegates via dispatch_agent tool
+- **Dispatcher**: Primary agent delegates via subagent_create tool
 - **Pipeline**: Sequential chain of agents (scout → planner → builder → reviewer)
 - **Parallel**: Multiple agents query simultaneously, results collected
 - **Specialist team**: Each agent has a narrow domain, orchestrator routes work

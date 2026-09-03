@@ -6,19 +6,19 @@ afterEach(() => resetCapabilitiesForTests());
 
 describe("capability registry", () => {
 	test("registers a namespaced descriptor with inferred risk", () => {
-		const descriptor = registerCapability({ name: "dispatch_agent", description: "Dispatch a worker to edit files" });
-		expect(descriptor.ref).toBe("extensions.dispatch_agent");
+		const descriptor = registerCapability({ name: "subagent_create", description: "Dispatch a worker to edit files" });
+		expect(descriptor.ref).toBe("extensions.subagent_create");
 		expect(descriptor.risk).toBe("agent");
 		expect(descriptor.effect.resources).toEqual(["agent-runtime"]);
 		expect(descriptor.execution).toBe("native_only");
-		expect(getCapability("extensions.dispatch_agent")).toBe(descriptor);
+		expect(getCapability("extensions.subagent_create")).toBe(descriptor);
 	});
 
 	test("searches descriptors deterministically", () => {
 		registerCapability({ name: "read_report", description: "Read a persisted report" });
-		registerCapability({ name: "dispatch_agent", description: "Run an agent" });
-		expect(searchCapabilities("agent").map((entry) => entry.ref)).toEqual(["extensions.dispatch_agent"]);
-		expect(listCapabilities().map((entry) => entry.ref)).toEqual(["extensions.dispatch_agent", "extensions.read_report"]);
+		registerCapability({ name: "subagent_create", description: "Run an agent" });
+		expect(searchCapabilities("agent").map((entry) => entry.ref)).toEqual(["extensions.subagent_create"]);
+		expect(listCapabilities().map((entry) => entry.ref)).toEqual(["extensions.read_report", "extensions.subagent_create"]);
 	});
 
 	test("validates nested arguments against the registered schema", () => {

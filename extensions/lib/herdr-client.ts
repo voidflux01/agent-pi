@@ -553,6 +553,7 @@ export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number): void {
 		lingeringPanes.delete(key);
 		void closeHerdrTabAsync(tab);
 	}, ms);
+	try { (timer as any).unref?.(); } catch {}
 	lingeringPanes.set(key, { tab, timer });
 }
 
@@ -960,7 +961,7 @@ export function countSessionToolCalls(sessionFile: string): number {
 }
 
 /** Default glance time after a successful worker, then the pane closes. */
-export const HERDR_SUCCESS_LINGER_MS = null;
+export const HERDR_SUCCESS_LINGER_MS = 30_000;
 export const HERDR_ERROR_LINGER_MS = null;
 
 export type HerdrLingerKind = "success" | "error";
@@ -968,14 +969,16 @@ export type HerdrLingerKind = "success" | "error";
 /**
  * Auto-close delay for a finished herdr worker pane. `null` keeps it open.
  *
- * Defaults: success 12s, error/abort 30s (error is at least 30s when a
- * positive override is shorter). `PI_HERDR_LINGER_MS=0` closes immediately;
- * a positive value sets the success delay; `keep` / `off` / `-1` never close.
+ * Defaults: successful panes close after 30s; error/abort panes remain open.
+ * `PI_HERDR_LINGER_MS=0` closes immediately; a positive value sets the
+ * success delay; `keep` / `off` / `-1` never close.
  */
-export function herdrPaneAutoCloseMs(_kind: HerdrLingerKind = "success"): number | null {
-	// A worker pane is a business artifact. It remains open until the parent
-	// explicitly closes it; environment linger settings cannot dispose it.
-	return null;
+export function herdrPaneAutoCloseMs(kind: HerdrLingerKind = "success"): number | null {
+	if (kind === "error") return HERDR_ERROR_LINGER_MS;
+	const raw = process.env.PI_HERDR_LINGER_MS;
+	if (raw === "keep" || raw === "off" || raw === "-1") return null;
+	if (raw !== undefined && /^\d+$/.test(raw)) return Number(raw);
+	return HERDR_SUCCESS_LINGER_MS;
 }
 
 export function sessionUsage(sessionFile: string): SessionUsage {
