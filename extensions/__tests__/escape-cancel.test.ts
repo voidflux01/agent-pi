@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { coordinationState, setActiveChain, setActivePipeline } from "../lib/coordination-state.ts";
+import { isModalInputActive } from "../escape-cancel.ts";
 
 // ── Double-tap detection logic (extracted for testability) ────────
 
@@ -23,6 +24,17 @@ function detectDoubleTap(state: DoubleTapState, now: number): boolean {
 // ── Tests ────────────────────────────────────────────────────────
 
 describe("escape-cancel", () => {
+	it("does not treat ESC inside the tasks overlay as cancellation input", () => {
+		const globals = globalThis as any;
+		globals.__piTasksOverlayOpen = true;
+		try {
+			expect(isModalInputActive()).toBe(true);
+		} finally {
+			delete globals.__piTasksOverlayOpen;
+		}
+		expect(isModalInputActive()).toBe(false);
+	});
+
 	describe("double-tap ESC detection", () => {
 		let state: DoubleTapState;
 

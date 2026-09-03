@@ -772,9 +772,15 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			await ctx.ui.custom<void>((_tui, theme, _kb, done) => {
-				return new TasksListComponent(tasks, listTitle, listDescription, theme, () => done());
-			});
+			const globals = globalThis as any;
+			globals.__piTasksOverlayOpen = true;
+			try {
+				await ctx.ui.custom<void>((_tui, theme, _kb, done) => {
+					return new TasksListComponent(tasks, listTitle, listDescription, theme, () => done());
+				});
+			} finally {
+				delete globals.__piTasksOverlayOpen;
+			}
 		},
 	});
 }

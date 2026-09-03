@@ -9,6 +9,11 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 /** Time window (ms) for two ESC presses to be considered a double-tap. */
 const DOUBLE_TAP_WINDOW = 400;
 
+/** Modal overlays own ESC; it must not become the first half of ESC ESC. */
+export function isModalInputActive(): boolean {
+	return (globalThis as any).__piTasksOverlayOpen === true;
+}
+
 export default function (pi: ExtensionAPI) {
 	let lastEscTime = 0;
 	let unsub: (() => void) | null = null;
@@ -57,6 +62,10 @@ export default function (pi: ExtensionAPI) {
 		unsub = ctx.ui.onTerminalInput((data: string) => {
 			// Only detect bare ESC key
 			if (!matchesKey(data, "escape")) return undefined;
+			if (isModalInputActive()) {
+				lastEscTime = 0;
+				return undefined;
+			}
 
 			const now = Date.now();
 			if (now - lastEscTime < DOUBLE_TAP_WINDOW) {
