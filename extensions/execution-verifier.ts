@@ -10,6 +10,7 @@ import {
 	bumpVerifierAttempt,
 	getExecutionContract,
 	getVerifierReceipt,
+	setExecutionContract,
 	setVerifierReceipt,
 } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";

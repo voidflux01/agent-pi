@@ -1088,7 +1088,7 @@ export default function (pi: ExtensionAPI) {
 			run_id: Type.String({ description: "Persisted task-journal dispatch id, for example builder-sa2-..." }),
 			prompt: Type.String({ description: "The follow-up prompt or recovery instruction" }),
 		}),
-		execute: async (_callId, args, _signal, _onUpdate, ctx) => {
+		execute: async (_callId, args, signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
 			const entry = resumableJournalEntry(contextCwd(ctx), args.run_id);
 			if (!entry) return { content: [{ type: "text", text: `No safe resumable subagent dispatch found for ${args.run_id}.` }] };
