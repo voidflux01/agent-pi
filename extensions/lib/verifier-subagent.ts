@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { childEnvironment } from "./child-runtime.ts";
 import { currentDispatchAuthorization, createSubagentRuntime } from "./dispatch-runtime.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
+import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
 
 export interface VerifierSubagentReport {
 	status: "PASS" | "FAIL" | "BLOCKED";
@@ -153,7 +154,7 @@ export async function runVerifierSubagent(input: {
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
 	const command = [
-		"pi", "--thinking", "medium", "--mode", "json", "-p", "--session", sessionFile,
+		"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
 		...(input.model ? ["--model", input.model] : []),
 		"--tools", "read,bash,grep,find,ls",
 		"--append-system-prompt", verifierPrompt(input.contract, input.auditOnly, input.deterministicEvidence),
@@ -172,7 +173,7 @@ export async function runVerifierSubagent(input: {
 		herdrDoneExtPath,
 		herdrLabel: "VERIFIER",
 		herdrPaneKey: `verifier-${Date.now()}`,
-		pollTimeoutMs: input.pollTimeoutMs ?? 10 * 60_000,
+		pollTimeoutMs: input.pollTimeoutMs ?? AGENT_PI_CONFIG.workers.timeoutsMs.verifier,
 		isAborted: () => !!input.signal?.aborted,
 	});
 	const outputText = result.outputText || "";

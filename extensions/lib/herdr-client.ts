@@ -28,6 +28,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { dirname, join } from "node:path";
 import { childEnvironment } from "./child-runtime.ts";
 import { isExplicitDispatchActive, explicitDispatchHandler } from "./dispatch-gate.ts";
+import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
 
 // ── detection ─────────────────────────────────────
 
@@ -961,8 +962,8 @@ export function countSessionToolCalls(sessionFile: string): number {
 }
 
 /** Default glance time after a successful worker, then the pane closes. */
-export const HERDR_SUCCESS_LINGER_MS = 30_000;
-export const HERDR_ERROR_LINGER_MS = null;
+export const HERDR_SUCCESS_LINGER_MS = AGENT_PI_CONFIG.ui.herdrSuccessLingerMs;
+export const HERDR_ERROR_LINGER_MS = AGENT_PI_CONFIG.ui.herdrErrorLingerMs;
 
 export type HerdrLingerKind = "success" | "error";
 

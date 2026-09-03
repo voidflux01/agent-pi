@@ -38,7 +38,7 @@ describe("acceptance contract quality", () => {
 		expect(prompt).toContain("must not modify any file");
 		expect(prompt).toContain("read-only verification commands");
 		const source = readFileSync(new URL("../lib/verifier-subagent.ts", import.meta.url), "utf8");
-		expect(source).toContain('"--thinking", "medium"');
+		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
 		expect(source).toContain('"--tools", "read,bash,grep,find,ls"');
 		expect(source).toContain('herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts")');
 		expect(source).toContain('herdrLabel: "VERIFIER"');

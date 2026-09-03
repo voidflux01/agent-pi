@@ -192,6 +192,30 @@ Model assignments are resolved from the first matching file:
 
 Use a project- or user-level file to map agents to the providers and models available in your environment. `toolkit-models.json` follows the same resolution order.
 
+### Global agent-pi runtime configuration
+
+Runtime policy defaults are centralized in `~/.pi/agent/agent-pi.json`. The
+bundled `agents/agent-pi.json` is used only as the fallback template; project
+directories are not read for this file. It can configure worker thinking levels,
+worker/verifier timeouts, orchestration limits, pipeline parallelism, Herdr and
+widget cleanup timing, and optional model overrides:
+
+```json
+{
+  "models": {
+    "byAgent": { "reviewer": "anthropic/claude-opus-4-6" },
+    "toolkit": "anthropic/claude-haiku-4-5-20251001"
+  },
+  "workers": {
+    "thinking": { "default": "medium", "byAgent": { "builder": "low" } }
+  }
+}
+```
+
+Model fields are optional. If omitted, workers keep using the current Agent/Pi
+model resolution instead of receiving a plugin-forced model. Existing supported
+environment variables remain available as compatibility overrides.
+
 ### Herdr integration
 
 When running inside [Herdr](https://github.com/ruizrica/herdr), delegated workers can open in watchable sibling panes. Install Herdr's Pi integration when needed:

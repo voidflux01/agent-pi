@@ -70,6 +70,8 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
+import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
+import { providerModelString } from "./lib/model-inheritance.ts";
 import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 
@@ -467,7 +469,7 @@ export default function (pi: ExtensionAPI) {
 		// Use agent's defined model or fall back to default subagent model.
 		// NOTE: We intentionally do NOT inherit the parent model. Each agent
 		// should use its explicitly defined model or the lightweight default.
-		const model = resolveToolkitWorkerModel(agentDef.name, agentDef.model || DEFAULT_SUBAGENT_MODEL);
+		const model = resolveToolkitWorkerModel(agentDef.name, agentDef.model || providerModelString(ctx?.model) || DEFAULT_SUBAGENT_MODEL);
 
 		const agentKey = `pipeline-${agentDef.name.toLowerCase().replace(/\s+/g, "-")}-${agentState.index}`;
 		const agentSessionFile = join(sessionDir, `${agentKey}.json`);
@@ -698,7 +700,7 @@ export default function (pi: ExtensionAPI) {
 		let allSuccess = true;
 
 		if (mode === "parallel") {
-			const configuredParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || "4", 10) || 4);
+				const configuredParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || String(AGENT_PI_CONFIG.orchestration!.pipelineMaxParallel), 10) || AGENT_PI_CONFIG.orchestration!.pipelineMaxParallel!);
 			const maxParallel = Math.min(configuredParallel, contextBudget.maxAgents);
 			const launch = (d: any, i: number) => {
 				const def = allAgents.get(d.role.toLowerCase());

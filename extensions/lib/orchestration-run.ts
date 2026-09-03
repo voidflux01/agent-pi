@@ -8,6 +8,7 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { recordRunEvent } from "./evidence-store.ts";
 import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 import { budgetUsageExceededReason } from "./orchestration-budget.ts";
+import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
 
 export interface RunBudget {
 	maxSteps: number;
@@ -17,7 +18,7 @@ export interface RunBudget {
 }
 
 /** Shared default deadline for mode-owned worker executions. */
-export const DEFAULT_ORCHESTRATION_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_ORCHESTRATION_TIMEOUT_MS = AGENT_PI_CONFIG.workers.timeoutsMs.default;
 
 export interface RunUsage {
 	totalTokens: number;
@@ -100,7 +101,7 @@ export function createOrchestrationRun(options: {
 	const runId = randomUUID();
 	const startedAt = Date.now();
 	const budget: RunBudget = {
-		maxSteps: Math.max(1, Math.min(options.budget?.maxSteps ?? 16, 64)),
+		maxSteps: Math.max(1, Math.min(options.budget?.maxSteps ?? AGENT_PI_CONFIG.orchestration!.maxSteps!, 64)),
 		maxDurationMs: Math.max(1_000, Math.min(options.budget?.maxDurationMs ?? 15 * 60_000, 60 * 60_000)),
 		...(options.budget?.maxTokens === undefined ? {} : { maxTokens: Math.max(1, options.budget.maxTokens) }),
 		...(options.budget?.maxCostUsd === undefined ? {} : { maxCostUsd: Math.max(0, options.budget.maxCostUsd) }),

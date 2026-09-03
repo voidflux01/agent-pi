@@ -43,6 +43,8 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { AGENT_PI_CONFIG, configuredModelForAgent } from "./lib/agent-pi-config.ts";
+import { providerModelString } from "./lib/model-inheritance.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
 import { listOrchestrationRuns, readOrchestrationEvents } from "./lib/orchestration-query.ts";
 
@@ -342,10 +344,10 @@ export default function (pi: ExtensionAPI) {
 		// 3) models.json agent entry (even without .md file)
 		// 4) models.json default entry
 		const agentDef = resolveAgentByName(state.name, knownAgents);
-		const configModel = modelsConfig ? resolveAgentModelString(state.name, modelsConfig) : undefined;
+		const configModel = configuredModelForAgent(state.name) || (modelsConfig ? resolveAgentModelString(state.name, modelsConfig) : undefined);
 		const model = resolveToolkitWorkerModel(
 			state.name,
-			state.model || agentDef?.model || configModel || DEFAULT_SUBAGENT_MODEL,
+			state.model || configModel || agentDef?.model || providerModelString(ctx?.model) || DEFAULT_SUBAGENT_MODEL,
 		);
 		if (!isToolkitCliAgent(state.name)) state.model = model;
 		const contextUsage = ctx?.getContextUsage?.();
@@ -596,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 							widgetBoxes.delete(state.id);
 							agents.delete(state.id);
 						}
-					}, 30_000);
+					}, AGENT_PI_CONFIG.ui.widgetAutoRemoveMs);
 				}
 
 				resolve(compactResult.content);
@@ -954,7 +956,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				for (const state of states) {
 					state.retainUntilCollected = false;
-					if (state.autoRemove === true && state.status !== "running") scheduleUnrefCleanup(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
+					if (state.autoRemove === true && state.status !== "running") scheduleUnrefCleanup(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, AGENT_PI_CONFIG.ui.widgetAutoRemoveMs);
 				}
 				const joined = outcome.value.map((result, index) => `SA${states[index].id} ${states[index].name}:\n${result}`).join("\n\n");
 				return {
@@ -1030,7 +1032,7 @@ export default function (pi: ExtensionAPI) {
 						clearWidgetCurrent(`sub-${state.id}`);
 						widgetBoxes.delete(state.id);
 						agents.delete(state.id);
-					}, 30_000);
+					}, AGENT_PI_CONFIG.ui.widgetAutoRemoveMs);
 				}
 			}
 			const joined = results.value.map((result, index) => `SA${selected[index].id} ${selected[index].name}:\n${result}`).join("\n\n");
@@ -1169,7 +1171,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, _signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
-			const maxAge = (args.max_age_seconds ?? 600) * 1000;
+			const maxAge = (args.max_age_seconds ?? AGENT_PI_CONFIG.ui.cleanupStaleAfterMs / 1000) * 1000;
 			let removedDone = 0;
 			let killedStale = 0;
 			const killPromises: Promise<void>[] = [];

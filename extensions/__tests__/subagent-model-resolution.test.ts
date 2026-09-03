@@ -143,8 +143,8 @@ describe("subagent model resolution (end-to-end)", () => {
 	});
 
 	describe("toolkit agents", () => {
-		it("force toolkit agents onto the shared worker model", () => {
-			expect(resolveModel(undefined, "CODEX-AGENT")).toBe(TOOLKIT_WORKER_MODEL);
+	it("uses the configured toolkit model or the current fallback when unset", () => {
+		expect(resolveModel(undefined, "CODEX-AGENT")).toBe(TOOLKIT_WORKER_MODEL || buildModelString(config.default));
 		});
 	});
 

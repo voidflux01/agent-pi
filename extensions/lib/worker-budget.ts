@@ -1,43 +1,14 @@
 // ABOUTME: Per-role thinking and tool-call policy for spawned workers.
 
 import { isToolkitCliAgent } from "./toolkit-cli.ts";
+import { AGENT_PI_CONFIG, type WorkerThinking } from "./agent-pi-config.ts";
 
 export const IMPLEMENTATION_WORKER_MAX_TOOLS = 48;
 export const REVIEW_WORKER_MAX_TOOLS = 20;
 export const PLANNER_MAX_TOOLS = 32;
-export const DEFAULT_PLANNER_TIMEOUT_MS = 120_000;
-export const DEFAULT_REVIEW_TIMEOUT_MS = 120_000;
+export const DEFAULT_PLANNER_TIMEOUT_MS = AGENT_PI_CONFIG.workers.timeoutsMs.planner;
+export const DEFAULT_REVIEW_TIMEOUT_MS = AGENT_PI_CONFIG.workers.timeoutsMs.reviewer;
 export const IMPLEMENTATION_WORKER_THINKING = "low";
-
-export type WorkerThinking = "low" | "medium" | "high";
-
-const THINKING_BY_NAME: Record<string, WorkerThinking> = {
-	builder: "low",
-	paladin: "low",
-	herald: "low",
-	tester: "low",
-	scout: "low",
-	ranger: "low",
-	"network-scout": "low",
-	"port-scan-analyst": "low",
-	documenter: "medium",
-	"security-news-analyst": "medium",
-	"pi-orchestrator": "medium",
-	"agent-expert": "medium",
-	"ext-expert": "medium",
-	"cli-expert": "medium",
-	"config-expert": "medium",
-	"keybinding-expert": "medium",
-	"prompt-expert": "medium",
-	"skill-expert": "medium",
-	"theme-expert": "medium",
-	"tui-expert": "medium",
-	planner: "medium",
-	reviewer: "medium",
-	warden: "high",
-	knight: "high",
-	"red-team": "high",
-};
 
 const TOOLKIT_EXTRA = new Set(["copilot-agent"]);
 
@@ -69,9 +40,9 @@ export function isReviewWorker(name: string): boolean {
 export function workerThinkingLevel(name: string): WorkerThinking | undefined {
 	const n = normalize(name);
 	if (isToolkitWorker(n)) return undefined;
-	if (THINKING_BY_NAME[n]) return THINKING_BY_NAME[n];
+	if (AGENT_PI_CONFIG.workers.thinking.byAgent[n]) return AGENT_PI_CONFIG.workers.thinking.byAgent[n];
 	if (isImplementationWorker(n)) return "low";
-	return "medium";
+	return AGENT_PI_CONFIG.workers.thinking.default;
 }
 
 export function implementationWorkerPrompt(): string {

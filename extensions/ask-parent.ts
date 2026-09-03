@@ -13,8 +13,9 @@ import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { deliverMail, listMail, readMail, settleMail, sendSteer, mailboxRoot, type MailRecord } from "./lib/fleet-mailbox.ts";
+import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 
-const DEFAULT_TIMEOUT_S = Number(process.env.PI_ASK_PARENT_TIMEOUT_S || 600);
+const DEFAULT_TIMEOUT_S = Number(process.env.PI_ASK_PARENT_TIMEOUT_S || AGENT_PI_CONFIG.interaction.askParentTimeoutMs / 1000);
 // Legacy flat dir kept readable so /asks still shows pre-migration questions.
 const LEGACY_ASKS_DIR = join(process.cwd(), ".pi", "agent-sessions", "asks");
 

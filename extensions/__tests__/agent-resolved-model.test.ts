@@ -80,11 +80,11 @@ describe("resolvedModel", () => {
 		expect(state.resolvedModel).toBe(DEFAULT_SUBAGENT_MODEL);
 	});
 
-	it("forces toolkit agents onto the shared toolkit worker model", () => {
+	it("preserves the current agent model when the global toolkit override is unset", () => {
 		const state = makeState({ def: { name: "codex-agent", model: "openai/gpt-4o" } });
 		const model = resolveModel(state, null);
-		expect(model).toBe(TOOLKIT_WORKER_MODEL);
-		expect(state.resolvedModel).toBe(TOOLKIT_WORKER_MODEL);
+		expect(model).toBe(TOOLKIT_WORKER_MODEL || "openai/gpt-4o");
+		expect(state.resolvedModel).toBe(TOOLKIT_WORKER_MODEL || "openai/gpt-4o");
 	});
 
 	it("uses default when no parent model and no agent model", () => {

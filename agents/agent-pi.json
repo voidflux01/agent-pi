@@ -1,0 +1,45 @@
+{
+  "models": {
+    "byAgent": {}
+  },
+  "workers": {
+    "thinking": {
+      "default": "medium",
+      "byAgent": {
+        "builder": "low",
+        "paladin": "low",
+        "herald": "low",
+        "tester": "low",
+        "scout": "low",
+        "ranger": "low",
+        "network-scout": "low",
+        "documenter": "medium",
+        "security-news-analyst": "medium",
+        "planner": "medium",
+        "reviewer": "medium",
+        "warden": "high",
+        "knight": "high",
+        "red-team": "high"
+      }
+    },
+    "timeoutsMs": {
+      "default": 900000,
+      "planner": 120000,
+      "reviewer": 120000,
+      "verifier": 600000
+    }
+  },
+  "orchestration": {
+    "maxSteps": 16,
+    "pipelineMaxParallel": 4
+  },
+  "ui": {
+    "herdrSuccessLingerMs": 30000,
+    "herdrErrorLingerMs": null,
+    "widgetAutoRemoveMs": 30000,
+    "cleanupStaleAfterMs": 600000
+  },
+  "interaction": {
+    "askParentTimeoutMs": 600000
+  }
+}

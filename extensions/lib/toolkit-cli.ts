@@ -11,6 +11,7 @@ import { DEFAULT_POLL_TIMEOUT_MS } from "./dispatch-runtime.ts";
 import { activeOrchestrationBudget, budgetBlockReason, defaultBudgetReservation, reserveBudget } from "./orchestration-budget.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./orchestration-run.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
+import { AGENT_PI_CONFIG, configuredModelForAgent } from "./agent-pi-config.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -40,7 +41,7 @@ export const TOOLKIT_CLI_AGENTS = new Set([
 	"prime-agent",
 ]);
 
-export const TOOLKIT_WORKER_MODEL = "anthropic/claude-haiku-4-5-20251001";
+export const TOOLKIT_WORKER_MODEL = AGENT_PI_CONFIG.models.toolkit;
 
 export interface ToolkitWorkerAgentDef {
 	name: string;
@@ -98,14 +99,14 @@ export function isToolkitCliAgent(name: string | undefined | null): boolean {
 }
 
 export function resolveToolkitWorkerModel(agentName: string, fallbackModel: string): string {
-	return isToolkitCliAgent(agentName) ? TOOLKIT_WORKER_MODEL : fallbackModel;
+	return configuredModelForAgent(agentName) || (isToolkitCliAgent(agentName) ? (TOOLKIT_WORKER_MODEL || fallbackModel) : fallbackModel);
 }
 
 export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: ToolkitWorkerSpawnOptions): string[] {
 	const args = [
 		"--mode", "json",
 		"-p",
-		"--model", TOOLKIT_WORKER_MODEL,
+		...(TOOLKIT_WORKER_MODEL ? ["--model", TOOLKIT_WORKER_MODEL] : []),
 		"--tools", agentDef.tools,
 		"--append-system-prompt", agentDef.systemPrompt,
 	];

@@ -56,6 +56,8 @@ import { renderSubagentWidget } from "./lib/subagent-render.ts";
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
+import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
+import { providerModelString } from "./lib/model-inheritance.ts";
 import { projectTeamBatchRecovery } from "./lib/team-batch-recovery.ts";
 import { resumableTeamSessionNames } from "./lib/team-session-cleanup.ts";
 
@@ -579,7 +581,7 @@ export default function (pi: ExtensionAPI) {
 		// Use agent's defined model or fall back to default subagent model.
 		// NOTE: We intentionally do NOT inherit the parent model. Each agent
 		// should use its explicitly defined model or the lightweight default.
-		const model = resolveToolkitWorkerModel(state.def.name, state.def.model || DEFAULT_SUBAGENT_MODEL);
+		const model = resolveToolkitWorkerModel(state.def.name, state.def.model || providerModelString(ctx?.model) || DEFAULT_SUBAGENT_MODEL);
 		state.resolvedModel = model;
 
 		// Session file for this agent
@@ -762,7 +764,7 @@ export default function (pi: ExtensionAPI) {
 
 				setTimeout(() => {
 					if (runEpoch === sessionEpoch && state.status !== "running") removeAgentWidget(state, ctx);
-				}, 30_000);
+					}, AGENT_PI_CONFIG.ui.widgetAutoRemoveMs);
 
 				safeNotify(
 					ctx,

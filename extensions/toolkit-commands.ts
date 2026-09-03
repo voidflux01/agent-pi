@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI) {
 							render: () => [`Toolkit worker ${cmdName} running`],
 						}), { placement: "belowEditor" });
 						const tools = mapTools(cmd.allowedTools).join(",");
-						const model = TOOLKIT_WORKER_MODEL || DEFAULT_SUBAGENT_MODEL;
+						const modelArgs = TOOLKIT_WORKER_MODEL ? ["--model", TOOLKIT_WORKER_MODEL] : [];
 
 						const cwd = ctx?.cwd ?? process.cwd();
 						const launchDir = join(cwd, ".pi", "agent-sessions");
@@ -220,7 +220,7 @@ export default function (pi: ExtensionAPI) {
 								command: ["pi",
 									"--mode", "json",
 									"-p",
-									"--model", model,
+									...modelArgs,
 									"--tools", tools,
 									"--append-system-prompt", body,
 									userArgs || "",

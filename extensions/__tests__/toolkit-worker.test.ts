@@ -157,8 +157,8 @@ describe("toolkit CLI agent detection", () => {
 });
 
 describe("toolkit worker model resolution", () => {
-	it("forces toolkit agents onto the shared worker model", () => {
-		expect(resolveToolkitWorkerModel("codex-agent", "openai/gpt-4o")).toBe(TOOLKIT_WORKER_MODEL);
+	it("uses the configured toolkit model, or preserves the fallback when unset", () => {
+		expect(resolveToolkitWorkerModel("codex-agent", "openai/gpt-4o")).toBe(TOOLKIT_WORKER_MODEL || "openai/gpt-4o");
 	});
 
 	it("preserves non-toolkit fallback models", () => {
@@ -167,7 +167,7 @@ describe("toolkit worker model resolution", () => {
 });
 
 describe("toolkit worker args", () => {
-	it("builds pi args with the shared worker model", () => {
+	it("only adds a model flag when the toolkit model is configured", () => {
 		const args = getToolkitWorkerArgs({
 			name: "codex-agent",
 			tools: "bash,read",
@@ -177,8 +177,12 @@ describe("toolkit worker args", () => {
 			sessionFile: "/tmp/session.jsonl",
 		});
 
-		expect(args).toContain("--model");
-		expect(args).toContain(TOOLKIT_WORKER_MODEL);
+		if (TOOLKIT_WORKER_MODEL) {
+			expect(args).toContain("--model");
+			expect(args).toContain(TOOLKIT_WORKER_MODEL);
+		} else {
+			expect(args).not.toContain("--model");
+		}
 		expect(args).toContain("--tools");
 		expect(args).toContain("bash,read");
 		expect(args).toContain("Analyze this project");
@@ -199,8 +203,8 @@ describe("agent model config split", () => {
 		expect(resolveAgentModelString("reviewer", config)).toBe("anthropic/claude-opus-4-6");
 	});
 
-	it("overrides toolkit agents to the shared worker model even if config differs", () => {
-		expect(resolveAgentModelString("codex-agent", config)).toBe(TOOLKIT_WORKER_MODEL);
+	it("does not invent a toolkit model when the global override is absent", () => {
+		expect(resolveAgentModelString("codex-agent", config)).toBe(TOOLKIT_WORKER_MODEL || "");
 	});
 });
 

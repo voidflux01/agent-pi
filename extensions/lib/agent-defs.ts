@@ -121,7 +121,7 @@ export function resolveAgentModelString(
 	agentName: string,
 	config: AgentModelsConfig,
 ): string {
-	if (isToolkitCliAgent(agentName)) return TOOLKIT_WORKER_MODEL;
+	if (isToolkitCliAgent(agentName)) return TOOLKIT_WORKER_MODEL || "";
 	const key = agentName.toLowerCase();
 	const entry = config.agents[key];
 	if (entry) return buildModelString(entry);
@@ -153,7 +153,7 @@ export function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfi
 		// Model resolution: toolkit CLI worker override > models.json > frontmatter fallback > empty
 		let model = "";
 		if (isToolkitCliAgent(frontmatter.name)) {
-			model = TOOLKIT_WORKER_MODEL;
+			model = TOOLKIT_WORKER_MODEL || "";
 		} else if (modelsConfig) {
 			const key = frontmatter.name.toLowerCase();
 			const entry = modelsConfig.agents[key];
@@ -233,7 +233,7 @@ export function builtinToolkitAgentDefs(): AgentDef[] {
 		name,
 		description: `External ${toolkitRuntimeName(name) || name} CLI runtime`,
 		tools: "read,bash,grep,find,ls",
-		model: TOOLKIT_WORKER_MODEL,
+		model: TOOLKIT_WORKER_MODEL || "",
 		systemPrompt: `You are the ${name} external coding-agent CLI. Complete the assigned task and print the answer.`,
 		file: `builtin:${name}`,
 	}));

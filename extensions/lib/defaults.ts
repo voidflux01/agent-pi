@@ -2,6 +2,7 @@
 // ABOUTME: Reads the default subagent model from .pi/agents/models.json config.
 
 import { loadAgentModelsConfig, buildModelString } from "./agent-defs.ts";
+import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
 
 // Load once at import time from the extension project's own config.
 // This covers the common case; callers with a specific cwd should use
@@ -17,4 +18,4 @@ const _config = loadAgentModelsConfig(process.cwd(), _extProjectDir);
  * The default model string for subagents that don't match any known agent definition.
  * Sourced from .pi/agents/models.json "default" entry.
  */
-export const DEFAULT_SUBAGENT_MODEL = buildModelString(_config.default);
+export const DEFAULT_SUBAGENT_MODEL = AGENT_PI_CONFIG.models.default || buildModelString(_config.default);

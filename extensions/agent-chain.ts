@@ -55,6 +55,7 @@ import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentR
 import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
+import { configuredModelForAgent } from "./lib/agent-pi-config.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -339,7 +340,7 @@ export default function (pi: ExtensionAPI) {
 		// Explicit project/user/frontmatter routing wins. Otherwise preserve the
 		// provider/model that launched the parent Pi session.
 		const model = resolveInheritedModel(
-			agentDef.model,
+			configuredModelForAgent(agentDef.name) || agentDef.model,
 			launchModel || providerModelString(ctx.model),
 			DEFAULT_SUBAGENT_MODEL,
 		);
