@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isPlanningArtifactWrite, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
+import { isPlanningArtifactWrite, isReadOnlyBash, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -33,8 +33,11 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("ask_user")).toBe(true);
 	});
 
-	it("should NOT bypass for 'bash' tool", () => {
-		expect(shouldBypassTaskGate("bash")).toBe(false);
+	it("bypasses read-only bash inspection but not mutating commands", () => {
+		expect(isReadOnlyBash({ command: "git status --short 2>&1 | head -20; echo ===LOG===; git log --oneline -5" })).toBe(true);
+		expect(shouldBypassTaskGate("bash", true, { command: "git status --short 2>&1 | head -20; git log --oneline -5" })).toBe(true);
+		expect(isReadOnlyBash({ command: "git status && git add -A" })).toBe(false);
+		expect(shouldBypassTaskGate("bash", true, { command: "git add -A" })).toBe(false);
 	});
 
 	it("should NOT bypass for 'read_file' tool", () => {

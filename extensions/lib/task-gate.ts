@@ -31,6 +31,24 @@ function taskGatePath(args: unknown): string {
 	return "";
 }
 
+/** Allow harmless shell inspection during completion without making all bash
+ * calls exempt from task tracking. This is intentionally a small allowlist. */
+export function isReadOnlyBash(args?: unknown): boolean {
+	const params = toolArgs(args);
+	const command = [params.command, params.cmd, params.input]
+		.find((value) => typeof value === "string") as string | undefined;
+	if (!command?.trim()) return false;
+	if (/[<>](?![&])/.test(command)) return false;
+	if (/\b(?:rm|mv|cp|mkdir|rmdir|touch|install|npm|bun|cargo|make|git\s+(?:add|commit|reset|checkout|restore|clean|apply|rebase|merge|cherry-pick))\b/i.test(command)) return false;
+	const commands = command
+		.replace(/\d*>&\d+/g, "")
+		.split(/\|\||&&|[;|]/)
+		.map((part) => part.trim())
+		.filter(Boolean);
+	if (commands.length === 0) return false;
+	return commands.every((part) => /^(?:env\s+)?(?:echo|pwd|ls|find|grep|rg|ffgrep|sed|head|tail|cat|wc|sort|uniq|git\s+(?:status|log|diff|show|branch|rev-parse|ls-files|describe))\b/i.test(part));
+}
+
 /** Planning documents are the only writes allowed before a viewer approval. */
 export function isPlanningArtifactWrite(toolName: string, mode: string | undefined, args?: unknown): boolean {
 	if (!(PLANNING_FILE_TOOLS as readonly string[]).includes(toolName)) return false;
@@ -70,6 +88,7 @@ export function isScoutRecon(toolName: string, args?: unknown): boolean {
 
 export function shouldBypassTaskGate(toolName: string, requireActiveTask = false, args?: unknown): boolean {
 	if (isScoutRecon(toolName, args)) return true;
+	if (toolName === "bash" && isReadOnlyBash(args)) return true;
 	if (requireActiveTask && (TASK_EXECUTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	return (TASK_GATE_BYPASS_TOOLS as readonly string[]).includes(toolName)
 		|| (READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName);
