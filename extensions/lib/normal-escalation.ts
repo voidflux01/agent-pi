@@ -2,6 +2,7 @@
 // ABOUTME: Keeps simple work frictionless while requiring a low-cost scout after a recon loop.
 
 import { isReconTool } from "./tool-classification.ts";
+import { isReconBash } from "./tool-invocation.ts";
 
 export const NORMAL_RECON_TOOLS = ["read", "grep", "ffgrep", "find", "ls", "glob"] as const;
 export const NORMAL_RECON_LIMIT = 8;
@@ -27,17 +28,7 @@ export function isNormalReconTool(toolName: string): boolean {
 export function isNormalReconCall(toolName: string, args?: unknown): boolean {
 	if (isNormalReconTool(toolName)) return true;
 	if (toolName !== "bash") return false;
-	const params = args && typeof args === "object" ? args as Record<string, unknown> : {};
-	const command = typeof params.command === "string"
-		? params.command
-		: typeof params.cmd === "string" ? params.cmd : "";
-	if (!command.trim()) return false;
-	// A command containing mutation, installation, or test execution is a
-	// boundary between reconnaissance loops and real work.
-	if (/(^|\s)(rm|mv|cp|mkdir|touch|tee)\b|sed\s+-i\b|perl\s+-i\b|git\s+(add|commit|reset|checkout|switch|clean)\b|\b(npm|bun|pnpm|yarn)\s+(install|test|run)\b|(?:>>|>)/i.test(command)) {
-		return false;
-	}
-	return /(^|\s)(rg|grep|ffgrep|find|ls|fd|sed|head|tail|cat|awk|sort|wc|pwd|git)\b/i.test(command);
+	return isReconBash(args);
 }
 
 /**

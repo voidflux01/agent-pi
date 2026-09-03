@@ -4,6 +4,7 @@
 import { describe, it, expect } from "vitest";
 
 import { isPlanningArtifactWrite, isReadOnlyBash, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
+import { registerCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
 
 describe("shouldBypassTaskGate", () => {
 	it("should bypass for 'tasks' tool", () => {
@@ -38,6 +39,12 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("bash", true, { command: "git status --short 2>&1 | head -20; git log --oneline -5" })).toBe(true);
 		expect(isReadOnlyBash({ command: "git status && git add -A" })).toBe(false);
 		expect(shouldBypassTaskGate("bash", true, { command: "git add -A" })).toBe(false);
+	});
+
+	it("bypasses capabilities explicitly declared as read-only", () => {
+		registerCapability({ name: "status_lookup", risk: "read" });
+		expect(shouldBypassTaskGate("status_lookup", true)).toBe(true);
+		resetCapabilitiesForTests();
 	});
 
 	it("should NOT bypass for 'read_file' tool", () => {
