@@ -34,7 +34,7 @@ import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModel
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, run as runDispatch, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
-import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
@@ -479,7 +479,10 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
-				state.status = code === 0 && !failure ? "done" : "error";
+				const result = externalFull ?? state.textChunks.join("");
+				const toolkitRun = isToolkitCliAgent(state.name);
+				const contractFailure = resultContractFailure(result, toolkitRun);
+				state.status = code === 0 && !failure && !contractFailure ? "done" : "error";
 				lifecycle.clearProcess(state.proc);
 				state.proc = undefined;
 				if (state.toolCount === 0 && state.sessionFile) {
@@ -488,11 +491,10 @@ export default function (pi: ExtensionAPI) {
 				updateHerdrPaneStatus(
 					spawnCwd,
 					`sa-${state.id}`,
-					code === 0 && !failure ? "done" : "error",
+					state.status === "done" ? "done" : "error",
 				);
 				invalidateWidget(state.id);
 
-				const result = externalFull ?? state.textChunks.join("");
 				let measuredUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
 				try {
 					const usage = externalUsage ?? sessionUsage(state.sessionFile);
@@ -517,14 +519,14 @@ export default function (pi: ExtensionAPI) {
 						result,
 					);
 				} catch {}
-				settleOrchestration(code === 0 && !failure ? "succeeded" : code === 130 ? "cancelled" : "failed", {
+				settleOrchestration(state.status === "done" ? "succeeded" : code === 130 ? "cancelled" : "failed", {
 					agent: state.name,
 					exitCode: code,
 					failure,
+					...(contractFailure ? { contractFailure } : {}),
 					outputFile: fullOutputPath || undefined,
 					usage: measuredUsage,
 				});
-				const toolkitRun = isToolkitCliAgent(state.name);
 				let contractProblems: string[] = [];
 				if (!toolkitRun) {
 					try {
@@ -534,7 +536,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				try {
 					journalUpdate(saOutDir, state.saRunId ?? "", {
-						status: code === 0 && !failure ? "done" : "error",
+						status: state.status,
 						exitCode: code,
 						elapsedMs: state.elapsed,
 						model: state.model || undefined,

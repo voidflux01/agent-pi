@@ -6,6 +6,7 @@ import {
 	compactHandoff,
 	composeAgentResult,
 	contractGateEnabled,
+	resultContractFailure,
 } from "../lib/agent-result-contract.ts";
 
 const GOOD = [
@@ -24,6 +25,12 @@ describe("checkResultCompliance", () => {
 		const c = checkResultCompliance(GOOD);
 		expect(c.ok).toBe(true);
 		expect(c.problems).toEqual([]);
+	});
+
+	test("exposes contract failure for orchestration success gates", () => {
+		expect(resultContractFailure(GOOD)).toBeUndefined();
+		expect(resultContractFailure("worker stopped without a result")).toContain("no ## RESULT block");
+		expect(resultContractFailure("PONG", true)).toBeUndefined();
 	});
 
 	test("flags a missing block", () => {

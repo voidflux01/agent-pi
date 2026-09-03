@@ -53,7 +53,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -721,7 +721,7 @@ export default function (pi: ExtensionAPI) {
 				outputs.push(r.output);
 				fullOutputs.push(r.fullOutput || "");
 				fullOutputPaths.push(r.fullOutputPath || "");
-				if (r.exitCode !== 0) allSuccess = false;
+				if (r.exitCode !== 0 || resultContractFailure(r.fullOutput || "")) allSuccess = false;
 			}
 		} else {
 			// Sequential — each agent's output becomes $INPUT for next
@@ -747,7 +747,8 @@ export default function (pi: ExtensionAPI) {
 				fullOutputPaths.push(result.fullOutputPath || "");
 				input = result.output;
 
-				if (result.exitCode !== 0) {
+				const contractFailure = resultContractFailure(result.fullOutput || "");
+				if (result.exitCode !== 0 || contractFailure) {
 					allSuccess = false;
 					break;
 				}

@@ -287,6 +287,13 @@ export function checkResultCompliance(fullText: string): ResultCompliance {
 	return { ok: problems.length === 0, problems };
 }
 
+/** A coordinator may advance only when the worker emitted a complete result. */
+export function resultContractFailure(fullText: string, skipContract = false): string | undefined {
+	if (skipContract) return undefined;
+	const compliance = checkResultCompliance(fullText);
+	return compliance.ok ? undefined : `worker result contract incomplete: ${compliance.problems.join("; ")}`;
+}
+
 /** Set PI_RESULT_CONTRACT_GATE=0 to silence warning lines (checks still run). */
 export function contractGateEnabled(): boolean {
 	return process.env.PI_RESULT_CONTRACT_GATE !== "0";

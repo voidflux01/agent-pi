@@ -43,7 +43,7 @@ import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, pars
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
-import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, run as runDispatch, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
@@ -931,13 +931,14 @@ export default function (pi: ExtensionAPI) {
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
-				const status = result.exitCode === 0 ? "done" : "error";
+				const contractFailure = resultContractFailure(result.fullOutput);
+				const status = result.exitCode === 0 && !contractFailure ? "done" : "error";
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
-				orchestrationRun.record("team.completed", { agent, exitCode: result.exitCode });
-				orchestrationRun.finish(result.exitCode === 0 ? "succeeded" : "failed", { agent, exitCode: result.exitCode });
+				orchestrationRun.record("team.completed", { agent, exitCode: result.exitCode, ...(contractFailure ? { contractFailure } : {}) });
+				orchestrationRun.finish(status === "done" ? "succeeded" : "failed", { agent, exitCode: result.exitCode, ...(contractFailure ? { contractFailure } : {}) });
 				return {
-					content: [{ type: "text", text: `${summary}\n\n${result.output}` }],
+					content: [{ type: "text", text: `${summary}${contractFailure ? `\n\n${contractFailure}` : ""}\n\n${result.output}` }],
 					details: {
 						runId: orchestrationRun.runId,
 						agent,
@@ -945,6 +946,7 @@ export default function (pi: ExtensionAPI) {
 						status,
 						elapsed: result.elapsed,
 						exitCode: result.exitCode,
+						...(contractFailure ? { error: true, contractFailure } : {}),
 						outputPreview: boundedOutputPreview(result.fullOutput),
 						fullOutputPath: result.fullOutputPath,
 						model: result.model,
@@ -1049,7 +1051,8 @@ export default function (pi: ExtensionAPI) {
 					orchestrationRun.consumeStep();
 					try {
 						const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 ? "done" : "error", ...result };
+						const contractFailure = resultContractFailure(result.fullOutput);
+						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 && !contractFailure ? "done" : "error", ...(contractFailure ? { contractFailure } : {}), ...result };
 					} catch (error: any) {
 						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };
 					}

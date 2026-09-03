@@ -42,7 +42,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -689,11 +689,12 @@ export default function (pi: ExtensionAPI) {
 			orchestrationRun.consumeStep();
 			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 
-			if (result.exitCode !== 0) {
+			const contractFailure = resultContractFailure(result.fullOutput || "");
+			if (result.exitCode !== 0 || contractFailure) {
 				stepStates[i].status = "error";
 				updateWidget();
 				const failed = {
-					output: `Error at step ${i + 1} (${step.agent}): ${result.output}`,
+					output: `Error at step ${i + 1} (${step.agent}): ${contractFailure || result.output}`,
 					fullOutput: result.fullOutput || "",
 					fullOutputPath: result.fullOutputPath || "",
 					success: false,
