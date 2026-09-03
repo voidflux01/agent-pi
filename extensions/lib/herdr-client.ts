@@ -627,7 +627,6 @@ async function splitCallerPaneAsync(cwd: string, label: string): Promise<HerdrTa
  *  the zsh compinit security prompt eating input. Returns null on failure. */
 export function createHerdrTaskTab(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): HerdrTabRef | null {
 	if (!isExplicitDispatchActive()) return null;
-	closeLingeringHerdrPanes();
 	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = splitCallerPane(cwd, label);
 		if (split) return split;
@@ -678,7 +677,6 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 /** Async watchable-worker creation: sibling split, else background tab. */
 export async function createHerdrTaskTabAsync(workspaceId: string, cwd: string, label: string, opts: HerdrCreateOpts = {}): Promise<HerdrTabRef | null> {
 	if (!isExplicitDispatchActive()) return null;
-	closeLingeringHerdrPanes();
 	if ((opts.preferSplit ?? true) && preferCallerPaneSplit()) {
 		const split = await splitCallerPaneAsync(cwd, label);
 		if (split) return split;
@@ -962,9 +960,8 @@ export function countSessionToolCalls(sessionFile: string): number {
 }
 
 /** Default glance time after a successful worker, then the pane closes. */
-export const HERDR_SUCCESS_LINGER_MS = 12_000;
-/** Default extra time after a failed/aborted worker so the error is readable. */
-export const HERDR_ERROR_LINGER_MS = 30_000;
+export const HERDR_SUCCESS_LINGER_MS = null;
+export const HERDR_ERROR_LINGER_MS = null;
 
 export type HerdrLingerKind = "success" | "error";
 
@@ -975,20 +972,10 @@ export type HerdrLingerKind = "success" | "error";
  * positive override is shorter). `PI_HERDR_LINGER_MS=0` closes immediately;
  * a positive value sets the success delay; `keep` / `off` / `-1` never close.
  */
-export function herdrPaneAutoCloseMs(kind: HerdrLingerKind = "success"): number | null {
-	const raw = process.env.PI_HERDR_LINGER_MS?.trim();
-	if (raw) {
-		const lower = raw.toLowerCase();
-		if (lower === "keep" || lower === "off" || lower === "forever" || lower === "none" || raw === "-1") {
-			return null;
-		}
-		const n = Number(raw);
-		if (Number.isFinite(n) && n >= 0) {
-			if (n === 0) return 0;
-			return kind === "error" ? Math.max(n, HERDR_ERROR_LINGER_MS) : n;
-		}
-	}
-	return kind === "error" ? HERDR_ERROR_LINGER_MS : HERDR_SUCCESS_LINGER_MS;
+export function herdrPaneAutoCloseMs(_kind: HerdrLingerKind = "success"): number | null {
+	// A worker pane is a business artifact. It remains open until the parent
+	// explicitly closes it; environment linger settings cannot dispose it.
+	return null;
 }
 
 export function sessionUsage(sessionFile: string): SessionUsage {

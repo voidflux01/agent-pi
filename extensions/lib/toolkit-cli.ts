@@ -25,7 +25,6 @@ import {
 	stampHerdrPaneIdentityAsync,
 	launchDonePath,
 	herdrPaneAutoCloseMs,
-	scheduleHerdrPaneClose,
 } from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
@@ -554,8 +553,7 @@ export function toolkitHerdrLabel(agentName: string, paneTitle?: string): string
 	return agent;
 }
 
-/** Auto-close delay for a finished toolkit tab. Same policy as Pi workers:
- *  success 12s, error 30s, `PI_HERDR_LINGER_MS=keep` to leave it open. */
+/** Compatibility hook: parent-controlled disposal is the only close policy. */
 export function toolkitHerdrAutoCloseMs(kind: "success" | "error" = "success"): number | null {
 	return herdrPaneAutoCloseMs(kind);
 }
@@ -732,10 +730,6 @@ export async function runToolkitDispatch(opts: {
 								agent: herdrAgent,
 								state: failed ? "unknown" : "idle",
 							});
-							const autoClose = toolkitHerdrAutoCloseMs(failed ? "error" : "success");
-							if (autoClose !== null) {
-								scheduleHerdrPaneClose(tab, autoClose);
-							}
 			return settleRun({
 				exitCode: cancelledRun ? 130 : (rc ?? 1),
 				raw: rawOut,

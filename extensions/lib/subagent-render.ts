@@ -41,14 +41,9 @@ function singleLineDisplay(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-/**
- * Decide whether a completed widget should get the delayed auto-removal.
- * The pre-spawned scout keeps its state for /subcont, but its active-turn
- * widget must still disappear after completion.
- */
+/** Decide whether a completed widget may be auto-removed. Parent opt-in only. */
 export function shouldScheduleWidgetRemoval(state: Pick<SubRenderState, "status" | "turnCount" | "autoRemove">, isPersistentScout: boolean): boolean {
-	if (state.autoRemove !== false) return true;
-	return isPersistentScout && state.status !== "running" && state.turnCount > 1;
+	return state.autoRemove === true && state.status !== "running";
 }
 
 /**

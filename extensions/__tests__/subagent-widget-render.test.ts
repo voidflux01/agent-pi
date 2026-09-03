@@ -31,16 +31,20 @@ function visible(text: string): string {
 }
 
 describe("widget cleanup policy", () => {
-	it("removes the active persistent scout widget but keeps scout state", () => {
-		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 2 }, true)).toBe(true);
+	it("does not remove a worker unless the parent opts in", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 2 }, true)).toBe(false);
 	});
 
 	it("does not auto-remove the scout warmup state", () => {
 		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "done", turnCount: 1 }, true)).toBe(false);
 	});
 
-	it("removes an active persistent scout widget after an error too", () => {
-		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "error", turnCount: 2 }, true)).toBe(true);
+	it("keeps failed workers available for recovery", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: false, status: "error", turnCount: 2 }, true)).toBe(false);
+	});
+
+	it("allows removal only with explicit parent opt-in", () => {
+		expect(shouldScheduleWidgetRemoval({ autoRemove: true, status: "done", turnCount: 1 }, false)).toBe(true);
 	});
 
 	it("preserves explicit autoRemove false for ordinary agents", () => {

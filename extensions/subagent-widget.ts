@@ -120,7 +120,7 @@ interface SubState {
 	turnCount: number;     // increments each time /subcont continues this agent
 	summary?: string;      // pre-written summary shown in widget (no markdown)
 	proc?: any;            // active ChildProcess ref (for kill on /subrm)
-	autoRemove?: boolean;      // auto-remove widget ~30s after done (default: true)
+	autoRemove?: boolean;      // parent-explicit auto-remove permission (default: false)
 	model?: string;            // resolved model string for display
 	saRunId?: string;      // task-journal row id for this dispatch (= output file base)
 	orchestrationRunId?: string; // persisted RunContext id for audit/recovery links
@@ -133,6 +133,8 @@ interface SubState {
 	elapsedTimer?: ReturnType<typeof setInterval>; // live widget timer, cleared on lifecycle changes
 	/** When true, the parent tool waits for RESULT and skips the follow-up turn. */
 	awaitResult?: boolean;
+	/** Contract violations from the last turn; awaited workers get one repair turn. */
+	contractProblems?: string[];
 }
 
 export default function (pi: ExtensionAPI) {
@@ -534,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 						contractProblems = compliance.ok ? [] : compliance.problems;
 					} catch {}
 				}
+				state.contractProblems = contractProblems;
 				try {
 					journalUpdate(saOutDir, state.saRunId ?? "", {
 						status: state.status,
@@ -719,7 +722,7 @@ export default function (pi: ExtensionAPI) {
 			summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
 			join: Type.Optional(Type.Boolean({ description: "Wait for this worker and return its bounded result in this call. Defaults to true for scout/researcher/toolkit agents and false for other roles." })),
-			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widget ~30s after done (default: true)" })),
+			autoRemove: Type.Optional(Type.Boolean({ description: "Allow this worker widget to auto-remove after completion (default: false)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 		}),
 		execute: async (callId, args, signal, _onUpdate, ctx) => {
@@ -760,6 +763,18 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			const result = await started;
+			if (state.contractProblems && state.contractProblems.length > 0 && state.turnCount < 2) {
+				const problems = state.contractProblems.join("; ");
+				state.turnCount++;
+				state.contractProblems = undefined;
+				const repairPrompt = `Your previous turn completed the requested work but violated the output protocol: ${problems}. Do not redo the investigation or modify anything. Return only the required final ## RESULT block now, with done: true if the requested work completed or done: false with the exact blocker. End with exactly ## END.`;
+				const repaired = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, repairPrompt, ctx, { signal: awaitResult ? signal : undefined }))();
+				state.completion = repaired;
+				return {
+					content: [{ type: "text", text: await repaired }],
+					details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId, repaired: true },
+				};
+			}
 			return {
 				content: [{ type: "text", text: result || `SA${id} (${state.name}) finished with no output.` }],
 				details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId },
@@ -778,7 +793,7 @@ export default function (pi: ExtensionAPI) {
 				model: Type.Optional(Type.String({ description: "Model override. Only set to override the agent definition's default model." })),
 				resources: Type.Optional(Type.Array(Type.String({ maxLength: 160 }), { maxItems: 16, description: "Shared resource keys; agents with overlapping keys are serialized" })),
 			}), { description: "Array of agent definitions to spawn" }),
-			autoRemove: Type.Optional(Type.Boolean({ description: "Auto-remove widgets ~30s after done (default: true)" })),
+			autoRemove: Type.Optional(Type.Boolean({ description: "Allow these worker widgets to auto-remove after completion (default: false)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
 			join: Type.Optional(Type.Boolean({ description: "Wait for all spawned agents and return bounded summaries in this call (default: false)" })),
@@ -927,7 +942,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				for (const state of states) {
 					state.retainUntilCollected = false;
-					if (state.status !== "running") scheduleUnrefCleanup(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
+					if (state.autoRemove === true && state.status !== "running") scheduleUnrefCleanup(() => { if (agents.get(state.id) === state && state.status !== "running") { clearWidgetCurrent(`sub-${state.id}`); widgetBoxes.delete(state.id); agents.delete(state.id); } }, 30_000);
 				}
 				const joined = outcome.value.map((result, index) => `SA${states[index].id} ${states[index].name}:\n${result}`).join("\n\n");
 				return {
@@ -995,7 +1010,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			for (const state of selected) {
-				if (!state.retainUntilCollected) continue;
+				if (!state.retainUntilCollected || state.autoRemove !== true) continue;
 				state.retainUntilCollected = false;
 				if (state.status !== "running") {
 					scheduleUnrefCleanup(() => {

@@ -196,9 +196,9 @@ describe("source wiring", () => {
 		expect(src).toContain("extractResultBlock");
 	});
 
-	it("closes Pi herdr panes after success/error linger", () => {
+	it("does not auto-close Pi herdr panes after worker completion", () => {
 		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
-		expect(src).toContain("scheduleHerdrPaneClose");
+		expect(src).not.toContain("scheduleHerdrPaneClose");
 	});
 
 	it("polls session jsonl for TEAM toolCount while running", () => {
