@@ -49,69 +49,9 @@ describe("[cmd] assertions", () => {
 	});
 });
 
-describe("[file] assertions", () => {
-	it("passes for an existing file in the workspace", async () => {
-		writeFileSync(join(cwd, "a.txt"), "x");
-		const result = await runAssertion(parseAssertion("[file] a.txt") as never, root());
-		expect(result.status).toBe("pass");
-	});
-
-	it("fails for a missing file", async () => {
-		const result = await runAssertion(parseAssertion("[file] nope.txt") as never, root());
-		expect(result.status).toBe("fail");
-	});
-
-	it("blocks on path escapes", async () => {
-		const result = await runAssertion(parseAssertion("[file] ../etc/passwd") as never, root());
-		expect(result.status).toBe("blocked");
-	});
-
-	it("blocks symlink paths even when the link points inside or outside", async () => {
-		writeFileSync(join(cwd, "target.txt"), "x");
-		symlinkSync("target.txt", join(cwd, "link.txt"));
-		const result = await runAssertion(parseAssertion("[file] link.txt") as never, root());
-		expect(result.status).toBe("blocked");
-	});
-});
-
-describe("[match] assertions", () => {
-	it("passes when the regex matches file content", async () => {
-		writeFileSync(join(cwd, "m.txt"), "hello world");
-		const result = await runAssertion(parseAssertion("[match] world :: m.txt") as never, root());
-		expect(result.status).toBe("pass");
-	});
-
-	it("passes for a Markdown-formatted function signature assertion", async () => {
-		writeFileSync(join(cwd, "todos.js"), "export function removeTodo(todos, id) { return todos; }\n");
-		const result = await runAssertion(parseAssertion("[match] `export function removeTodo(todos, id)` :: `todos.js`") as never, root());
-		expect(result.status).toBe("pass");
-	});
-
-	it("fails when the regex does not match", async () => {
-		writeFileSync(join(cwd, "m.txt"), "hello world");
-		const result = await runAssertion(parseAssertion("[match] goodbye :: m.txt") as never, root());
-		expect(result.status).toBe("fail");
-	});
-
-	it("blocks on invalid regex or path escapes", async () => {
-		writeFileSync(join(cwd, "m.txt"), "x");
-		const bad = await runAssertion(parseAssertion("[match] ( :: m.txt") as never, root());
-		expect(bad.status).toBe("blocked");
-		const escape = await runAssertion(parseAssertion("[match] x :: ../etc/passwd") as never, root());
-		expect(escape.status).toBe("blocked");
-	});
-});
-
 describe("runDeterministicVerification", () => {
-	it("PASSes only when every mandatory assertion passes", async () => {
-		writeFileSync(join(cwd, "a.txt"), "needle");
-		const contract = {
-			mandatory: [
-				parseAssertion(`[cmd] ${process.execPath} -e "process.exit(0)"`) as never,
-				parseAssertion("[file] a.txt") as never,
-				parseAssertion("[match] needle :: a.txt") as never,
-			],
-		};
+	it("PASSes when every command assertion passes", async () => {
+		const contract = { mandatory: [parseAssertion(`[cmd] ${process.execPath} -e "process.exit(0)"`) as never] };
 		expect((await runDeterministicVerification(contract as never, root())).status).toBe("PASS");
 	});
 

@@ -14,9 +14,8 @@ const noTestSuccess = /(?:failIfNoSpecifiedTests\s*=\s*false|skipTests|maven\.te
 export function inspectContractQuality(contract: AcceptanceContract): ContractQuality {
 	const findings: string[] = [];
 	const commands = contract.mandatory.filter((assertion) => assertion.kind === "cmd");
-	const structural = contract.mandatory.filter((assertion) => assertion.kind === "file" || assertion.kind === "match");
 
-	if (commands.length === 0) findings.push("没有 [cmd] 行为验证，只能证明文件或字符串存在，无法证明需求完成。");
+	if (commands.length === 0) findings.push("没有 [cmd] 行为验证，无法进行确定性验收。");
 	if (commands.length > 0 && !commands.some((assertion) => assertion.kind === "cmd" && behaviorCommand.test([assertion.command, ...assertion.args].join(" ")))) {
 		findings.push("[cmd] 未包含可识别的测试、构建、检查或验证动作，行为覆盖不足。");
 	}
@@ -24,7 +23,10 @@ export function inspectContractQuality(contract: AcceptanceContract): ContractQu
 		const command = [assertion.command, ...assertion.args].join(" ");
 		if (noTestSuccess.test(command)) findings.push(`[cmd] 允许无测试成功或跳过测试：${assertion.raw}`);
 	}
-	if (structural.length > 0 && commands.length === 0) findings.push("当前契约是结构门禁，不是可解释的验收门禁。");
+	if (!contract.objective.trim()) findings.push("缺少任务目标（Objective）。");
+	if (!contract.scope.trim()) findings.push("缺少验收范围（Scope）。");
+	if (!contract.acceptanceCriteria.trim()) findings.push("缺少验收条件（Acceptance Criteria）。");
+	if (!contract.evidenceRequirements.trim()) findings.push("缺少证据要求（Evidence Requirements）。");
 
 	return { status: findings.length === 0 ? "PASS" : "BLOCKED", findings };
 }

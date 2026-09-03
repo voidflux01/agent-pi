@@ -47,7 +47,11 @@ export async function runAcceptanceVerifier(input: {
 	mode?: string;
 	model?: string;
 	signal?: AbortSignal;
+	contractText?: string;
 	}): Promise<{ receipt?: VerifierReceipt; error?: string }> {
+	if (input.contract.mandatory.length === 0) {
+		return { error: "Verifier requires an approved acceptance contract with executable assertions." };
+	}
 	const before = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	const quality = inspectContractQuality(input.contract);
 	const deterministic = await runDeterministicVerification(input.contract, input.cwd, input.config);
@@ -59,20 +63,25 @@ export async function runAcceptanceVerifier(input: {
 		mode: input.mode,
 		model: input.model,
 		deterministicEvidence,
+		contractText: input.contractText,
 		signal: input.signal,
 	});
 	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 VERIFIER RESULT。" };
 	const report: VerifierSubagentReport = {
 		...subagent.report,
 		contract: quality.status === "PASS" ? subagent.report.contract : { status: "BLOCKED", findings: [...subagent.report.contract.findings, ...quality.findings] },
-		hard_blockers: [...subagent.report.hard_blockers, ...quality.findings],
+		 hard_blockers: [...subagent.report.hard_blockers, ...quality.findings],
 	};
+	const blockingReviewFindings = report.review.findings.filter((finding) => finding.severity === "CRITICAL" || finding.severity === "HIGH");
+	if (blockingReviewFindings.length > 0) {
+		report.hard_blockers.push(...blockingReviewFindings.map((finding) => `${finding.id || "review"}: ${finding.title || finding.evidence || "high-severity review finding"}`));
+	}
 	let verification = deterministic;
 	const after = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	if (after.hash !== before.hash) {
 		verification = { status: "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[workspace] verifier command mutation", status: "blocked", note: "verification commands changed the workspace" }] };
 	}
-	if (report.status !== "PASS" || quality.status !== "PASS") verification = { status: report.status === "FAIL" ? "FAIL" : "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[subagent] independent acceptance review", status: "blocked", note: report.summary }] };
+	if (report.status !== "PASS" || quality.status !== "PASS" || blockingReviewFindings.length > 0) verification = { status: report.status === "FAIL" || blockingReviewFindings.some((finding) => finding.severity === "CRITICAL") ? "FAIL" : "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[subagent] independent acceptance and code review", status: "blocked", note: report.summary }] };
 	return { receipt: createVerifierReceipt({
 		contract: input.contract,
 		workspaceManifestHash: after.hash,

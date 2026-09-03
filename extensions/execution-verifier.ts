@@ -14,15 +14,15 @@ import {
 } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
-import { emptyContract } from "./lib/execution-contract.ts";
-import { runVerifierSubagent } from "./lib/verifier-subagent.ts";
+import { bindAcceptanceContract } from "./lib/execution-contract.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 
 const Params = Type.Object({
-	objective: Type.Optional(Type.String({ description: "Optional review objective when no approved plan/spec contract exists" })),
+	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including Objective, Scope, Acceptance Criteria, Evidence Requirements, and Verification Commands with [cmd] assertions" })),
+	objective: Type.Optional(Type.String({ description: "Optional short objective when contract is supplied separately" })),
 	});
 
 export default function (pi: ExtensionAPI) {
@@ -49,25 +49,32 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "verify_execution",
 		label: "Verify Execution",
-		description: "Run the independent verifier subagent. With an approved contract it performs acceptance verification; without one it performs a code-change audit and never grants completion.",
+		description: "Run the independent verifier subagent against the exact user-confirmed acceptance contract. The contract may be supplied directly; show_plan/show_spec are optional presentation surfaces. Without a contract, verification is blocked and no subagent is started.",
 		parameters: Params,
 		execute: explicitDispatchHandler("subagent-tool", async (_id, _params, signal, _update, ctx) => {
 			let contract = getExecutionContract();
-			const objective = ((_params as { objective?: string })?.objective || "Review the current code changes for correctness, tests, quality, security, and regressions.").trim();
+			const suppliedContract = ((_params as { contract?: string })?.contract || "").trim();
+			if (suppliedContract) {
+				const bound = bindAcceptanceContract(suppliedContract, "plan");
+				if ("error" in bound) {
+					return {
+						content: [{ type: "text", text: "Verification blocked: the supplied acceptance contract is incomplete. It must state Objective, Scope, Acceptance Criteria, and Verification Commands with at least one executable [cmd]. Ask the user to confirm the corrected contract before retrying." }],
+						details: { status: "BLOCKED", completionAllowed: false, reason: "incomplete supplied acceptance contract" },
+					};
+				}
+				setExecutionContract(bound);
+				contract = bound;
+			}
 			if (!contract) {
-				contract = emptyContract(`# Review: ${objective}\n`, "plan");
-				const audit = await runVerifierSubagent({
-					cwd: ctx.cwd || process.cwd(),
-					contract: { ...contract, objective },
-					parentRunId: process.env.PI_AGENT_PI_RUN_ID,
-					mode: coordinationState().mode,
-					auditOnly: true,
-					signal,
-				});
-				const status = audit.report?.status || "BLOCKED";
 				return {
-					content: [{ type: "text", text: `Independent code-change audit: ${status} — ${audit.report?.summary || audit.error || "no valid verifier report"}. This review-only audit never grants completion.` }],
-					details: { status, completionAllowed: false, audit: audit.report, runId: audit.runId },
+					content: [{ type: "text", text: "Verification blocked: no user-confirmed acceptance contract was supplied or bound. The parent agent must create the contract covering scope and acceptance conditions, get user confirmation, and pass that exact contract to verify_execution. show_plan/show_spec are optional; do not output done:true." }],
+					details: { status: "BLOCKED", completionAllowed: false, reason: "no approved acceptance contract" },
+				};
+			}
+			if (contract.mandatory.length === 0) {
+				return {
+					content: [{ type: "text", text: "Verification blocked: the acceptance contract has no executable [cmd] assertions. The parent agent must revise it, get user confirmation, and pass the confirmed contract before starting the verifier. Do not output done:true." }],
+					details: { status: "BLOCKED", completionAllowed: false, reason: "contract has no executable assertions" },
 				};
 			}
 			const cwd = ctx.cwd || process.cwd();
@@ -90,6 +97,7 @@ export default function (pi: ExtensionAPI) {
 			const verification = await runAcceptanceVerifier({
 				cwd,
 				contract,
+				contractText: suppliedContract || undefined,
 				attempt,
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,

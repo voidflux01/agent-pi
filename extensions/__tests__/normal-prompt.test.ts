@@ -69,6 +69,12 @@ describe("buildNormalPrompt", () => {
 		expect(result).toContain("Do not call set_mode just to ask");
 		expect(result).not.toContain("grill_record_turn");
 	});
+
+	it("applies the acceptance and review contract to NORMAL", () => {
+		const result = buildNormalPrompt({ activeChain: null, activePipeline: null });
+		expect(result).toContain("Objective, Scope, Acceptance Criteria");
+		expect(result).toContain("Critical/High review findings block PASS");
+	});
 });
 
 describe("buildNormalPrompt — Scout delegation", () => {

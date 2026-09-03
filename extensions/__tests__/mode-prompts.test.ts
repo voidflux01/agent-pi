@@ -43,8 +43,9 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain("done: false");
 	});
 
-	it("documents literal inline-code match assertions", () => {
-		expect(PLAN_PROMPT).toContain("wrap literal code/path snippets in backticks");
+	it("documents command-only deterministic assertions", () => {
+		expect(PLAN_PROMPT).toContain("[cmd] <exact test/check/build command>");
+		expect(PLAN_PROMPT).not.toContain("[match]");
 	});
 
 	it("keeps scout-then-plan steps, with grill as enhancement only", () => {
@@ -182,8 +183,8 @@ describe("SPEC_PROMPT", () => {
 
 	it("requires an executable Contract section", () => {
 		expect(SPEC_PROMPT).toContain("mandatory ## Contract section");
-		expect(SPEC_PROMPT).toContain("[cmd] <command>");
-		expect(SPEC_PROMPT).toContain("cannot pass show_report");
+		expect(SPEC_PROMPT).toContain("executable [cmd]");
+		expect(SPEC_PROMPT).toContain("not replace executable commands");
 	});
 
 

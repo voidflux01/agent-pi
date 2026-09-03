@@ -2,7 +2,7 @@
 // ABOUTME: SPEC report, pipeline final advance, TEAM completion via show_report)
 // ABOUTME: flows through completeDecision. User /report is a report, not a claim,
 // ABOUTME: and is never gated.
-// ABOUTME: A contract must contain at least one executable [cmd]/[file]/[match]
+// ABOUTME: A contract must contain at least one executable [cmd]
 // ABOUTME: assertion; natural-language items are advisory and can never PASS.
 
 import { bindAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
@@ -12,11 +12,9 @@ import { canComplete } from "./verifier-runtime.ts";
 export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "user-report";
 
 export const INCOMPLETE_CONTRACT_REASON =
-	"合同不可验证：需要 [cmd]/[file]/[match] 可执行断言。自然语言条目仅作 advisory，不能触发完成。\n" +
+	"合同不可验证：需要至少一条 [cmd] 可执行验收命令。自然语言条目由 verifier 审查，不能替代命令执行。\n" +
 	"请补充 ## Contract 清单，例如：\n" +
-	"- [cmd] npm test\n" +
-	"- [file] extensions/lib/execution-contract.ts\n" +
-	"- [match] runIsolatedVerifier :: extensions/lib/isolated-verifier.ts";
+	"- [cmd] npm test";
 export const MISSING_RECEIPT_REASON = "This execution requires a deterministic verifier PASS before completion.";
 export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or bound to a different plan/workspace.";
 
@@ -26,7 +24,7 @@ export function verificationRequired(input: {
 }): boolean {
 	if (input.surface === "user-report") return false;
 	if (input.surface === "pipeline-complete") return true;
-	// A bound contract (even one without executable assertions) gates plan/spec
+	// A bound contract (even one without executable commands) gates plan/spec
 	// show_report — an unverifiable contract must refuse completion, not skip it.
 	return !!input.contract;
 }

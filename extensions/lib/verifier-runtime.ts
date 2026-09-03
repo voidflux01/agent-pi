@@ -1,5 +1,5 @@
 // ABOUTME: Verifier receipt construction and completion predicate.
-// ABOUTME: Final status is decided solely by deterministic assertions.
+// ABOUTME: Final status combines deterministic commands with independent review.
 
 import type { AcceptanceContract, VerificationStatus } from "./execution-contract.ts";
 import type { AssertionResult, DeterministicVerification } from "./deterministic-verifier.ts";

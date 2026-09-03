@@ -1,11 +1,8 @@
 // ABOUTME: Deterministic assertion runner for the acceptance contract. No LLM in
-// ABOUTME: the decision path: [cmd] execFile (no shell), [file] existence in
-// ABOUTME: workspace, [match] regex against file content. Timeouts, missing
-// ABOUTME: commands, and path escapes are BLOCKED, not guessed.
+// ABOUTME: the decision path: [cmd] execFile (no shell). Timeouts and missing
+// ABOUTME: commands are BLOCKED, not guessed.
 
 import { execFile, type ExecFileException } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ContractAssertion, VerificationStatus } from "./execution-contract.ts";
 
 export interface AssertionResult {
@@ -29,30 +26,6 @@ export interface VerifierConfig {
 }
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
-
-export class PathEscapeError extends Error {}
-
-function checkLexicalInsideRoot(root: string, candidate: string): string {
-	const absolute = resolve(root, candidate);
-	const rootAbsolute = resolve(root);
-	if (!absolute.startsWith(rootAbsolute + "/") && absolute !== rootAbsolute) {
-		throw new PathEscapeError(`path escapes workspace: ${candidate}`);
-	}
-	return absolute;
-}
-
-function checkInsideRoot(root: string, candidate: string): string {
-	const absolute = checkLexicalInsideRoot(root, candidate);
-	const stat = lstatSync(absolute);
-	if (stat.isSymbolicLink()) throw new PathEscapeError(`symlink paths are not allowed: ${candidate}`);
-	const rootAbsolute = resolve(root);
-	const realRoot = realpathSync(rootAbsolute);
-	const realCandidate = realpathSync(absolute);
-	if (!realCandidate.startsWith(realRoot + "/") && realCandidate !== realRoot) {
-		throw new PathEscapeError(`path escapes workspace via symlink: ${candidate}`);
-	}
-	return realCandidate;
-}
 
 function runCommand(
 	raw: string,
@@ -115,40 +88,6 @@ export async function runAssertion(assertion: ContractAssertion, root: string, c
 			return { kind: "advisory", raw: assertion.raw, status: "pass", note: "advisory — not part of the PASS decision" };
 		case "cmd":
 			return runCommand(assertion.raw, assertion.command, assertion.args, root, timeoutMs);
-		case "file": {
-			try {
-				const lexical = checkLexicalInsideRoot(root, assertion.path);
-				if (!existsSync(lexical)) {
-					return { kind: "file", raw: assertion.raw, status: "fail", note: `file missing: ${assertion.path}` };
-				}
-				const absolute = checkInsideRoot(root, assertion.path);
-				if (!statSync(absolute).isFile()) return { kind: "file", raw: assertion.raw, status: "fail", note: `not a file: ${assertion.path}` };
-				return { kind: "file", raw: assertion.raw, status: "pass" };
-			} catch (error) {
-				return { kind: "file", raw: assertion.raw, status: "blocked", note: error instanceof Error ? error.message : String(error) };
-			}
-		}
-		case "match": {
-			try {
-				const lexical = checkLexicalInsideRoot(root, assertion.path);
-				if (!existsSync(lexical)) {
-					return { kind: "match", raw: assertion.raw, status: "fail", note: `file missing: ${assertion.path}` };
-				}
-				const absolute = checkInsideRoot(root, assertion.path);
-				if (!statSync(absolute).isFile()) return { kind: "match", raw: assertion.raw, status: "fail", note: `not a file: ${assertion.path}` };
-				let pattern: RegExp;
-				try {
-					pattern = new RegExp(assertion.pattern);
-				} catch (error) {
-					return { kind: "match", raw: assertion.raw, status: "blocked", note: `invalid regex: ${error instanceof Error ? error.message : String(error)}` };
-				}
-				const content = readFileSync(absolute, "utf8");
-				if (pattern.test(content)) return { kind: "match", raw: assertion.raw, status: "pass" };
-				return { kind: "match", raw: assertion.raw, status: "fail", note: `pattern not found in ${assertion.path}` };
-			} catch (error) {
-				return { kind: "match", raw: assertion.raw, status: "blocked", note: error instanceof Error ? error.message : String(error) };
-			}
-		}
 	}
 }
 

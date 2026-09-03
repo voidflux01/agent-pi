@@ -1523,7 +1523,7 @@ ${scoutSection}
 
 ## Completion
 - Worker ## RESULT verification lines are untrusted claims.
-- When team work is complete, present the outcome with show_report. If a ## Contract with executable assertions is bound (approved plan/spec), completion is blocked until those assertions PASS deterministically.
+- When team work is complete, present the outcome with show_report. If a complete task contract with Verification Commands is bound, completion is blocked until its [cmd] assertions PASS deterministically and the independent acceptance/review verifier has no Critical/High findings.
 
 ## Agents
 ${agentCatalog}`,

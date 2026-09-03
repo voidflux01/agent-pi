@@ -19,7 +19,7 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
-import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
+import { bindAcceptanceContract } from "./lib/execution-contract.ts";
 import { setExecutionContract } from "./lib/coordination-state.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 // Approval is bound to the reviewed snapshot (markPlanApproved() remains the unbound API).
@@ -364,7 +364,7 @@ export default function (pi: ExtensionAPI) {
 
 	function bindApprovedPlanContract(markdown: string): void {
 		const bound = bindAcceptanceContract(markdown, "plan");
-		setExecutionContract("error" in bound ? emptyContract(markdown, "plan") : bound);
+		setExecutionContract("error" in bound ? undefined : bound);
 	}
 
 	// ── show_plan tool ───────────────────────────────────────────────

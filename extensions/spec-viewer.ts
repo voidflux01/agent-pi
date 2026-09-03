@@ -19,7 +19,7 @@ import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
-import { bindSpecContract, emptyContract } from "./lib/execution-contract.ts";
+import { bindSpecContract } from "./lib/execution-contract.ts";
 import { setExecutionContract } from "./lib/coordination-state.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 // Approval is bound to the reviewed snapshot (markSpecApproved() remains the unbound API).
@@ -376,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 				: discoverSpecMarkdown(folderPath);
 			if (!markdown) { setExecutionContract(undefined); return; }
 			const bound = bindSpecContract(markdown);
-			setExecutionContract("error" in bound ? emptyContract(markdown, "spec") : bound);
+			setExecutionContract("error" in bound ? undefined : bound);
 		} catch {
 			setExecutionContract(undefined);
 		}

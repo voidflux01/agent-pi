@@ -17,10 +17,10 @@ Before any write, edit, or bash/execution tool:
 4. Keep task status current and toggle completed steps to done.
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
 If a SCOUT has returned but the material uncertainty remains unresolved after further repository inspection, dispatch one fresh SCOUT for the current question instead of repeating the same reads. Repeated read-only exploration in NORMAL, PLAN, and SPEC is bounded by a runtime escalation guard.
-After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]/[file]/[match]) in the approved contract PASS. Do not claim completion from worker text.
+After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]) in the approved contract PASS. Do not claim completion from worker text.
 If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.
 Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion. If verifier output is malformed, retry the verifier or report the exact BLOCKED error.
-\`verify_execution\` is available in every mode, not only PLAN/SPEC. When code or configuration changed, selectively dispatch the independent verifier for medium/high-risk changes: multi-file or cross-layer edits, public APIs, persistence/schema, concurrency, auth/security, production jobs, or changes lacking representative tests. Without an approved contract it is a review-only audit; it can report risks but never grants completion. Skills remain enabled for every verifier and subagent.`;
+\`verify_execution\` is available in every mode, not only PLAN/SPEC. For medium/high-risk changes, the parent agent MUST create a clear task contract covering objective, scope, acceptance criteria, evidence requirements, and constraints, present the exact contract to the user for confirmation, and then pass that confirmed contract directly to \`verify_execution\` (or use an approved plan/spec as the source). It must not skip this sequence to avoid verifier cost. Start the verifier only after the confirmed contract has at least one executable [cmd]. Without an approved contract it must remain BLOCKED and must not start a verifier subagent. Skills remain enabled for every verifier and subagent.`;
 
 const PARALLEL_JOIN_PROMPT = `For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` so parallel spawn and one bounded join happen in a single tool call. For one planner, builder, reviewer, or other worker whose result is needed immediately, set \`join: true\` on \`subagent_create\`; omit it for detachable background work. For background batches, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
 
@@ -76,6 +76,9 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 - Once a task list exists, keep one task inprogress before write, edit, or bash. PI_TASKS_STRICT=0 makes this advisory.
 
 ${GRILL_ME_SECTION}
+
+## Acceptance and review contract
+For medium/high-risk changes, create a complete task contract before claiming completion. It must include Objective, Scope, Acceptance Criteria, Evidence Requirements, Constraints, and Verification Commands with at least one [cmd]. Present the exact contract to the user for confirmation, then pass that confirmed Markdown directly to \`verify_execution\`. The verifier performs both acceptance review and code review; do not skip it to avoid cost. Without a contract, \`verify_execution\` remains BLOCKED and must not start a subagent. Critical/High review findings block PASS; Medium/Low findings are warnings.
 
 ${RESEARCH_ROUTING_PROMPT}
 
@@ -185,8 +188,18 @@ ${RESEARCH_ROUTING_PROMPT}
 4. Integration check.
 
 ## Contract
-- [cmd] <exact test command> or [file] <path> or [match] <regex> :: <path> (wrap literal code/path snippets in backticks)
-- <exact test command or observable result>
+### Objective
+<task goal>
+### Scope
+<in-scope and out-of-scope changes>
+### Acceptance Criteria
+<observable behavior and quality conditions>
+### Verification Commands
+- [cmd] <exact test/check/build command>
+### Evidence Requirements
+<evidence needed to judge each criterion>
+### Constraints
+<required limits>
 \`\`\`
 
 ## Rules
@@ -251,12 +264,10 @@ Save results to planning/requirements.md
 ### Phase 3: Write Spec
 Create spec.md with: Goal, User Stories, Requirements, Visual Design,
 Existing Code to Leverage, Out of Scope, and a mandatory ## Contract section.
-The Contract section must contain at least one executable assertion, using the
-exact forms [cmd] <command>, [file] <path>, or [match] <regex> :: <path>.
-Prefer assertions that prove the requested behavior (for example, [cmd] npm
-test and [match] exportedFunction :: src/feature.ts). Natural-language
-verification notes may be included, but never replace these executable
-assertions: an approved spec without them cannot pass show_report.
+The contract must contain Objective, Scope, Acceptance Criteria, Evidence
+Requirements, and Verification Commands with at least one executable [cmd].
+Natural-language criteria are evaluated by the independent verifier; they do
+not replace executable commands.
 
 ### Phase 4: Present & Open
 - Use \`show_spec { folder_path: "context-os/specs/YYYY-MM-DD-feature-name/" }\` to open the

@@ -1,29 +1,27 @@
-// ABOUTME: Acceptance contract = executable assertion checklist from approved plan/spec.
-// ABOUTME: Only [cmd]/[file]/[match] assertions count toward PASS; natural-language
-// ABOUTME: items are advisory and can never trigger completion. Identity is a SHA-256
-// ABOUTME: of the full approved source text (matches planApprovalBinding fingerprints).
+// ABOUTME: Acceptance contract = executable commands plus explainable task criteria.
+// ABOUTME: Only [cmd] assertions enter the deterministic PASS decision.
 
 import { createHash } from "node:crypto";
 
 export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
-
 export type ContractAssertion =
 	| { kind: "cmd"; raw: string; command: string; args: string[] }
-	| { kind: "file"; raw: string; path: string }
-	| { kind: "match"; raw: string; pattern: string; path: string }
 	| { kind: "advisory"; raw: string; text: string };
 
 export interface AcceptanceContract {
-	version: 2;
+	version: 3;
 	source: "plan" | "pipeline" | "spec";
 	objective: string;
+	scope: string;
+	acceptanceCriteria: string;
+	evidenceRequirements: string;
+	constraints: string;
 	assertions: ContractAssertion[];
-	/** cmd/file/match only — the assertions that decide PASS. */
+	/** [cmd] only — the assertions that decide deterministic PASS. */
 	mandatory: ContractAssertion[];
 	fingerprint: string;
 }
 
-/** Same algorithm as approval-gate fingerprintContent — full text, not a second hash of fields. */
 export function planFingerprint(markdown: string): string {
 	return createHash("sha256").update(markdown, "utf8").digest("hex");
 }
@@ -32,10 +30,17 @@ function extractSection(markdown: string, heading: string): string | undefined {
 	const re = new RegExp(`^##\\s+${heading}\\s*$`, "im");
 	const match = re.exec(markdown);
 	if (!match) return undefined;
-	const start = match.index + match[0].length;
-	const rest = markdown.slice(start);
+	const rest = markdown.slice(match.index + match[0].length);
 	const next = rest.search(/^##\s+/m);
 	return (next === -1 ? rest : rest.slice(0, next)).trim();
+}
+
+function sectionText(markdown: string, headings: string[]): string {
+	for (const heading of headings) {
+		const value = extractSection(markdown, heading);
+		if (value) return value;
+	}
+	return "";
 }
 
 function parseListItems(body: string): string[] {
@@ -45,22 +50,9 @@ function parseListItems(body: string): string[] {
 		const match = trimmed.match(/^(?:[-*]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+)(.+)$/);
 		if (match?.[1]) items.push(match[1].trim());
 	}
-	return items.filter(item => item.length > 0);
+	return items.filter(Boolean);
 }
 
-/** Read a value copied out of a plan, preserving whether it was inline code. */
-function readInlineCode(value: string): { value: string; fenced: boolean } {
-	const trimmed = value.trim();
-	const match = trimmed.match(/^(`+)([\s\S]*?)\1$/);
-	return match ? { value: match[2].trim(), fenced: true } : { value: trimmed, fenced: false };
-}
-
-/** Inline-code match assertions are literal snippets; plain matches remain regexes. */
-function escapeRegex(value: string): string {
-	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
-}
-
-/** Extract an exact command from Markdown code or from a command followed by an annotation. */
 function commandText(value: string): string {
 	const trimmed = value.trim();
 	const fenced = trimmed.match(/^(`+)([\s\S]*?)\1(?:\s*(?:→|->|—|-)\s+.*)?$/);
@@ -69,35 +61,7 @@ function commandText(value: string): string {
 	return (annotation >= 0 ? trimmed.slice(0, annotation) : trimmed).trim();
 }
 
-/** Parse one checklist item into a typed assertion. Unknown shapes degrade to advisory. */
-export function parseAssertion(raw: string): ContractAssertion {
-	const advisoryText = raw.replace(/^advisory\s*[:\-]\s*/i, "").trim();
-	const advisory: ContractAssertion = { kind: "advisory", raw, text: advisoryText };
-	const marker = raw.match(/^\[(cmd|file|match)\]\s+(.+)$/i);
-	if (!marker) return advisory;
-	const kind = marker[1].toLowerCase();
-	const body = marker[2].trim();
-	if (kind === "cmd") {
-		const tokens = tokenizeCommand(commandText(body));
-		const [command, ...args] = tokens;
-		return command ? { kind: "cmd", raw, command, args } : advisory;
-	}
-	if (kind === "file") {
-		const path = readInlineCode(body).value;
-		return path ? { kind: "file", raw, path } : advisory;
-	}
-	if (kind === "match") {
-		const sep = body.lastIndexOf("::");
-		const parsedPattern = readInlineCode(body.slice(0, sep));
-		const pattern = parsedPattern.fenced ? escapeRegex(parsedPattern.value) : parsedPattern.value;
-		const path = readInlineCode(body.slice(sep + 2)).value;
-		if (sep > 0 && pattern && path) return { kind: "match", raw, pattern, path };
-		return advisory;
-	}
-	return advisory;
-}
-
-/** Parse quoting without invoking a shell or performing expansion. */
+/** Parse shell-like quoting without invoking a shell or expansion. */
 function tokenizeCommand(input: string): string[] {
 	const tokens: string[] = [];
 	let token = "";
@@ -122,59 +86,54 @@ function tokenizeCommand(input: string): string[] {
 	return tokens;
 }
 
-export function isMandatory(assertion: ContractAssertion): boolean {
-	return assertion.kind === "cmd" || assertion.kind === "file" || assertion.kind === "match";
+/** Unknown checklist markers, including removed [file]/[match], are advisory. */
+export function parseAssertion(raw: string): ContractAssertion {
+	const advisory: ContractAssertion = { kind: "advisory", raw, text: raw.replace(/^advisory\s*[:\-]\s*/i, "").trim() };
+	const marker = raw.match(/^\[cmd\]\s+(.+)$/i);
+	if (!marker) return advisory;
+	const tokens = tokenizeCommand(commandText(marker[1]));
+	const [command, ...args] = tokens;
+	return command ? { kind: "cmd", raw, command, args } : advisory;
 }
 
-/** Extract typed assertions from the first section (of the given headings) that has list items. */
+export function isMandatory(assertion: ContractAssertion): boolean {
+	return assertion.kind === "cmd";
+}
+
 export function extractContractAssertions(markdown: string, headings: string[]): ContractAssertion[] {
 	for (const heading of headings) {
-		const items = parseListItems(extractSection(markdown, heading) || "");
-		if (items.length === 0) continue;
-		return items.map(parseAssertion);
+		const body = extractSection(markdown, heading);
+		if (!body) continue;
+		const items = parseListItems(body);
+		if (items.length > 0) return items.map(parseAssertion);
 	}
 	return [];
 }
 
-function buildContract(
-	markdown: string,
-	source: AcceptanceContract["source"],
-	headings: string[],
-): AcceptanceContract | { error: "incomplete" } {
+function buildContract(markdown: string, source: AcceptanceContract["source"], headings: string[]): AcceptanceContract {
 	const assertions = extractContractAssertions(markdown, headings);
-	const mandatory = assertions.filter(isMandatory);
-	// No executable assertions → not verifiable. Advisory items alone must never PASS.
-	if (mandatory.length === 0) return { error: "incomplete" };
-	const objective = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim()
-		|| markdown.split("\n").find(line => line.trim())?.trim()
-		|| "untitled";
 	return {
-		version: 2,
+		version: 3,
 		source,
-		objective,
+		objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || markdown.split("\n").find(line => line.trim())?.trim() || "untitled",
+		scope: sectionText(markdown, ["Scope"]),
+		acceptanceCriteria: sectionText(markdown, ["Acceptance Criteria", "Requirements"]),
+		evidenceRequirements: sectionText(markdown, ["Evidence Requirements", "Evidence"]),
+		constraints: sectionText(markdown, ["Constraints"]),
 		assertions,
-		mandatory,
+		mandatory: assertions.filter(isMandatory),
 		fingerprint: planFingerprint(markdown),
 	};
 }
 
-/** Placeholder for approved text with no executable assertions. Gates with INCOMPLETE; never PASSes. */
 export function emptyContract(markdown: string, source: AcceptanceContract["source"]): AcceptanceContract {
-	const objective = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim()
-		|| markdown.split("\n").find(line => line.trim())?.trim()
-		|| "untitled";
-	return { version: 2, source, objective, assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
+	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
 }
 
-/** Plan/pipeline contract: ## Contract first, legacy ## Verification fallback. */
-export function bindAcceptanceContract(
-	markdown: string,
-	source: "plan" | "pipeline",
-): AcceptanceContract | { error: "incomplete" } {
-	return buildContract(markdown, source, ["Contract", "Verification"]);
+export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline"): AcceptanceContract {
+	return buildContract(markdown, source, ["Verification Commands", "Contract", "Verification"]);
 }
 
-/** SPEC spec.md contract: executable ## Contract first, then legacy requirement sections. */
-export function bindSpecContract(markdown: string): AcceptanceContract | { error: "incomplete" } {
-	return buildContract(markdown, "spec", ["Contract", "Requirements", "Acceptance Criteria"]);
+export function bindSpecContract(markdown: string): AcceptanceContract {
+	return buildContract(markdown, "spec", ["Verification Commands", "Contract", "Requirements", "Acceptance Criteria"]);
 }

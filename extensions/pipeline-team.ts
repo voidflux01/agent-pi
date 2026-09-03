@@ -62,7 +62,7 @@ import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispat
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt, workerHitToolCap, workerTimeoutMs } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
-import { bindAcceptanceContract, emptyContract } from "./lib/execution-contract.ts";
+import { bindAcceptanceContract } from "./lib/execution-contract.ts";
 import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
 import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
@@ -868,7 +868,7 @@ export default function (pi: ExtensionAPI) {
 
 	function bindPipelinePlan(planText: string): void {
 		const bound = bindAcceptanceContract(planText, "pipeline");
-		setExecutionContract("error" in bound ? emptyContract(planText, "pipeline") : bound);
+		setExecutionContract("error" in bound ? undefined : bound);
 	}
 
 	// ── Tools ────────────────────────────────────
@@ -1466,7 +1466,7 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
 				You are in the PLAN phase. Dispatch a planner with \`subagent_create\` — do not write the plan yourself.
-The planner's output must include a ## Contract section with executable assertions: [cmd] <command>, [file] <path>, or [match] <regex> :: <path>. Pipeline complete is refused without at least one executable assertion.
+The planner's output must include a complete task contract with Objective, Scope, Acceptance Criteria, Evidence Requirements, and a ## Verification Commands section containing at least one [cmd] <command>. Pipeline complete is refused without at least one executable command.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
@@ -1479,7 +1479,7 @@ Wait for ## RESULT, then call \`advance_phase\`.`;
 You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
 Dispatch a reviewer agent to audit the implementation.
 After reviewing the output:
-- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the ## Contract assertions to PASS deterministically, including plan-build pipelines whose last phase is build.
+- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the complete task contract, its [cmd] assertions to PASS deterministically, and \`verify_execution\` to report no Critical/High findings, including plan-build pipelines whose last phase is build.
 				- If issues found and loops remaining → use \`subagent_create\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}
