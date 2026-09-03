@@ -53,7 +53,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -506,12 +506,22 @@ export default function (pi: ExtensionAPI) {
 			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
 		}
 
+		const workerTask = hasSession
+			? task
+			: buildWorkerInitialPrompt({
+				role: agentDef.name,
+				task,
+				rolePrompt: agentDef.systemPrompt,
+				additionalInstructions: [
+					isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
+					agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
+				].filter(Boolean).join("\n\n"),
+			});
 		const args = [
 			"--mode", "json",
 			"-p",
 			"--model", model,
 			"--tools", workerTools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "") + (agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : ""),
 			"--session", agentSessionFile,
 		];
 
@@ -519,7 +529,7 @@ export default function (pi: ExtensionAPI) {
 			args.push("-c");
 		}
 
-		args.push(task);
+		args.push(workerTask);
 
 		const textChunks: string[] = [];
 		let liveText = "";
@@ -612,6 +622,9 @@ export default function (pi: ExtensionAPI) {
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 				herdrPaneKey: journalId,
+				onHerdrClosed: () => {
+					if (lifecycle.isCurrent(runEpoch)) updateWidget();
+				},
 				isAborted: () => !!signal?.aborted,
 				journal: { dir: sessionDir, id: journalId },
 				onProcess: (child) => { agentState.proc = lifecycle.trackProcess(child as any); },

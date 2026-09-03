@@ -12,23 +12,9 @@ import { formatDuration } from "./duration-format.ts";
 export const RESULT_MARKER = "## RESULT";
 export const RESULT_END_MARKER = "## END";
 
-/** Fallback budgets when a sub-agent did not emit a ## RESULT block. */
-export const FALLBACK_TAIL_CHARS = 2000;
-export const FALLBACK_HEAD_CHARS = 1000;
-/** Hard cap for an extracted ## RESULT block (rarely hit). */
-export const MAX_RESULT_CHARS = 3500;
-/** Maximum transcript preview retained in structured tool details. */
-export const MAX_OUTPUT_PREVIEW_CHARS = 4000;
-export const MAX_HANDOFF_CHARS = 6000;
-
-/** Keep the next phase small while retaining both result and archive pointer. */
-export function boundedHandoff(text: string, maxChars = MAX_HANDOFF_CHARS): string {
-	const value = String(text || "");
-	if (value.length <= maxChars) return value;
-	const marker = "\n... [handoff truncated; full transcript preserved on disk] ...\n";
-	const available = Math.max(0, maxChars - marker.length);
-	const head = Math.ceil(available * 0.6);
-	return value.slice(0, head) + marker + value.slice(-(available - head));
+/** Preserve the complete worker report when passing it to the parent/next step. */
+export function boundedHandoff(text: string, _maxChars?: number): string {
+	return String(text || "");
 }
 
 /**
@@ -45,46 +31,119 @@ export function compactHandoff(opts: {
 	composed: ComposedAgentResult;
 	fullOutputPath: string;
 }): string {
-	if (opts.composed.usedResult) return boundedHandoff(opts.composed.content);
+	if (opts.composed.usedResult) return opts.composed.content;
 	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
 	const archive = opts.fullOutputPath ? `\nFull transcript: ${opts.fullOutputPath}` : "";
 	return `${header}\n\nRESULT contract missing; do not infer completion from this worker. Read the archived transcript only if the next decision requires it.${archive}`;
 }
 
-/** Keep UI previews useful without putting the archived transcript in context. */
-export function boundedOutputPreview(text: string, maxChars = MAX_OUTPUT_PREVIEW_CHARS): string {
-	const value = String(text || "");
-	if (value.length <= maxChars) return value;
-	const marker = "\n... [preview truncated; full transcript preserved on disk]";
-	const limit = Math.max(0, maxChars - marker.length);
-	return value.slice(0, limit) + marker;
+/** Preserve the complete worker report in structured details and UI previews. */
+export function boundedOutputPreview(text: string, _maxChars?: number): string {
+	return String(text || "");
 }
 
-/**
- * System-prompt text appended to EVERY sub-agent, unconditionally.
- * The block is an INDEX, not a space-saver: the coordinator reads it, and the
- * full transcript stays available on disk, so nothing has to be shortened.
- */
-export function buildAgentResultContractPrompt(): string {
-	return `\n\n## Final Result Format (REQUIRED)\n
-Your final message MUST end with a block starting on its own line with \`## RESULT\`:\n
-\`\`\`
-## RESULT
-done: true|false
-summary: <3-6 lines covering ALL of the fields below>
-- files: <every file you created or modified, one path per line>
-- key errors: <exact error messages you hit, quoted verbatim, and how each was resolved>
-- verification: <exact commands/tests you ran and their exact outcome — a claim, not proof of completion>
-- remaining: <what is still open or uncertain, or "none">
-## END
-\`\`\`
+/** Build the one-shot user message used on a worker's first turn. */
+export function buildWorkerInitialPrompt(opts: {
+	role?: string;
+	task: string;
+	rolePrompt?: string;
+	additionalInstructions?: string;
+}): string {
+	const role = opts.role ? `You are the ${opts.role} worker.` : "You are a delegated worker.";
+	return [
+		role,
+		stripEmbeddedResultProtocol(opts.rolePrompt),
+		"Complete the task below using only the tools and scope provided. Do not ask the coordinator to repeat work you can finish yourself.",
+		"",
+		"Task:",
+		stripTaskResultWrapper(opts.task),
+		"",
+		opts.additionalInstructions?.trim(),
+		"",
+		"Return one result block at the end. Put detailed investigation results, file:line references, and code snippets under findings; summary is only a short index. Do not emit any other result block.",
+		"## RESULT",
+		"done: true|false",
+		"summary: one or two lines describing the outcome",
+		"findings:",
+		"- detailed findings, evidence, and relevant code snippets",
+		"external_research_needed: true|false",
+		"queries: omit when false; focused questions when true",
+		"reason: omit when false; blocking external fact when true",
+		"files: none or every created/modified path",
+		"key errors: none or exact errors and resolutions",
+		"verification: exact commands/tests and their outcome, or not run",
+		"remaining: none or unresolved items",
+		"## END",
+		"Do not put prose after ## END. If the task failed, use done: false and record the exact blocker under key errors and remaining.",
+	].filter((part) => part !== undefined && part !== "").join("\n");
+}
 
-The ## RESULT block is what the coordinator acts on. Put every path, finding, and exact error they need in this block so they do not have to read your transcript. The \`verification:\` line is an untrusted worker claim; an isolated verifier must re-run checks before completion. The full transcript is archived only as a fallback. If the task FAILED, set done: false and put the exact error under "key errors". End the block with a line containing exactly: ## END`;
+/** Remove legacy result-wrapper instructions from role text before composition. */
+function stripEmbeddedResultProtocol(prompt?: string): string | undefined {
+	if (!prompt?.trim()) return undefined;
+	let value = prompt.trim();
+	// Agent definition files may still contain a legacy reporting protocol.
+	// The runtime owns that protocol now, so remove the whole protocol-bearing
+	// tail rather than trying to repair individual lines from it.
+	value = value.replace(/^\s*- If external information is required[\s\S]*?(?=^\s*- The final assistant message MUST end)/im, "");
+	value = value.replace(/^\s*- The final assistant message MUST end[\s\S]*$/im, "");
+	value = value.replace(/^\s*## Output Format\s*$[\s\S]*$/im, "");
+	value = value.replace(/```(?:text|markdown)?\s*\n## RESULT[\s\S]*?## END\s*\n```/gi, "");
+	value = value.replace(/^\s*- \*\*Do NOT include any emojis\. Emojis are banned\.\*\*\s*$/im, "");
+	return value.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function stripTaskResultWrapper(task: string): string {
+	let value = task.trim();
+	// A task is data, not a second protocol authority. Once it starts emitting
+	// a result template, discard that tail and append the canonical one below.
+	value = value.replace(/\n?^\s*## RESULT\s*$[\s\S]*$/im, "");
+	value = value.replace(/```(?:text|markdown)?\s*\n## RESULT[\s\S]*?## END\s*\n```/gi, "");
+	value = value.replace(/\n?[-* ]*(?:Your final response|End with)[^\n]*(?:## RESULT|RESULT block)[^\n]*\n/gi, "\n");
+	return value.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Backward-compatible text for callers that still need the protocol alone. */
+export function buildAgentResultContractPrompt(): string {
+	return `${buildWorkerInitialPrompt({ task: "(The coordinator will provide the task.)" })}\nThe verification line is an untrusted worker claim; independent verification is required before completion.`;
 }
 
 export interface ExtractedResult {
 	found: boolean;
 	result: string;
+}
+
+/**
+ * Normalize common model formatting drift without spending another model turn.
+ * Only a RESULT block is normalized; report content is preserved verbatim.
+ */
+export function normalizeResultContract(text: string): { text: string; changed: boolean } | undefined {
+	const extracted = extractResultBlock(text);
+	if (!extracted.found) return undefined;
+	const lines = extracted.result.split(/\r?\n/);
+	let done: string | undefined;
+	let summary = "";
+	let doneIndex = -1;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i].trim();
+		const doneMatch = line.match(/^done:\s*(true|false)(?:\s*[—–-]\s*(.+))?$/i);
+		if (doneMatch) {
+			done = doneMatch[1].toLowerCase();
+			doneIndex = i;
+			if (!summary && doneMatch[2]) summary = doneMatch[2].trim();
+		}
+		const summaryMatch = line.match(/^summary:\s*(.*)$/i);
+		if (summaryMatch?.[1]?.trim()) summary = summaryMatch[1].trim();
+	}
+	if (!done) return undefined;
+	const normalized = [...lines];
+	if (doneIndex >= 0) normalized[doneIndex] = `done: ${done}`;
+	if (!lines.some((line) => /^\s*summary:\s*\S/i.test(line))) {
+		normalized.splice(doneIndex + 1, 0, `summary: ${summary || "Result returned; see findings."}`);
+	}
+	const body = normalized.join("\n").trim();
+	const canonical = `## RESULT\n${body}\n## END`;
+	return { text: canonical, changed: canonical !== text.trim() };
 }
 
 /**
@@ -177,44 +236,32 @@ export interface ComposedAgentResult {
 export function composeAgentResult(
 	opts: ComposeAgentResultOptions,
 ): ComposedAgentResult {
-	const maxResultChars = opts.maxResultChars ?? MAX_RESULT_CHARS;
 	const fullText = opts.outputText || "";
 	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
 
-	const { found, result } = extractResultBlock(fullText);
+	const normalized = opts.skipContract ? undefined : normalizeResultContract(fullText);
+	const contractText = normalized?.text || fullText;
+	const { found, result } = extractResultBlock(contractText);
 
 	let body: string;
 	let usedResult = false;
-	let truncated = false;
 	if (found) {
 		usedResult = true;
-		if (result.length > maxResultChars) {
-			truncated = true;
-			body = `\n\n## RESULT\n${result.slice(0, maxResultChars)}\n\n[RESULT block truncated at ${maxResultChars} chars; full transcript preserved]`;
-		} else {
-			body = `\n\n## RESULT\n${result}`;
-		}
+		body = `\n\n## RESULT\n${result}`;
 	} else if (opts.skipContract) {
 		usedResult = true;
-		const shown = fullText.length > maxResultChars ? fullText.slice(0, maxResultChars) : fullText;
-		truncated = fullText.length > maxResultChars;
-		body = `\n\n${shown || "(empty output)"}`;
+		body = `\n\n${fullText || "(empty output)"}`;
 	} else {
-		const tail = fullText.slice(-FALLBACK_TAIL_CHARS);
-		const head =
-			fullText.length > FALLBACK_TAIL_CHARS + FALLBACK_HEAD_CHARS
-				? fullText.slice(0, FALLBACK_HEAD_CHARS)
-				: "";
-		body = `\n\n[no ## RESULT block found — showing ${head ? `first ${FALLBACK_HEAD_CHARS} chars and ` : ""}last ${FALLBACK_TAIL_CHARS} chars]\n${head ? `\n--- transcript head ---\n${head}\n` : ""}\n--- transcript tail ---\n${tail}`;
+		body = `\n\n[no ## RESULT block found]\n${fullText || "(empty output)"}`;
 	}
 
 	const fullChars = fullText.length;
-	const compliance = opts.skipContract ? { ok: true, problems: [] as string[] } : checkResultCompliance(fullText);
+	const compliance = opts.skipContract ? { ok: true, problems: [] as string[] } : checkResultCompliance(contractText);
 	const pointer = transcriptPointer({
 		fullChars,
 		path: opts.fullOutputPath,
 		usedResult,
-		truncated,
+		truncated: false,
 		incomplete: !compliance.ok,
 	});
 
@@ -290,7 +337,8 @@ export function checkResultCompliance(fullText: string): ResultCompliance {
 /** A coordinator may advance only when the worker emitted a complete result. */
 export function resultContractFailure(fullText: string, skipContract = false): string | undefined {
 	if (skipContract) return undefined;
-	const compliance = checkResultCompliance(fullText);
+	const normalized = normalizeResultContract(fullText);
+	const compliance = checkResultCompliance(normalized?.text || fullText);
 	return compliance.ok ? undefined : `worker result contract incomplete: ${compliance.problems.join("; ")}`;
 }
 

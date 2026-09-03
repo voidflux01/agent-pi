@@ -106,16 +106,26 @@ This is deliberately evidence-based: a row is only marked done if its work actua
 
 ## RESULT Contract Gate
 
-A finished sub-agent transcript must end with an exact closing block:
+A finished sub-agent transcript should end with this closing block. On the first
+turn, the worker receives its role, task, and this protocol in the initial user
+message (not `--append-system-prompt`); resume turns receive only the resume or
+format-repair instruction:
 
 ```
 ## RESULT
 done: true
 summary: Auth flow mapped; 3 files touched; rate limiting still missing.
-- key detail lines (free-form)
+- findings:
+- key detail lines, file:line references, and code snippets (free-form)
+files: src/auth.ts
+key errors: none
+verification: not run
 remaining: optional open items
 ## END
 ```
+
+`summary` is a short index, not the full report. Detailed reconnaissance stays
+under `findings:` and may be preserved in the full transcript archive.
 
 The gate checks pure mechanics, zero tokens required:
 
@@ -124,7 +134,7 @@ The gate checks pure mechanics, zero tokens required:
 | `no ## RESULT block` | No closing block found |
 | `block not closed with ## END` | Block left open |
 | `missing "done:" line` | No `done:` true/false line inside the block |
-| `missing "summary:"` | No non-empty summary line |
+| `missing "summary:"` | No non-empty summary line (recoverable common formatting drift is normalized locally first) |
 
 When violated, the composed result shown to the parent gets an appended warning:
 
@@ -132,7 +142,12 @@ When violated, the composed result shown to the parent gets an appended warning:
 ⚠️ RESULT contract violated (…) — read the full transcript before acting on this result.
 ```
 
-and the journal row records a `result contract: …` note. Set `PI_RESULT_CONTRACT_GATE=0` to silence the appended warning (checks still run and are logged). Warm-up dispatches are exempt.
+and the journal row records a `result contract: …` note. Common inline forms such
+as `done: true — ...` are normalized without another worker turn. If no RESULT
+block can be recovered, at most one follow-up asks only for formatting and must
+not repeat investigation or modify files. Set `PI_RESULT_CONTRACT_GATE=0` to
+silence the appended warning (checks still run and are logged). Warm-up
+dispatches are exempt.
 
 ## ask_parent — Blocking Child Questions
 

@@ -175,12 +175,16 @@ export async function runVerifierSubagent(input: {
 	const sessionFile = join(sessionDir, `verifier-${Date.now()}.jsonl`);
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
+	const initialPrompt = [
+		VERIFIER_SYSTEM_PROMPT,
+		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
+		"Audit the workspace now and return the required VERIFIER RESULT JSON block.",
+	].join("\n\n");
 	const command = [
 		"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
 		...(input.model ? ["--model", input.model] : []),
 		"--tools", "read,bash,grep,find,ls",
-		"--append-system-prompt", VERIFIER_SYSTEM_PROMPT,
-		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText) + "\n\nAudit the workspace now and return the required VERIFIER RESULT JSON block.",
+		initialPrompt,
 	];
 	const result = await createSubagentRuntime({
 		authorization: currentDispatchAuthorization(),

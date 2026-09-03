@@ -42,7 +42,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildAgentResultContractPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -379,13 +379,22 @@ export default function (pi: ExtensionAPI) {
 			for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
 		}
 
+		const workerTask = hasSession
+			? task
+			: buildWorkerInitialPrompt({
+				role: agentDef.name,
+				task,
+				rolePrompt: agentDef.systemPrompt,
+				additionalInstructions: [
+					isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
+					agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
+				].filter(Boolean).join("\n\n"),
+			});
 		const args = [
 			"--mode", "json",
 			"-p",
 			"--model", model,
 			"--tools", workerTools,
-			"--append-system-prompt", agentDef.systemPrompt + buildAgentResultContractPrompt() + (isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "") + (agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "") +
-				"\n\nCHAIN HANDOFF CHECK: Before your final message, verify that the last lines are the exact ## RESULT ... ## END block required above. Do not omit it even for a read-only plan or review.",
 			"--session", agentSessionFile,
 		];
 
@@ -393,7 +402,7 @@ export default function (pi: ExtensionAPI) {
 			args.push("-c");
 		}
 
-		args.push(task);
+		args.push(workerTask);
 
 		const textChunks: string[] = [];
 		let liveText = "";
@@ -499,6 +508,11 @@ export default function (pi: ExtensionAPI) {
 				herdrDoneExtPath,
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "chain", journalId),
 				herdrPaneKey: journalId,
+				onHerdrClosed: () => {
+					// A chain reuses one aggregate widget across sequential panes. Keep
+					// it while a later step is active, and hide it after the final pane.
+					if (lifecycle.isCurrent(runEpoch) && currentChainProc == null) hideChainWidget();
+				},
 				journal: { dir: sessionDir, id: journalId },
 				isAborted: () => !lifecycle.isCurrent(runEpoch) || !!signal?.aborted,
 				onProcess: (child) => {

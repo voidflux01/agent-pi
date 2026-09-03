@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resultOneLiner } from "../lib/agent-result-contract.ts";
+import { buildWorkerInitialPrompt, normalizeResultContract, resultOneLiner } from "../lib/agent-result-contract.ts";
 import { phaseRequiresAgentDispatch, pipelineSelectLabel, type PipelineConfig } from "../lib/parse-pipeline-yaml.ts";
 import { defaultTeamName } from "../agent-team.ts";
 import { ORCHESTRATED_TASK_PROMPT } from "../lib/mode-prompts.ts";
@@ -22,6 +22,28 @@ describe("resultOneLiner", () => {
 		].join("\n");
 		expect(resultOneLiner(full, "")).toBe("created /tmp/wf-walk/hello.py and verified stdout 84");
 		expect(resultOneLiner(full, "")).not.toContain("## END");
+	});
+
+	it("keeps detailed findings while normalizing inline done output", () => {
+		const raw = [
+			"## RESULT",
+			"done: true — reconnaissance completed",
+			"findings:",
+			"- src/ui.rs:120 uses the calendar grid",
+			"## END",
+		].join("\n");
+		const normalized = normalizeResultContract(raw);
+		expect(normalized?.text).toContain("done: true\nsummary: reconnaissance completed");
+		expect(normalized?.text).toContain("- src/ui.rs:120 uses the calendar grid");
+	});
+});
+
+describe("worker first-turn prompt", () => {
+	it("puts the protocol in the initial task message", () => {
+		const prompt = buildWorkerInitialPrompt({ role: "SCOUT", task: "inspect the repository", rolePrompt: "Read-only." });
+		expect(prompt).toContain("Task:\ninspect the repository");
+		expect(prompt).toContain("## RESULT");
+		expect(prompt).toContain("findings:");
 	});
 });
 
@@ -114,7 +136,7 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "lib", "team-session-cleanup.ts"), "utf8")).toContain("entry.status === \"done\"");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("originalTask: originalPrompt");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("CHAIN HANDOFF CHECK");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).not.toContain("--append-system-prompt");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
 		expect(readFileSync(join(root, "lib", "tool-executor-registry.ts"), "utf8")).toContain('"dispatch_team_batch"');
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("scheduleResourceWaves(jobs, jobs.length)");

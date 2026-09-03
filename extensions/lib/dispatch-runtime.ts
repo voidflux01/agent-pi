@@ -16,6 +16,7 @@ import {
 	cleanupLaunchFiles,
 	registerHerdrPane,
 	scheduleHerdrPaneClose,
+	watchHerdrPane,
 	sendCommandToPaneAsync,
 	updateHerdrPaneStatus,
 	herdrPaneAutoCloseMs,
@@ -78,6 +79,8 @@ export interface DispatchRuntimeSpec {
 	onTransport?: (transport: Exclude<DispatchTransport, "auto">) => void;
 	/** Receives the visible Herdr pane owned by this dispatch. */
 	onHerdrPane?: (ref: HerdrTabRef) => void;
+	/** Called after this dispatch's Herdr pane has been closed. */
+	onHerdrClosed?: () => void;
 	/** Injected in tests; defaults to node's spawn. */
 	spawnProcess?: typeof spawn;
 }
@@ -266,9 +269,21 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 	let updateTimer: ReturnType<typeof setInterval> | undefined;
 	let refs: ReturnType<typeof writeLaunchScript> | undefined;
 	let terminalStatus: "done" | "error" = "error";
+	let herdrClosedNotified = false;
+	let stopPaneWatch: (() => void) | undefined;
+	const notifyHerdrClosed = () => {
+		stopPaneWatch?.();
+		stopPaneWatch = undefined;
+		if (herdrClosedNotified) return;
+		herdrClosedNotified = true;
+		spec.onHerdrClosed?.();
+	};
+	const closePane = (ref: HerdrTabRef) => {
+		void closeHerdrTabAsync(ref).finally(notifyHerdrClosed);
+	};
 	const abort = () => {
 		aborted = true;
-		if (tab) void closeHerdrTabAsync(tab);
+		if (tab) closePane(tab);
 	};
 	const paneProcess: DispatchProcess = {
 		kill: abort,
@@ -314,6 +329,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 
 		ownedByHerdr = true;
 		spec.onHerdrPane?.(tab);
+		stopPaneWatch = watchHerdrPane(tab, notifyHerdrClosed);
 		spec.onTransport?.("herdr");
 		registerHerdrPane(spec.cwd, {
 			key: spec.herdrPaneKey || spec.launchId,
@@ -379,10 +395,10 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			updateHerdrPaneStatus(spec.cwd, spec.herdrPaneKey || spec.launchId, terminalStatus, tab);
 			// If launch acknowledgement failed, the pane was created but never
 			// became an owned worker. Do not leave that orphaned pane behind.
-			if (!ownedByHerdr) void closeHerdrTabAsync(tab);
+			if (!ownedByHerdr) closePane(tab);
 			else if (terminalStatus === "done") {
 				const linger = herdrPaneAutoCloseMs("success");
-				if (linger !== null) scheduleHerdrPaneClose(tab, linger);
+				if (linger !== null) scheduleHerdrPaneClose(tab, linger, notifyHerdrClosed);
 			}
 		}
 	}

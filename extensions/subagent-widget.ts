@@ -34,7 +34,7 @@ import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModel
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
-import { buildAgentResultContractPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, normalizeResultContract, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel, closeHerdrTabAsync, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
@@ -412,15 +412,15 @@ export default function (pi: ExtensionAPI) {
 		// after finishing its task.
 		const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
 
-		// Build one stable prompt block instead of several append flags. This keeps
-		// the worker's system-prefix reusable for provider prompt caching.
-		const promptParts: string[] = [];
-		if (agentDef?.systemPrompt) promptParts.push(agentDef.systemPrompt);
-		if (!isToolkitCliAgent(state.name)) {
-			promptParts.push(buildAgentResultContractPrompt());
-			if (isExecutionWorker(state.name)) promptParts.push(implementationWorkerPrompt());
-		}
-		const systemPromptArgs = ["--append-system-prompt", promptParts.join("\n\n")];
+		const resumed = fs.existsSync(state.sessionFile);
+		const workerPrompt = resumed
+			? prompt
+			: buildWorkerInitialPrompt({
+				role: state.name,
+				task: prompt,
+				rolePrompt: agentDef?.systemPrompt,
+				additionalInstructions: isExecutionWorker(state.name) ? implementationWorkerPrompt() : undefined,
+			});
 
 		// Mailbox identity must follow the visible SA id, not the role name:
 		// multiple SCOUT/BUILDER workers can run at the same time.
@@ -545,7 +545,7 @@ export default function (pi: ExtensionAPI) {
 				let contractProblems: string[] = [];
 				if (!toolkitRun) {
 					try {
-						const compliance = checkResultCompliance(result);
+					const compliance = checkResultCompliance(normalizeResultContract(result)?.text || result);
 						contractProblems = compliance.ok ? [] : compliance.problems;
 					} catch {}
 				}
@@ -612,8 +612,7 @@ export default function (pi: ExtensionAPI) {
 				"--session", state.sessionFile,
 				"--model", model,
 				"--tools", tools,
-				...systemPromptArgs,
-				prompt,
+					workerPrompt,
 			], state.sessionFile);
 
 			if (isToolkitCliAgent(state.name)) {
@@ -643,7 +642,12 @@ export default function (pi: ExtensionAPI) {
 							invalidateWidget(state.id);
 						}
 					},
-				isCancelled: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
+					onHerdrClosed: () => {
+						if (spawnEpoch !== sessionEpoch) return;
+						clearWidgetCurrent(`sub-${state.id}`);
+						widgetBoxes.delete(state.id);
+					},
+					isCancelled: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
 				}).then(({ exitCode, raw }) => {
 					const parsed = parseToolkitResult(state.name, raw);
 					if (parsed.model) state.model = parsed.model;
@@ -667,6 +671,11 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: paneTitle,
 				herdrPaneKey: `sa-${state.id}`,
 				onHerdrPane: (ref) => { state.herdrPane = ref; },
+				onHerdrClosed: () => {
+					if (spawnEpoch !== sessionEpoch) return;
+					clearWidgetCurrent(`sub-${state.id}`);
+					widgetBoxes.delete(state.id);
+				},
 				journal: { dir: saDir, id: state.saRunId ?? "" },
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
@@ -736,7 +745,7 @@ export default function (pi: ExtensionAPI) {
 			summary: Type.Optional(Type.String({ description: "Short summary shown in widget (no markdown)" })),
 			model: Type.Optional(Type.String({ description: "Model override. Only set this to override the agent's default model. If omitted, uses the agent definition's model or the system default." })),
 			join: Type.Optional(Type.Boolean({ description: "Wait for this worker and return its bounded result in this call. Defaults to true for scout/researcher/toolkit agents and false for other roles." })),
-			autoRemove: Type.Optional(Type.Boolean({ description: "Allow this worker widget to auto-remove after completion (default: false)" })),
+				autoRemove: Type.Optional(Type.Boolean({ description: "Allow this worker widget to auto-remove after completion (default: true for SCOUT, false otherwise)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in milliseconds. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 		}),
 		execute: async (callId, args, signal, _onUpdate, ctx) => {
@@ -760,7 +769,7 @@ export default function (pi: ExtensionAPI) {
 				sessionFile: makeSessionFile(id),
 				turnCount: 1,
 				summary: args.summary,
-				autoRemove: args.autoRemove,
+				autoRemove: args.autoRemove ?? agentName.toLowerCase() === "scout",
 				model: args.model, // caller-specified model override
 				maxDurationMs: resolveTimeout(agentName, args.timeout),
 				awaitResult,
@@ -807,7 +816,7 @@ export default function (pi: ExtensionAPI) {
 				model: Type.Optional(Type.String({ description: "Model override. Only set to override the agent definition's default model." })),
 				resources: Type.Optional(Type.Array(Type.String({ maxLength: 160 }), { maxItems: 16, description: "Shared resource keys; agents with overlapping keys are serialized" })),
 			}), { description: "Array of agent definitions to spawn" }),
-			autoRemove: Type.Optional(Type.Boolean({ description: "Allow these worker widgets to auto-remove after completion (default: false)" })),
+				autoRemove: Type.Optional(Type.Boolean({ description: "Allow these worker widgets to auto-remove after completion (default: true for SCOUT, false otherwise)" })),
 			timeout: Type.Optional(Type.Number({ description: "Optional max runtime in ms for every agent in this batch. Omit for the 15-minute safety deadline; use 0 only to disable the watchdog." })),
 			force: Type.Optional(Type.Boolean({ description: "Force spawn even if agents are already running (default: false)" })),
 			join: Type.Optional(Type.Boolean({ description: "Wait for all spawned agents and return bounded summaries in this call (default: false)" })),
@@ -862,7 +871,7 @@ export default function (pi: ExtensionAPI) {
 					sessionFile: makeSessionFile(id),
 					turnCount: 1,
 					summary: def.summary,
-					autoRemove: args.autoRemove,
+						autoRemove: args.autoRemove ?? String(def.name).toLowerCase() === "scout",
 					model: def.model, // per-agent model override
 					maxDurationMs: resolveTimeout(agentName, args.timeout),
 					resultBudgetChars: budget.resultChars,

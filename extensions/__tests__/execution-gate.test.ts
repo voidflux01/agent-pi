@@ -159,7 +159,8 @@ describe("shipped wiring", () => {
 		const src = readFileSync(join(root, "..", "lib", "verifier-subagent.ts"), "utf8");
 		expect(src).toContain("Approved contract file path");
 		expect(src).toContain("contract.contractPath");
-		expect(src).toContain('verifierPrompt(input.contract, input.deterministicEvidence, input.contractText) +');
-		expect(src).toContain('"--append-system-prompt", VERIFIER_SYSTEM_PROMPT');
+		expect(src).toContain('verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),');
+		expect(src).toContain("const initialPrompt = [");
+		expect(src).not.toContain('"--append-system-prompt", VERIFIER_SYSTEM_PROMPT');
 	});
 });

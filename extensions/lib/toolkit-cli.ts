@@ -12,6 +12,7 @@ import { activeOrchestrationBudget, budgetBlockReason, defaultBudgetReservation,
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS } from "./orchestration-run.ts";
 import { journalUpdate } from "./agent-task-journal.ts";
 import { AGENT_PI_CONFIG, configuredModelForAgent } from "./agent-pi-config.ts";
+import { buildWorkerInitialPrompt } from "./agent-result-contract.ts";
 import {
 	herdrEnabledAsync,
 	ensureHerdrWorkspaceAsync,
@@ -27,6 +28,7 @@ import {
 	launchDonePath,
 	herdrPaneAutoCloseMs,
 	scheduleHerdrPaneClose,
+	watchHerdrPane,
 } from "./herdr-client.ts";
 
 export const TOOLKIT_CLI_AGENTS = new Set([
@@ -103,19 +105,25 @@ export function resolveToolkitWorkerModel(agentName: string, fallbackModel: stri
 }
 
 export function getToolkitWorkerArgs(agentDef: ToolkitWorkerAgentDef, options: ToolkitWorkerSpawnOptions): string[] {
+	const task = options.sessionFile
+		? options.task
+		: buildWorkerInitialPrompt({
+				role: agentDef.name,
+				task: options.task,
+				rolePrompt: agentDef.systemPrompt,
+			});
 	const args = [
 		"--mode", "json",
 		"-p",
 		...(TOOLKIT_WORKER_MODEL ? ["--model", TOOLKIT_WORKER_MODEL] : []),
 		"--tools", agentDef.tools,
-		"--append-system-prompt", agentDef.systemPrompt,
 	];
 
 	if (options.sessionFile) {
 		args.push("--session", options.sessionFile);
 	}
 
-	args.push(options.task);
+	args.push(task);
 	return args;
 }
 
@@ -620,6 +628,7 @@ export async function runToolkitDispatch(opts: {
 	onStdoutLine?: (line: string) => void;
 	onStderr?: (chunk: string) => void;
 	isCancelled?: () => boolean;
+	onHerdrClosed?: () => void;
 }): Promise<ToolkitDispatchResult> {
 	const cancelled = () => !!opts.isCancelled?.();
 	const budgetReason = budgetBlockReason();
@@ -694,14 +703,24 @@ export async function runToolkitDispatch(opts: {
 							status: "running",
 						});
 						let herdrCancelled = false;
+						let herdrClosedNotified = false;
+						let stopPaneWatch: (() => void) | undefined;
+						const notifyHerdrClosed = () => {
+							stopPaneWatch?.();
+							stopPaneWatch = undefined;
+							if (herdrClosedNotified) return;
+							herdrClosedNotified = true;
+							opts.onHerdrClosed?.();
+						};
 						opts.onProcess?.({
 							kill: () => {
 								herdrCancelled = true;
-								void closeHerdrTabAsync(tab);
+								void closeHerdrTabAsync(tab).finally(notifyHerdrClosed);
 							},
 							__piNoExitEvent: true,
 						});
 						await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
+						stopPaneWatch = watchHerdrPane(tab, notifyHerdrClosed);
 						const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
 						const started = sent && await waitForLaunchStart(
 							refs.startedPath,
@@ -734,7 +753,7 @@ export async function runToolkitDispatch(opts: {
 							});
 							if (!failed) {
 								const linger = toolkitHerdrAutoCloseMs("success");
-								if (linger !== null) scheduleHerdrPaneClose(tab, linger);
+								if (linger !== null) scheduleHerdrPaneClose(tab, linger, notifyHerdrClosed);
 							}
 			return settleRun({
 				exitCode: cancelledRun ? 130 : (rc ?? 1),
@@ -745,6 +764,7 @@ export async function runToolkitDispatch(opts: {
 						}
 						cleanupLaunchFiles(refs);
 						await closeHerdrTabAsync(tab);
+						notifyHerdrClosed();
 						if (herdrCancelled || cancelled()) {
 			return settleRun({ exitCode: 130, raw: "", transport: "herdr", failure: "cancelled" });
 						}

@@ -130,10 +130,10 @@ describe("composeAgentResult contract gate", () => {
 });
 
 describe("bounded structured-output previews", () => {
-	test("bounds phase handoffs while preserving the archive tail", () => {
-		const handoff = boundedHandoff("head".repeat(1000) + "ARCHIVE_POINTER", 120);
-		expect(handoff.length).toBeLessThanOrEqual(120);
-		expect(handoff).toContain("handoff truncated");
+	test("preserves complete phase handoffs", () => {
+		const source = "head".repeat(1000) + "ARCHIVE_POINTER";
+		const handoff = boundedHandoff(source, 120);
+		expect(handoff).toBe(source);
 		expect(handoff).toContain("ARCHIVE_POINTER");
 	});
 
@@ -141,9 +141,8 @@ describe("bounded structured-output previews", () => {
 		expect(boundedOutputPreview("short")).toBe("short");
 	});
 
-	test("caps long previews while pointing to the archived transcript", () => {
+	test("preserves complete long previews", () => {
 		const preview = boundedOutputPreview("x".repeat(10_000), 120);
-		expect(preview.length).toBeLessThanOrEqual(120);
-		expect(preview).toContain("preview truncated");
+		expect(preview).toHaveLength(10_000);
 	});
 });

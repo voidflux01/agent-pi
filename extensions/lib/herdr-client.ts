@@ -256,6 +256,31 @@ function snapshotHasPane(snapshot: HerdrSnapshot | null, ref: HerdrTabRef): bool
 		(!agent.workspace_id || agent.workspace_id === ref.workspaceId));
 }
 
+/** Watch one live pane so an external Herdr close emits the same cleanup
+ * event as an agent-pi initiated close. The timer is unref'ed and self-stops. */
+export function watchHerdrPane(ref: HerdrTabRef, onClosed: () => void, intervalMs = 1_000): () => void {
+	let stopped = false;
+	let checking = false;
+	let timer: ReturnType<typeof setInterval>;
+	const stop = () => { stopped = true; clearInterval(timer); };
+	const check = async () => {
+		if (stopped || checking) return;
+		checking = true;
+		try {
+			const snapshot = await herdrSnapshotAsync();
+			if (!stopped && snapshot && !snapshotHasPane(snapshot, ref)) {
+				stop();
+				onClosed();
+			}
+		} finally {
+			checking = false;
+		}
+	};
+	timer = setInterval(check, intervalMs);
+	try { (timer as any).unref?.(); } catch {}
+	return stop;
+}
+
 export interface HerdrPaneInspection extends HerdrPaneRecord {
 	health: "alive" | "missing" | "finished" | "unknown";
 }
@@ -523,7 +548,11 @@ function preferCallerPaneSplit(): boolean {
 	return process.env.PI_HERDR_SPLIT !== "0" && !!process.env.HERDR_PANE_ID;
 }
 
-const lingeringPanes = new Map<string, { tab: HerdrTabRef; timer: ReturnType<typeof setTimeout> }>();
+const lingeringPanes = new Map<string, {
+	tab: HerdrTabRef;
+	timer: ReturnType<typeof setTimeout>;
+	onClosed?: () => void;
+}>();
 
 function lingerKey(tab: HerdrTabRef): string {
 	return tab.paneId || tab.tabId;
@@ -534,12 +563,12 @@ export function closeLingeringHerdrPanes(): void {
 	for (const [key, entry] of lingeringPanes) {
 		clearTimeout(entry.timer);
 		lingeringPanes.delete(key);
-		void closeHerdrTabAsync(entry.tab);
+		void closeHerdrTabAsync(entry.tab).finally(() => entry.onClosed?.());
 	}
 }
 
 /** `ms <= 0` closes immediately; otherwise close after the glance delay. */
-export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number): void {
+export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number, onClosed?: () => void): void {
 	const key = lingerKey(tab);
 	const prev = lingeringPanes.get(key);
 	if (prev) {
@@ -547,15 +576,15 @@ export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number): void {
 		lingeringPanes.delete(key);
 	}
 	if (ms <= 0) {
-		void closeHerdrTabAsync(tab);
+		void closeHerdrTabAsync(tab).finally(() => onClosed?.());
 		return;
 	}
 	const timer = setTimeout(() => {
 		lingeringPanes.delete(key);
-		void closeHerdrTabAsync(tab);
+		void closeHerdrTabAsync(tab).finally(() => onClosed?.());
 	}, ms);
 	try { (timer as any).unref?.(); } catch {}
-	lingeringPanes.set(key, { tab, timer });
+	lingeringPanes.set(key, { tab, timer, onClosed });
 }
 
 function tabRefFromCreate(stdout: string, workspaceId: string): HerdrTabRef | null {

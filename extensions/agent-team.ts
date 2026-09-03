@@ -43,7 +43,7 @@ import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, pars
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
-import { boundedOutputPreview, buildAgentResultContractPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildWorkerInitialPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
@@ -609,12 +609,14 @@ export default function (pi: ExtensionAPI) {
 			for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
 		}
 		if (!isToolkitCliAgent(canonicalName)) tools = ensurePiTool(tools, "ask_parent");
-		let systemPrompt = state.def.systemPrompt;
-
-		if (!isToolkitCliAgent(canonicalName)) {
-			systemPrompt += buildAgentResultContractPrompt();
-			if (isExecutionWorker(canonicalName)) systemPrompt += implementationWorkerPrompt();
-		}
+		const workerTask = state.sessionFile
+			? task
+			: buildWorkerInitialPrompt({
+				role: canonicalName,
+				task,
+				rolePrompt: isToolkitCliAgent(canonicalName) ? undefined : state.def.systemPrompt,
+				additionalInstructions: isExecutionWorker(canonicalName) ? implementationWorkerPrompt() : undefined,
+			});
 
 		// Durable journal record — survives parent restarts (see /agents-status).
 		const journalId = runBaseName(agentKey, state.runCount);
@@ -642,7 +644,6 @@ export default function (pi: ExtensionAPI) {
 		const baseArgs = [
 			"--model", model,
 			"--tools", tools,
-			"--append-system-prompt", systemPrompt,
 			"--session", agentSessionFile,
 		];
 		// Headless JSON args for the invisible spawn paths; the herdr visible
@@ -654,7 +655,7 @@ export default function (pi: ExtensionAPI) {
 			args.push("-c");
 		}
 
-		args.push(task);
+		args.push(workerTask);
 
 		const textChunks: string[] = [];
 		let liveText = "";
@@ -842,6 +843,9 @@ export default function (pi: ExtensionAPI) {
 					timeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
 					journal: { dir: sessionDir, id: journalId },
 					paneTitle,
+					onHerdrClosed: () => {
+						if (runEpoch === sessionEpoch) removeAgentWidget(state, ctx);
+					},
 					isCancelled: () => runEpoch !== sessionEpoch || !!signal?.aborted,
 					onProcess: (proc: any) => { state.proc = lifecycle.trackProcess(proc); },
 					onStdoutLine: handleStdoutLine,
@@ -875,6 +879,9 @@ export default function (pi: ExtensionAPI) {
 				herdrDoneExtPath,
 				herdrLabel: paneTitle,
 				herdrPaneKey: journalId,
+				onHerdrClosed: () => {
+					if (runEpoch === sessionEpoch) removeAgentWidget(state, ctx);
+				},
 				journal: { dir: sessionDir, id: journalId },
 				isAborted: () => runEpoch !== sessionEpoch || !!signal?.aborted,
 					onProcess: (child) => { state.proc = lifecycle.trackProcess(child as any); },
