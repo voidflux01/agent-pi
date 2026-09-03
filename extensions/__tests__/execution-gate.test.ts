@@ -154,4 +154,12 @@ describe("shipped wiring", () => {
 		expect(src).toContain('verification.completed');
 		expect(src).toContain("verificationStatus");
 	});
+
+	it("passes the bound contract file path to the verifier prompt", () => {
+		const src = readFileSync(join(root, "..", "lib", "verifier-subagent.ts"), "utf8");
+		expect(src).toContain("Approved contract file path");
+		expect(src).toContain("contract.contractPath");
+		expect(src).toContain('verifierPrompt(input.contract, input.deterministicEvidence, input.contractText) +');
+		expect(src).toContain('"--append-system-prompt", VERIFIER_SYSTEM_PROMPT');
+	});
 });

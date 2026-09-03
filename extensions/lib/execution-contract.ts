@@ -2,6 +2,7 @@
 // ABOUTME: Only [cmd] assertions enter the deterministic PASS decision.
 
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
 export type ContractAssertion =
@@ -16,6 +17,8 @@ export interface AcceptanceContract {
 	acceptanceCriteria: string;
 	evidenceRequirements: string;
 	constraints: string;
+	/** Exact approved Markdown file used as the contract source, when file-backed. */
+	contractPath?: string;
 	assertions: ContractAssertion[];
 	/** [cmd] only — the assertions that decide deterministic PASS. */
 	mandatory: ContractAssertion[];
@@ -110,7 +113,7 @@ export function extractContractAssertions(markdown: string, headings: string[]):
 	return [];
 }
 
-function buildContract(markdown: string, source: AcceptanceContract["source"], headings: string[]): AcceptanceContract {
+function buildContract(markdown: string, source: AcceptanceContract["source"], headings: string[], contractPath?: string): AcceptanceContract {
 	const assertions = extractContractAssertions(markdown, headings);
 	return {
 		version: 3,
@@ -120,20 +123,21 @@ function buildContract(markdown: string, source: AcceptanceContract["source"], h
 		acceptanceCriteria: sectionText(markdown, ["Acceptance Criteria", "Requirements"]),
 		evidenceRequirements: sectionText(markdown, ["Evidence Requirements", "Evidence"]),
 		constraints: sectionText(markdown, ["Constraints"]),
+		contractPath: contractPath ? resolve(contractPath) : undefined,
 		assertions,
 		mandatory: assertions.filter(isMandatory),
 		fingerprint: planFingerprint(markdown),
 	};
 }
 
-export function emptyContract(markdown: string, source: AcceptanceContract["source"]): AcceptanceContract {
-	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
+export function emptyContract(markdown: string, source: AcceptanceContract["source"], contractPath?: string): AcceptanceContract {
+	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", contractPath: contractPath ? resolve(contractPath) : undefined, assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
 }
 
-export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline"): AcceptanceContract {
-	return buildContract(markdown, source, ["Verification Commands", "Contract", "Verification"]);
+export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline", contractPath?: string): AcceptanceContract {
+	return buildContract(markdown, source, ["Verification Commands", "Contract", "Verification"], contractPath);
 }
 
-export function bindSpecContract(markdown: string): AcceptanceContract {
-	return buildContract(markdown, "spec", ["Verification Commands", "Contract", "Requirements", "Acceptance Criteria"]);
+export function bindSpecContract(markdown: string, contractPath?: string): AcceptanceContract {
+	return buildContract(markdown, "spec", ["Verification Commands", "Contract", "Requirements", "Acceptance Criteria"], contractPath);
 }

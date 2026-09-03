@@ -99,4 +99,11 @@ Tests cover search.
 		expect(a.fingerprint).not.toBe(b.fingerprint);
 		expect(planFingerprint(PLAN)).toBe(planFingerprint(PLAN));
 	});
+
+	it("preserves the exact approved contract file path", () => {
+		const plan = bindAcceptanceContract(PLAN, "plan", ".context/todo.md");
+		const spec = bindSpecContract("# Spec: login\n\n## Requirements\n- [cmd] npm test\n", "context-os/specs/login/spec.md");
+		expect(plan.contractPath).toMatch(/\.context\/todo\.md$/);
+		expect(spec.contractPath).toMatch(/context-os\/specs\/login\/spec\.md$/);
+	});
 });

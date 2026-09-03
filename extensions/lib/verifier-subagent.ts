@@ -30,6 +30,8 @@ export interface VerifierSubagentResult {
 	runId?: string;
 }
 
+const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required VERIFIER RESULT JSON output contract supplied in the task prompt.`;
+
 function verifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
 	const assertions = contract.assertions.map((a) => `- ${a.raw}`).join("\n");
 	return `You are an independent verifier subagent and read-only code reviewer. You are the final acceptance auditor for a software change.
@@ -55,6 +57,9 @@ ${contract.constraints || "(none stated)"}
 
 Approved acceptance assertions:
 ${assertions || "(none)"}
+
+Approved contract file path:
+${contract.contractPath || "(not file-backed; use the structured contract above)"}
 
 ${contractText ? `Exact user-confirmed contract text (preserve its scope and conditions during review):\n${contractText}` : ""}
 
@@ -84,7 +89,8 @@ Your final response MUST be exactly one JSON object between these markers. Do no
   "hard_blockers": ["..."],
   "warnings": ["..."]
 }
-## END`;
+
+	## END`;
 }
 
 export function buildVerifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
@@ -173,8 +179,8 @@ export async function runVerifierSubagent(input: {
 		"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
 		...(input.model ? ["--model", input.model] : []),
 		"--tools", "read,bash,grep,find,ls",
-		"--append-system-prompt", verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
-		"Audit the workspace now and return the required VERIFIER RESULT JSON block.",
+		"--append-system-prompt", VERIFIER_SYSTEM_PROMPT,
+		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText) + "\n\nAudit the workspace now and return the required VERIFIER RESULT JSON block.",
 	];
 	const result = await createSubagentRuntime({
 		authorization: currentDispatchAuthorization(),

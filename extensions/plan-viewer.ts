@@ -362,8 +362,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	function bindApprovedPlanContract(markdown: string): void {
-		const bound = bindAcceptanceContract(markdown, "plan");
+	function bindApprovedPlanContract(markdown: string, filePath: string): void {
+		const bound = bindAcceptanceContract(markdown, "plan", filePath);
 		setExecutionContract("error" in bound ? undefined : bound);
 	}
 
@@ -447,7 +447,7 @@ export default function (pi: ExtensionAPI) {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
 				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
 				markPlanApproved(file_path, approvedMarkdown);
-				bindApprovedPlanContract(approvedMarkdown);
+					bindApprovedPlanContract(approvedMarkdown, file_path);
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
@@ -568,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
 				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
 				markPlanApproved(filePath, approvedMarkdown);
-				bindApprovedPlanContract(approvedMarkdown);
+					bindApprovedPlanContract(approvedMarkdown, file_path);
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",

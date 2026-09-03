@@ -358,24 +358,13 @@ export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
 	let activeSession: { kind: "spec"; title: string; url: string; server: Server; onClose: () => void } | null = null;
 
-	function discoverSpecMarkdown(folderPath: string): string | undefined {
-		for (const ent of readdirSync(folderPath, { withFileTypes: true })) {
-			if (!ent.isFile() || !ent.name.endsWith(".md")) continue;
-			const text = readFileSync(join(folderPath, ent.name), "utf8");
-			if (/^##\s+(Requirements|Acceptance Criteria)\s*$/im.test(text)) return text;
-		}
-		return undefined;
-	}
-
 	/** Bind the approved spec.md snapshot as the acceptance contract for verification. */
 	function bindApprovedSpecContract(folderPath: string): void {
 		try {
 			const specPath = join(folderPath, "spec.md");
-			const markdown = existsSync(specPath)
-				? readFileSync(specPath, "utf8")
-				: discoverSpecMarkdown(folderPath);
-			if (!markdown) { setExecutionContract(undefined); return; }
-			const bound = bindSpecContract(markdown);
+			if (!existsSync(specPath)) { setExecutionContract(undefined); return; }
+			const markdown = readFileSync(specPath, "utf8");
+			const bound = bindSpecContract(markdown, specPath);
 			setExecutionContract("error" in bound ? undefined : bound);
 		} catch {
 			setExecutionContract(undefined);
