@@ -232,7 +232,7 @@ export function parseVerifierReport(output: string): VerifierSubagentReport | un
 		evidence: field(block.body, "evidence"),
 		files: listAfterField(block.body, "files"),
 	}));
-	if (requirements.some(item => !item.requirement || !item.evidence || !VERIFICATION_STATUSES.has(item.status))) return undefined;
+	if (requirements.length === 0 || requirements.some(item => !item.requirement || !item.evidence || !VERIFICATION_STATUSES.has(item.status))) return undefined;
 
 	const contractStatus = field(contractSection!, "status").toUpperCase();
 	const reviewStatus = field(reviewSection!, "status").toUpperCase();
@@ -262,7 +262,7 @@ export function parseVerifierReport(output: string): VerifierSubagentReport | un
 	if (Object.values(tests).some(value => value === undefined)) return undefined;
 	const hardBlockers = sectionList(section(body, "Hard Blockers"));
 	const warnings = sectionList(section(body, "Warnings"));
-	if (status === "PASS" && (hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) return undefined;
+	if (status === "PASS" && (requirements.some(item => item.status !== "PASS") || hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) return undefined;
 
 	return {
 		status: status as VerifierSubagentReport["status"],

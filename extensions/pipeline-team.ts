@@ -74,6 +74,7 @@ import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
+import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -228,6 +229,37 @@ export default function (pi: ExtensionAPI) {
 	let planOutput = "";     // $PLAN — from phase 3
 	let reviewOutput = "";   // $REVIEW — from phase 5 (when looping)
 	let reviewLoopCount = 0;
+	registerWorkflowDispatchHook("PIPELINE", {
+		before: ({ name }) => {
+			if (!activeConfig || phaseStates.length === 0) return "PIPELINE dispatch blocked: no active pipeline is selected.";
+			const phase = phaseStates[currentPhaseIndex];
+			if (!phase || !phaseRequiresAgentDispatch(phase.def)) return `PIPELINE dispatch blocked: ${phase?.def.name || "current phase"} does not accept agent dispatch.`;
+			const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+			const allowed = phase.def.agents.some((agent) => normalize(agent.role) === normalize(name));
+			if (!allowed) return `PIPELINE dispatch blocked: ${name} is not configured for phase ${phase.def.name}.`;
+			return undefined;
+		},
+		after: (result) => {
+			const phase = phaseStates[currentPhaseIndex];
+			if (!phase) return;
+			phase.dispatchCount = (phase.dispatchCount || 0) + 1;
+			phase.lastDispatchSuccess = result.status === "done";
+			const output = result.fullOutput || result.output;
+			phase.agents = [{
+				role: result.name,
+				index: 0,
+				status: result.status,
+				task: result.task,
+				elapsed: 0,
+				lastWork: result.output.slice(0, 500),
+				output,
+			}];
+			if (phase.def.name.toLowerCase() === "plan") planOutput = output;
+			if (phase.def.name.toLowerCase() === "review") reviewOutput = output;
+			updateWidget();
+			persistPipelineState();
+		},
+	});
 
 	function persistPipelineState(): void {
 		if (!sessionDir || !activeConfig || phaseStates.length === 0) return;

@@ -249,7 +249,7 @@ Save the user's raw idea to planning/initialization.md
 
 ${GRILL_ME_SECTION}
 
-Write follow-up questions to planning/questions.md, then present with show_plan:
+Write follow-up questions to the active dated spec folder's \`planning/questions.md\`, then present with show_plan:
 - Generate a focused set of numbered clarifying questions that fully resolves the unanswered decisions in the request
 - Frame as "I'm assuming X, is that correct?"
 - Use \`_Default: value_\` format for defaults
@@ -257,7 +257,7 @@ Write follow-up questions to planning/questions.md, then present with show_plan:
 - Each question must address a concrete ambiguity, scope boundary, technical constraint, acceptance criterion, dependency, or delivery expectation
 - Explain why each answer matters and do not add generic or filler questions
 - Cover visual assets (planning/visuals/) or reuse of existing code only when relevant
-- Call \`show_plan { file_path: "planning/questions.md", title: "Requirements", mode: "questions" }\`
+- Call \`show_plan { file_path: "context-os/specs/YYYY-MM-DD-feature-name/planning/questions.md", title: "Requirements", mode: "questions" }\` using the exact folder created in Phase 1.
 - Process answers, check for visual files, ask follow-ups if needed
 Save results to planning/requirements.md
 

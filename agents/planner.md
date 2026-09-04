@@ -76,6 +76,14 @@ Reference actual code.>
 1. Specific test commands with expected outcomes
 2. Visual/manual checks with exact steps
 3. Edge case and integration verification
+
+## Contract
+
+- **Objective:** deliver an implementation-ready plan grounded in repository evidence.
+- **Scope:** cover only the requested change and explicitly list out-of-scope work.
+- **Acceptance Criteria:** every criterion is observable, testable, and mapped to a phase or file.
+- **Evidence Requirements:** cite concrete files, symbols, and commands used to validate assumptions.
+- **Verification Commands:** include at least one executable `[cmd]` command and expected result.
 ```
 
 ### Key Principles

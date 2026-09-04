@@ -60,6 +60,7 @@ import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { projectTeamBatchRecovery } from "./lib/team-batch-recovery.ts";
 import { resumableTeamSessionNames } from "./lib/team-session-cleanup.ts";
+import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -235,6 +236,25 @@ export default function (pi: ExtensionAPI) {
 	let contextWindow = 0;
 	let widgetCompact = true;
 	let selectedAgentIndex = -1; // -1 = no selection
+	registerWorkflowDispatchHook("TEAM", {
+		before: ({ name }) => {
+			if (agentStates.size === 0) return "TEAM dispatch blocked: no active team roster is loaded.";
+			const key = name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+			return agentStates.has(key)
+				? undefined
+				: `TEAM dispatch blocked: ${name} is not in the active team roster.`;
+		},
+		after: (result) => {
+			const key = result.name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+			const state = agentStates.get(key);
+			if (!state) return;
+			state.status = result.status;
+			state.task = result.task;
+			state.lastWork = result.output.slice(0, 500);
+			state.summary = result.output.split("\n").find(Boolean)?.slice(0, 160) || "";
+			updateWidget();
+		},
+	});
 	let taskListState: TaskListState = { selectedIndex: -1, scrollOffset: 0 };
 	let taskListWidget: { invalidate: () => void } | undefined;
 	let taskListTui: { requestRender?: () => void } | undefined;

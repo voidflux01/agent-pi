@@ -47,7 +47,18 @@ export function projectWorkerTools(
 	parentTools: readonly ParentToolMetadata[] = [],
 	policy: WorkerToolPolicy = "readonly",
 ): string {
-	const result = declaredTools.split(",").map((name) => name.trim()).filter(Boolean);
+	const declared = declaredTools.split(",").map((name) => name.trim()).filter(Boolean);
+	const allowed = (name: string): boolean => {
+		if (policy === "execution") return true;
+		const intent = classifyTool(name).intent;
+		// Recon workers are deliberately denied shell, write, network, and
+		// workflow tools. Research web tools are added explicitly by callers.
+		if (policy === "recon") return intent === "read" || intent === "recon";
+		// Review-only workers may run bounded checks through their declared bash
+		// tool, but cannot receive write/network/workflow capabilities.
+		return intent === "read" || intent === "recon" || name === "bash";
+	};
+	const result = declared.filter(allowed);
 	const have = new Set(result);
 	const readIntents = new Set<ToolIntent>(["read", "recon"]);
 	for (const tool of parentTools) {

@@ -43,6 +43,7 @@ import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { workflowDispatchBefore, workflowDispatchAfter, type WorkflowDispatchResult } from "./lib/workflow-dispatch.ts";
 import { AGENT_PI_CONFIG, configuredModelForAgent } from "./lib/agent-pi-config.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
@@ -114,6 +115,7 @@ interface SubState {
 	id: number;
 	status: "running" | "done" | "error";
 	name: string;          // short role label, e.g. "SCOUT", "REVIEWER"
+	dispatchMode: string;  // mode captured at creation; completion may occur after a mode switch
 	task: string;
 	textChunks: string[];
 	toolCount: number;
@@ -148,6 +150,7 @@ export default function (pi: ExtensionAPI) {
 	// processes can finish after that point, but must not touch the old ctx.
 	let sessionEpoch = 0;
 	const widgetBoxes = new Map<number, { invalidate: () => void }>();
+
 	const lifecycle = createWorkerLifecycle();
 
 	function contextCwd(ctx: any): string {
@@ -579,6 +582,17 @@ export default function (pi: ExtensionAPI) {
 					skipContract: toolkitRun,
 				});
 				state.result = compactResult.content;
+				workflowDispatchAfter({
+					mode: state.dispatchMode as WorkflowDispatchResult["mode"],
+					name: state.name,
+					task: state.task,
+					status: state.status,
+					output: compactResult.content,
+					fullOutput: result,
+					fullOutputPath,
+					exitCode: code,
+					batch: state.retainUntilCollected === true,
+				});
 				if (!state.awaitResult) {
 					try {
 						void pi.sendMessage({
@@ -750,6 +764,8 @@ export default function (pi: ExtensionAPI) {
 		}),
 		execute: async (callId, args, signal, _onUpdate, ctx) => {
 			widgetCtx = ctx;
+			const dispatchBlock = workflowDispatchBefore(coordinationState().mode, { name: displayAgentName(args.name), task: args.task, batch: false });
+			if (dispatchBlock) return { content: [{ type: "text", text: dispatchBlock }], details: { error: true, status: "BLOCKED" } };
 			const contextUsage = ctx?.getContextUsage?.();
 			const budget = subagentContextBudget(contextUsage?.percent, 1);
 			if (budget.maxAgents === 0) {
@@ -762,6 +778,7 @@ export default function (pi: ExtensionAPI) {
 				id,
 				status: "running",
 				name: agentName,
+				dispatchMode: coordinationState().mode,
 				task: args.task,
 				textChunks: [],
 				toolCount: 0,
@@ -828,6 +845,10 @@ export default function (pi: ExtensionAPI) {
 			if (!requestedDefs || requestedDefs.length === 0) {
 				return { content: [{ type: "text", text: "Error: No agents specified." }] };
 			}
+			for (const def of requestedDefs) {
+				const dispatchBlock = workflowDispatchBefore(coordinationState().mode, { name: displayAgentName(def.name), task: def.task, batch: true });
+				if (dispatchBlock) return { content: [{ type: "text", text: dispatchBlock }], details: { error: true, status: "BLOCKED" } };
+			}
 			const contextUsage = ctx?.getContextUsage?.();
 			const budget = subagentContextBudget(contextUsage?.percent, requestedDefs.length);
 			if (budget.maxAgents === 0) {
@@ -864,6 +885,7 @@ export default function (pi: ExtensionAPI) {
 					id,
 					status: "running" as const,
 					name: agentName,
+					dispatchMode: coordinationState().mode,
 					task: def.task,
 					textChunks: [],
 					toolCount: 0,
@@ -1106,6 +1128,7 @@ export default function (pi: ExtensionAPI) {
 				id,
 				status: "running",
 				name: displayAgentName(entry.agent),
+				dispatchMode: coordinationState().mode,
 				task: args.prompt,
 				textChunks: [],
 				toolCount: 0,
@@ -1243,6 +1266,7 @@ export default function (pi: ExtensionAPI) {
 				id,
 				status: "running",
 				name: parsed.name,
+				dispatchMode: coordinationState().mode,
 				task: parsed.task,
 				textChunks: [],
 				toolCount: 0,
@@ -1339,6 +1363,7 @@ export default function (pi: ExtensionAPI) {
 				id,
 				status: "running",
 				name: displayAgentName(entry.agent),
+				dispatchMode: coordinationState().mode,
 				task: prompt,
 				textChunks: [],
 				toolCount: 0,

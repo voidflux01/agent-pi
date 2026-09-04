@@ -56,6 +56,8 @@ import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { configuredModelForAgent } from "./lib/agent-pi-config.ts";
+import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
+import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -182,6 +184,27 @@ export default function (pi: ExtensionAPI) {
 	let currentChainTimer: ReturnType<typeof setInterval> | null = null;
 	let navProvider: any = null;
 	const lifecycle = createWorkerLifecycle();
+	registerWorkflowDispatchHook("CHAIN", {
+		before: ({ name }) => {
+			if (!activeChain || stepStates.length === 0) return "CHAIN dispatch blocked: no active chain is selected.";
+			const next = stepStates.findIndex((step) => step.status !== "done");
+			if (next < 0) return "CHAIN dispatch blocked: all chain steps are already complete.";
+			const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+			const expected = normalize(activeChain.steps[next]?.agent || "");
+			return expected === normalize(name)
+				? undefined
+				: `CHAIN dispatch blocked: step ${next + 1} must run ${activeChain.steps[next]?.agent}.`;
+		},
+		after: (result) => {
+			if (!activeChain) return;
+			const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, "-");
+			const index = stepStates.findIndex((step) => normalize(step.agent) === normalize(result.name) && step.status !== "done");
+			if (index < 0) return;
+			stepStates[index].status = result.status === "done" ? "done" : "error";
+			stepStates[index].lastWork = result.output.slice(0, 500);
+			updateWidget();
+		},
+	});
 
 	function loadChains(cwd: string) {
 		const extDir = dirname(fileURLToPath(import.meta.url));
@@ -564,6 +587,17 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Run Chain (sequential pipeline) ─────────
 
+	/** Route chain steps through the canonical subagent_create executor. */
+	async function runCanonicalAgent(agentDef: AgentDef, task: string, ctx: any, signal?: AbortSignal): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
+		const executor = getRegisteredToolExecutors().subagent_create;
+		if (!executor) return { output: "Canonical subagent_create executor is unavailable", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 };
+		const started = Date.now();
+		const response: any = await executor("chain-step", { name: agentDef.name, task, model: agentDef.model || undefined, join: true }, signal, undefined, ctx);
+		const output = Array.isArray(response?.content) ? response.content.map((part: any) => part?.text || "").join("\n") : String(response?.content || response || "");
+		const failed = response?.details?.error === true || /\b(error|blocked|refused)\b/i.test(output.slice(0, 300));
+		return { output, fullOutput: output, fullOutputPath: "", exitCode: failed ? 1 : 0, elapsed: Date.now() - started };
+	}
+
 	async function runChain(
 		task: string,
 		ctx: any,
@@ -633,15 +667,15 @@ export default function (pi: ExtensionAPI) {
 			updateWidget();
 
 			// Resolve prompt: $INPUT (previous step), $ORIGINAL (original task), $INPUT_N (step N output, 1-indexed)
-			let resolvedPrompt = step.prompt
-				.replace(/\$ORIGINAL/g, originalPrompt)
-				.replace(/\$INPUT/g, input);
-			
-			// Replace $INPUT_N with stepOutputs[N-1] (1-indexed)
-			resolvedPrompt = resolvedPrompt.replace(/\$INPUT_(\d+)/g, (_, n) => {
-				const stepIndex = parseInt(n, 10) - 1;
-				return stepIndex >= 0 && stepIndex < stepOutputs.length ? stepOutputs[stepIndex] : "";
-			});
+				let resolvedPrompt = step.prompt.replace(/\$ORIGINAL/g, originalPrompt);
+
+				// Replace indexed inputs before the generic $INPUT token. Otherwise
+				// `$INPUT_2` is consumed as `$INPUT` plus a literal suffix.
+				resolvedPrompt = resolvedPrompt.replace(/\$INPUT_(\d+)/g, (_, n) => {
+					const stepIndex = parseInt(n, 10) - 1;
+					return stepIndex >= 0 && stepIndex < stepOutputs.length ? stepOutputs[stepIndex] : "";
+				});
+				resolvedPrompt = resolvedPrompt.replace(/\$INPUT/g, input);
 
 			const agentDef = allAgents.get(step.agent.toLowerCase());
 			if (!agentDef) {
@@ -702,7 +736,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			orchestrationRun.consumeStep();
-			const result = await runAgent(agentDef, resolvedPrompt, i, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
+			const result = await runCanonicalAgent(agentDef, resolvedPrompt, ctx, orchestrationRun.signal);
 
 			const contractFailure = resultContractFailure(result.fullOutput || "");
 			if (result.exitCode !== 0 || contractFailure) {
