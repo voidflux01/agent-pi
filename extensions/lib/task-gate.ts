@@ -6,11 +6,12 @@ import { RECON_TOOL_NAMES } from "./tool-classification.ts";
 import { classifyToolInvocation, isReadOnlyBash } from "./tool-invocation.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "subagent_create", "subagent_create_batch", "team_batch_recover", "subagent_wait", "ask_user", "verify_execution", "show_report",
-	"advance_phase", "pipeline_status",
+	"tasks", "set_mode", "team_batch_recover", "subagent_wait", "ask_user", "verify_execution", "show_report",
+	"pipeline_status",
 ] as const;
 
-/** Non-read-only workflow tools that require an active task in orchestration modes. */
+/** Non-read-only workflow tools that require an active task in every mode —
+ *  the declaration duty applies to delegation the same as direct bash. */
 export const TASK_EXECUTION_TOOLS = ["subagent_create", "subagent_create_batch", "advance_phase", "compose_exec"] as const;
 
 export const READ_ONLY_BYPASS_TOOLS = RECON_TOOL_NAMES;
@@ -74,7 +75,7 @@ export function isScoutRecon(toolName: string, args?: unknown): boolean {
 export function shouldBypassTaskGate(toolName: string, requireActiveTask = false, args?: unknown): boolean {
 	if (isScoutRecon(toolName, args)) return true;
 	if (classifyToolInvocation(toolName, args).readOnly) return true;
-	if (requireActiveTask && (TASK_EXECUTION_TOOLS as readonly string[]).includes(toolName)) return false;
+	if ((TASK_EXECUTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	return (TASK_GATE_BYPASS_TOOLS as readonly string[]).includes(toolName)
 		|| (READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName);
 }

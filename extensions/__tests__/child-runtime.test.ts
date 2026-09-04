@@ -22,6 +22,17 @@ describe("child process environment boundary", () => {
 		expect(ensurePiTool("read,ask_parent,bash", "ask_parent")).toBe("read,ask_parent,bash");
 	});
 
+	it("inherits toolchain home variables but never credential-like names", () => {
+		const oldHome = process.env.MVND_HOME;
+		process.env.MVND_HOME = "/Users/test/.local/share/maven-mvnd";
+		try {
+			const env = childEnvironment({ PI_SUBAGENT: "1" });
+			expect(env.MVND_HOME).toBe("/Users/test/.local/share/maven-mvnd");
+		} finally {
+			if (oldHome === undefined) delete process.env.MVND_HOME; else process.env.MVND_HOME = oldHome;
+		}
+	});
+
 	it("does not inherit the parent's Pi home directory", () => {
 		const oldDir = process.env.PI_CODING_AGENT_DIR;
 		const oldPkg = process.env.PI_PACKAGE_DIR;

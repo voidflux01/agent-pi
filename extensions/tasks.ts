@@ -47,7 +47,7 @@ export function decideGateClaim(
 		return requireTask
 			? {
 				block: true,
-				reason: "This mode requires task tracking. You MUST use `tasks new-list` and `tasks add` before using write or execution tools.",
+				reason: "Blocked: this mode requires an active task before write/execution tools. Fix: run `tasks new-list` then `tasks add` a concrete first step, and `tasks toggle <id>` it to inprogress — then retry.",
 			}
 			: { block: false };
 	}
@@ -56,13 +56,13 @@ export function decideGateClaim(
 	if (pending.length === 0) {
 		return {
 			block: true,
-			reason: "All work tasks are done. You may still run `verify_execution` and `show_report`; use `tasks add` or `tasks new-list` before starting more work.",
+			reason: "Blocked: no active task — the list is all done (read-only tools, `verify_execution`, and `show_report` still work). Fix for a new request: `tasks add` a task (or `tasks clear` + `tasks new-list` if the old list no longer fits), then `tasks toggle <id>` it to inprogress — then retry.",
 		};
 	}
 	if (active.length === 0) {
 		return {
 			block: true,
-			reason: "No task is in progress. You MUST use `tasks toggle` to mark a task as inprogress before doing any work.",
+			reason: "Blocked: no task is inprogress. Fix: `tasks toggle <id>` to mark a task inprogress — then retry.",
 		};
 	}
 	return { block: false };

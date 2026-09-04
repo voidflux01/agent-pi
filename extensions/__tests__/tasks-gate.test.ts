@@ -15,8 +15,15 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("set_mode", true)).toBe(true);
 	});
 
-	it("should bypass for 'subagent_create' tool in NORMAL mode", () => {
-		expect(shouldBypassTaskGate("subagent_create")).toBe(true);
+	it("does not bypass execution-class dispatch even in NORMAL mode", () => {
+		expect(shouldBypassTaskGate("subagent_create")).toBe(false);
+		expect(shouldBypassTaskGate("subagent_create_batch")).toBe(false);
+		expect(shouldBypassTaskGate("compose_exec")).toBe(false);
+	});
+
+	it("still bypasses scout and researcher dispatch without a task", () => {
+		expect(shouldBypassTaskGate("subagent_create", false, { name: "scout", task: "map auth" })).toBe(true);
+		expect(shouldBypassTaskGate("subagent_create", false, { name: "researcher", task: "check docs" })).toBe(true);
 	});
 
 	it("should not bypass delegated work in orchestration modes", () => {
@@ -26,12 +33,10 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("compose_exec", true)).toBe(false);
 	});
 
-	it("should bypass for 'subagent_create_batch' tool", () => {
-		expect(shouldBypassTaskGate("subagent_create_batch")).toBe(true);
-	});
-
-	it("should bypass for 'ask_user' tool (communication tool)", () => {
+	it("still bypasses communication and completion tools", () => {
 		expect(shouldBypassTaskGate("ask_user")).toBe(true);
+		expect(shouldBypassTaskGate("verify_execution")).toBe(true);
+		expect(shouldBypassTaskGate("show_report")).toBe(true);
 	});
 
 	it("bypasses read-only bash inspection but not mutating commands", () => {
@@ -59,8 +64,8 @@ describe("shouldBypassTaskGate", () => {
 		expect(shouldBypassTaskGate("")).toBe(false);
 	});
 
-	it("should bypass for 'advance_phase' pipeline tool", () => {
-		expect(shouldBypassTaskGate("advance_phase")).toBe(true);
+	it("does not bypass 'advance_phase' (execution-class)", () => {
+		expect(shouldBypassTaskGate("advance_phase")).toBe(false);
 	});
 
 	it("should bypass for 'pipeline_status' pipeline tool", () => {
@@ -181,7 +186,7 @@ describe("scout reconnaissance bypass", () => {
 
 	it("classifies subagent batch and recovery at the shared gate", () => {
 		expect(shouldBypassTaskGate("subagent_create_batch", true)).toBe(false);
-		expect(shouldBypassTaskGate("subagent_create_batch", false)).toBe(true);
+		expect(shouldBypassTaskGate("subagent_create_batch", false)).toBe(false);
 		expect(shouldBypassTaskGate("team_batch_recover", true)).toBe(true);
 	});
 

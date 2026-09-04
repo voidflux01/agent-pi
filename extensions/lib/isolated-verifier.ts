@@ -48,6 +48,7 @@ export async function runAcceptanceVerifier(input: {
 	model?: string;
 	signal?: AbortSignal;
 	contractText?: string;
+	previousReport?: VerifierSubagentReport;
 	}): Promise<{ receipt?: VerifierReceipt; error?: string }> {
 	if (input.contract.mandatory.length === 0) {
 		return { error: "Verifier requires an approved acceptance contract with executable assertions." };
@@ -64,6 +65,7 @@ export async function runAcceptanceVerifier(input: {
 		model: input.model,
 		deterministicEvidence,
 		contractText: input.contractText,
+		previousReport: input.previousReport,
 		signal: input.signal,
 	});
 	if (!subagent.report) return { error: subagent.error || "独立 verifier 未返回有效 Markdown ## RESULT。" };

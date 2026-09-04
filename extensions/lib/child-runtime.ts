@@ -8,6 +8,12 @@ const SAFE_ENV_NAMES = new Set([
 	"PWD", "USER", "LOGNAME", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
 	"HERDR_BIN_PATH", "HERDR_DONE_PATH", "HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET_PATH",
 	"HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID",
+	// Toolchain location variables — never secrets, but required by build tools
+	// that resolve their installation directory from the environment (e.g. mvnd
+	// fails with "Could not get value for Environment.MVND_HOME" without it).
+	"JAVA_HOME", "MVND_HOME", "M2_HOME", "MAVEN_OPTS", "GRADLE_HOME",
+	"ANDROID_HOME", "ANDROID_SDK_ROOT", "NDK_HOME",
+	"CARGO_HOME", "RUSTUP_HOME", "GOPATH", "DOTNET_ROOT",
 ]);
 
 /** Parent Pi home/package paths. omp/prime honor these and would load ~/.pi/agent. */

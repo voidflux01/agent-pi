@@ -154,6 +154,37 @@ export function buildVerifierPrompt(contract: AcceptanceContract, deterministicE
 	return verifierPrompt(contract, deterministicEvidence, contractText);
 }
 
+/** Narrowed instructions for a re-verification round after remediation of the
+ *  same contract. Prior round conclusions are supplied as structured deltas so
+ *  the fresh session audits only what changed — no full re-audit, no replayed
+ *  conversation history. */
+function reVerificationPrompt(previous: VerifierSubagentReport): string {
+	const failedRequirements = previous.requirements
+		.filter((item) => item.status !== "PASS")
+		.map((item) => `- [${item.status}] ${item.requirement} (prior evidence: ${item.evidence || "none"})`)
+		.join("\n") || "- none";
+	const materialFindings = previous.review.findings
+		.filter((finding) => finding.severity === "CRITICAL" || finding.severity === "HIGH" || finding.severity === "MEDIUM")
+		.map((finding) => `- [${finding.severity}] ${finding.title} @ ${finding.location}${finding.evidence ? `: ${finding.evidence}` : ""}`)
+		.join("\n") || "- none";
+	const blockers = previous.hard_blockers.filter((item) => item && !/^none$/i.test(item)).join("; ") || "none";
+	return `Re-verification round: a previous audit of this same contract concluded ${previous.status} and remediation changes have since been applied. Prior-round outcome: ${previous.summary}
+
+Prior failing requirements:
+${failedRequirements}
+
+Prior material review findings:
+${materialFindings}
+
+Prior hard blockers: ${blockers}
+
+Your audit is NARROWED accordingly:
+1. Re-verify each prior failing requirement against the current workspace with fresh evidence.
+2. Review the remediation changes (git diff) for regressions and incomplete fixes.
+3. Do not re-litigate areas that already passed unless the remediation touched them; a light consistency check is enough there.
+4. Still return the complete required ## RESULT block in the full format: one ### REQ block per acceptance criterion (re-verified or carried with current evidence) and ### REV blocks only for new or remaining findings.`;
+}
+
 const VERIFICATION_STATUSES = new Set(["PASS", "FAIL", "BLOCKED"]);
 const QUALITY_STATUSES = new Set(["PASS", "WARN", "FAIL"]);
 const REVIEW_SEVERITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
@@ -309,12 +340,17 @@ export async function runVerifierSubagent(input: {
 	model?: string;
 	deterministicEvidence?: string;
 	contractText?: string;
+	previousReport?: VerifierSubagentReport;
 	pollTimeoutMs?: number;
 	signal?: AbortSignal;
 }): Promise<VerifierSubagentResult> {
 	const sessionDir = join(input.cwd, ".pi", "agent-sessions", "verifier");
 	mkdirSync(sessionDir, { recursive: true });
-	const sessionFile = join(sessionDir, `verifier-${Date.now()}.jsonl`);
+	// Each verification round gets a fresh session: the previous round's audit
+	// conclusions are carried forward via the structured receipt (delta prompt),
+	// not by replaying an ever-growing conversation. The fingerprint stays in
+	// the file name for traceability only.
+	const sessionFile = join(sessionDir, `verifier-${input.contract.fingerprint}-${Date.now()}.jsonl`);
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
 	const launch = (prompt: string, tools: string, suffix: string) => createSubagentRuntime({
@@ -340,9 +376,12 @@ export async function runVerifierSubagent(input: {
 	});
 	const initialPrompt = [
 		VERIFIER_SYSTEM_PROMPT,
+		...(input.previousReport && input.previousReport.status !== "PASS"
+			? [reVerificationPrompt(input.previousReport)]
+			: []),
 		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
 		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
-	].join("\n\n");
+	].filter(Boolean).join("\n\n");
 	const result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
 	let outputText = result.outputText || "";
 	let report = result.exitCode === 0 ? parseVerifierReport(`${readAssistantTranscript(sessionFile)}\n${outputText}`) : undefined;

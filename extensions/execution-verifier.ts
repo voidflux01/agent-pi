@@ -80,6 +80,13 @@ export default function (pi: ExtensionAPI) {
 			}
 			const cwd = ctx.cwd || process.cwd();
 			const attempt = bumpVerifierAttempt();
+			// Re-verification rounds against the same contract get a narrowed delta
+			// prompt built from the prior receipt — fresh session, focused audit.
+			const previousReceipt = getVerifierReceipt();
+			const previousReport = previousReceipt?.verifier?.report
+				&& previousReceipt.contractFingerprint === contract.fingerprint
+				? previousReceipt.verifier.report
+				: undefined;
 			const orchestrationRun = createOrchestrationRun({
 				context: ctx,
 				parentRunId: process.env.PI_AGENT_PI_RUN_ID,
@@ -102,6 +109,7 @@ export default function (pi: ExtensionAPI) {
 				attempt,
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,
+				previousReport,
 				signal,
 			});
 			if (!verification.receipt) {

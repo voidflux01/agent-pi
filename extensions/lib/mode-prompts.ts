@@ -87,6 +87,7 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 - Keep the user's task as the unit of work; use tasks only when tracking several real steps helps.
 - For multi-step work with clear scope and an approved direction, stay in NORMAL, create tasks, activate the current task, then work through the list.
 - Once a task list exists, keep one task inprogress before write, edit, or bash. PI_TASKS_STRICT=0 makes this advisory.
+- If every task is done and the user asks for something new, treat it as a new request: \`tasks add\` the new step (or \`tasks clear\` + \`tasks new-list\` if the old list no longer fits) and \`tasks toggle\` it inprogress before running bash or write tools. The task gate will block them otherwise.
 
 ${GRILL_ME_SECTION}
 
