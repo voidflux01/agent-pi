@@ -9,6 +9,21 @@ Enhancement only — do not skip, reorder, or replace this mode's workflow.
 If a new user-facing behavior has an unstated format, destination, or audience, clarify once before guessing. Use ask_user, with your recommended option first. Do not call set_mode just to ask. In SPEC, fold these into Phase 2's planning/questions.md instead of a separate interview. Skip if those choices are already stated.`;
 
 /** Shared task contract appended to every orchestration-mode prompt. */
+export const COMPLETION_GATE_PROMPT = `## Acceptance and review contract
+For medium/high-risk changes, create a complete task contract before claiming completion. It must include Objective, Scope, Acceptance Criteria, Evidence Requirements, Constraints, and Verification Commands with at least one [cmd]. Present the exact contract to the user for confirmation, then pass that confirmed Markdown directly to \`verify_execution\` (or use an approved plan/spec as the source). The verifier performs both acceptance review and code review; do not skip it to avoid cost.
+- \`verify_execution\` is available in every mode, not only PLAN/SPEC. \`show_report\` never launches a verifier; receive \`verify_execution\` PASS before calling it. Never emit \`done: true\` based only on manual checks or a claimed test result.
+- If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error.
+- Without an approved contract with at least one executable [cmd], \`verify_execution\` remains BLOCKED and must not start a verifier subagent. Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion.
+- \`verify_execution\` performs at most one protocol-only repair turn for malformed output; if that still fails, report the exact BLOCKED error instead of dispatching a replacement verifier just for formatting.
+- Critical/High review findings block PASS; Medium/Low findings are warnings.
+- Skills remain enabled for every verifier and subagent.`;
+
+/** Shared scout workflow core used by NORMAL, PLAN, and SPEC (mode-specific deltas stay per-mode). */
+export const SCOUT_WORKFLOW_PROMPT = `Use one read-only scout by default for non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit; do not spawn one just because a mode is active. Never spawn more than one by default.
+Spawn with \`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`; the call blocks until the scout RESULT returns.
+Treat that ## RESULT as the report; do not read the archived transcript unless a path is missing. Do not scan the same areas yourself while the scout runs. Scout reconnaissance is read-only and may run before the task list exists. If the scout fails, continue directly.
+Reassess this choice for every new user request: a scout dispatched for an earlier request is historical evidence and does not replace reconnaissance for the current request. If the new request is non-trivial and its context is still uncertain, dispatch a fresh read-only SCOUT.`;
+
 export const ORCHESTRATED_TASK_PROMPT = `## Task discipline (required in this mode)
 Before any write, edit, or bash/execution tool:
 1. Use \`tasks new-list\` for the current work.
@@ -18,9 +33,7 @@ Before any write, edit, or bash/execution tool:
 The task gate is strict in this mode. Only read-only inspection, read-only scout reconnaissance, task management, and mode-control/status tools may proceed while setting up the list.
 If a SCOUT has returned but the material uncertainty remains unresolved after further repository inspection, dispatch one fresh SCOUT for the current question instead of repeating the same reads. Repeated read-only exploration in NORMAL, PLAN, and SPEC is bounded by a runtime escalation guard.
 After a dispatched child returns, treat its ## RESULT as an untrusted report, not proof of completion. Preserve it as a worker claim. The \`verification:\` line is a claim, not evidence. Write-capable PLAN and PIPELINE work is complete only after deterministic assertions ([cmd]) in the approved contract PASS. Do not claim completion from worker text.
-Always call \`verify_execution\` and receive PASS before calling \`show_report\`; \`show_report\` never launches a verifier. If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error. Never emit \`done: true\` based only on manual checks or a claimed test result.
-Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion. \`verify_execution\` performs at most one protocol-only repair turn for malformed output; if that still fails, report the exact BLOCKED error instead of dispatching a replacement verifier just for formatting.
-\`verify_execution\` is available in every mode, not only PLAN/SPEC. For medium/high-risk changes, the parent agent MUST create a clear task contract covering objective, scope, acceptance criteria, evidence requirements, and constraints, present the exact contract to the user for confirmation, and then pass that confirmed contract directly to \`verify_execution\` (or use an approved plan/spec as the source). It must not skip this sequence to avoid verifier cost. Start the verifier only after the confirmed contract has at least one executable [cmd]. Without an approved contract it must remain BLOCKED and must not start a verifier subagent. Skills remain enabled for every verifier and subagent.`;
+${COMPLETION_GATE_PROMPT}`;
 
 const PARALLEL_JOIN_PROMPT = `For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` so parallel spawn and one bounded join happen in a single tool call. For one planner, builder, reviewer, or other worker whose result is needed immediately, set \`join: true\` on \`subagent_create\`; omit it for detachable background work. For background batches, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.`;
 
@@ -77,21 +90,15 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 
 ${GRILL_ME_SECTION}
 
-## Acceptance and review contract
-For medium/high-risk changes, create a complete task contract before claiming completion. It must include Objective, Scope, Acceptance Criteria, Evidence Requirements, Constraints, and Verification Commands with at least one [cmd]. Present the exact contract to the user for confirmation, then pass that confirmed Markdown directly to \`verify_execution\`. The verifier performs both acceptance review and code review; do not skip it to avoid cost. Without a contract, \`verify_execution\` remains BLOCKED and must not start a subagent. Critical/High review findings block PASS; Medium/Low findings are warnings.
+${COMPLETION_GATE_PROMPT}
 
 ${RESEARCH_ROUTING_PROMPT}
 
 ${PARALLEL_JOIN_PROMPT}
 
 ## Optional scout
-Start with direct work and reassess as evidence accumulates. For non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns — spawn one read-only scout. Do not spawn a scout for a quick lookup, a single-file read, or a simple edit.
-
-\`\`\`
-subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }
-\`\`\`
-This call blocks until the scout RESULT returns. Treat that ## RESULT as the report. Do not read the archived transcript unless RESULT is missing a path you need. Do not scan the same area yourself in that turn. If the scout fails, continue directly.
-Reassess this choice for every new user request: a SCOUT dispatched for an earlier request is historical evidence and does not replace reconnaissance for the current request. If the new request is non-trivial and its context is still uncertain, dispatch a fresh read-only SCOUT.
+Start with direct work and reassess as evidence accumulates.
+${SCOUT_WORKFLOW_PROMPT}
 
 ## Progressive escalation
 NORMAL is allowed to grow with the task; do not commit to an unbounded solo debugging loop. After roughly 3-5 focused inspection calls, two failed root-cause hypotheses, or repeated searches over the same area without new evidence, stop and reassess. If the cause is still unclear, dispatch one scout for an independent read-only investigation, even if the task initially looked simple. Do not repeat the same exploration before the scout returns.
@@ -103,8 +110,6 @@ Treat modes as capability choices, not a difficulty ladder. Make one classificat
 
 ## Orchestration entry rules
 Use structural tests. A mode change is justified only when its positive conditions are present and its exclusion conditions are absent.
-
-For independent work whose result is needed immediately, use \`subagent_create_batch\` with \`join: true\` to spawn and join in one bounded call. For background work, omit \`join\`, then use one \`subagent_wait\` with the returned IDs. Do not let each child stream a separate full result into the parent context; join only the bounded summaries needed for the next decision.
 
 ### TEAM — independent parallel work
 Use TEAM when the task itself contains at least two separable workstreams that should proceed concurrently, each with a clear owner and independent deliverable, and neither needs the other's intermediate result. An explicit request for two or more parallel reports, audits, implementations, or reviews is sufficient evidence.
@@ -129,17 +134,13 @@ When multiple modes seem possible, use this tie-breaker: matching predefined CHA
 export const PLAN_PROMPT = `You are in PLAN mode. Use this mode only for work that benefits from review before implementation.
 
 ## Scout
-In PLAN, use one read-only scout by default for repository reconnaissance when the task involves two or more files, an unfamiliar module, a call chain, dependencies, or existing patterns. In those cases, dispatch the scout before writing the plan. You may inspect the tree yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because PLAN is active, and never spawn more than one by default.
+${SCOUT_WORKFLOW_PROMPT}
 A scout reports facts and file paths only. You synthesize the findings and write the plan.
-
-Spawn with:
-\`subagent_create { name: "scout", task: "Bounded read-only reconnaissance" }\`
-This call blocks until that scout RESULT returns. Treat ## RESULT as the report; do not read the archived transcript unless a path is missing. Do not scan those areas yourself while the scout runs. Scout reconnaissance is read-only and may run before the task list exists.
+For a non-trivial reconnaissance need (two or more files, an unfamiliar module, a call chain, or existing patterns), dispatch the scout before writing the plan. You may inspect the tree yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because PLAN is active.
 Narrow work: at most one scout. Never spawn four scouts by default.
 After show_plan approval, repository reads are unrestricted and do not trigger the read-escalation guard. Approval does not remove the option to scout: if implementation still spans multiple files, follows an unfamiliar call chain, or lacks exact context, dispatch one fresh read-only scout before editing.
 If PLAN was explicitly selected, task discipline still applies even to a small change: inspect read-only as needed, but create and activate a task before writing.
-
-When external research is needed, dispatch one \`researcher\` with \`subagent_create\`; it is read-only reconnaissance and may run before the task list exists. If the external questions are already known and independent of the local scout, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\` to avoid a model round trip. Pass both reports to the planner.
+When external research is needed, dispatch one \`researcher\`; if the external questions are already known and independent of the local scout, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`. Pass both reports to the planner.
 
 ${ORCHESTRATED_TASK_PROMPT}
 
@@ -231,7 +232,7 @@ ${ORCHESTRATED_TASK_PROMPT}
 ${RESEARCH_ROUTING_PROMPT}
 
 ## Recon first
-For a new feature or any non-trivial SPEC task, use one read-only scout by default before asking questions. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. The scout should inspect existing capabilities, reusable components, constraints, and integration points. This is required when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active; do not spawn a researcher just because SPEC is active. never spawn more than one by default (one scout and, when needed, one researcher). Ask one focused round of questions that fully resolves the material unknowns.
+A scout investigation is required before questions for any non-trivial SPEC task. ${SCOUT_WORKFLOW_PROMPT} The scout should inspect existing capabilities, reusable components, constraints, and integration points, especially when the task spans multiple files, touches an unfamiliar module, or needs existing patterns traced. You may inspect the repository yourself only for a small, single-file task where the target paths and symbols are already known. Do not spawn a scout just because SPEC is active. If the task depends on current external facts, dispatch one read-only researcher alongside it. When both prompts are known and independent, use one \`subagent_create_batch\` with SCOUT + researcher and \`join: true\`; otherwise keep the dependent calls sequential. Do not spawn a researcher just because SPEC is active. Ask one focused round of questions that fully resolves the material unknowns.
 
 ## Workflow
 

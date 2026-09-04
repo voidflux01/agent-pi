@@ -221,7 +221,7 @@ describe("PLAN prompt complexity guidance", () => {
 
 	it("does not prescribe a batch for ordinary PLAN scout work", async () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
-		expect(PLAN_PROMPT).toContain("use one read-only scout by default");
+		expect(PLAN_PROMPT).toContain("Use one read-only scout by default");
 		expect(PLAN_PROMPT).toContain("use one `subagent_create_batch` with SCOUT + researcher");
 		expect(PLAN_PROMPT).not.toContain("Scout lifecycle management");
 	});

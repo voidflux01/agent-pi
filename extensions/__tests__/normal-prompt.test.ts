@@ -117,8 +117,8 @@ describe("buildNormalPrompt — Scout delegation", () => {
 	it("tells the parent the scout call blocks until RESULT", () => {
 		const result = buildNormalPrompt({ activeChain: null, activePipeline: null });
 		expect(result).toContain("blocks until the scout RESULT returns");
-		expect(result).toContain("Do not scan the same area yourself");
-		expect(result).toContain("Do not read the archived transcript");
+		expect(result).toContain("Do not scan the same areas yourself");
+		expect(result).toContain("do not read the archived transcript");
 	});
 
 	it("reassesses scout needs for each new user request", () => {

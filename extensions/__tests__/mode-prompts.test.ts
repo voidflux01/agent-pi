@@ -41,7 +41,7 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain("Never emit `done: true`");
 		expect(PLAN_PROMPT).toContain("completionBlocked: true");
 		expect(PLAN_PROMPT).toContain("done: false");
-		expect(PLAN_PROMPT).toContain("Always call `verify_execution` and receive PASS before calling `show_report`");
+		expect(PLAN_PROMPT).toContain("receive `verify_execution` PASS before calling it");
 		expect(PLAN_PROMPT.indexOf("call `verify_execution` and require PASS")).toBeLessThan(PLAN_PROMPT.indexOf("After verifier PASS, call `show_report`"));
 	});
 
@@ -92,7 +92,7 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 	});
 
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {
-		expect(PLAN_PROMPT).toContain("by default for repository reconnaissance");
+		expect(PLAN_PROMPT).toContain("Use one read-only scout by default");
 		expect(PLAN_PROMPT).toContain("two or more files");
 		expect(PLAN_PROMPT).toContain("dispatch the scout before writing the plan");
 		expect(PLAN_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
@@ -110,8 +110,8 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 	});
 
 	it("makes each scout call block until RESULT", () => {
-		expect(PLAN_PROMPT).toContain("blocks until that scout RESULT returns");
-		expect(PLAN_PROMPT).toContain("Do not scan those areas yourself");
+		expect(PLAN_PROMPT).toContain("blocks until the scout RESULT returns");
+		expect(PLAN_PROMPT).toContain("Do not scan the same areas yourself");
 		expect(PLAN_PROMPT).not.toContain("Do not wait for a fixed scout count");
 	});
 
@@ -196,7 +196,7 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("spans multiple files");
 		expect(SPEC_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
 		expect(SPEC_PROMPT).toContain("Do not spawn a scout just because SPEC is active");
-		expect(SPEC_PROMPT).toContain("never spawn more than one by default");
+		expect(SPEC_PROMPT).toContain("Never spawn more than one by default");
 		expect(SPEC_PROMPT).toContain("After show_spec approval, repository reads are unrestricted");
 		expect(SPEC_PROMPT).toContain("Approval does not remove the option to scout");
 	});
