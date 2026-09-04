@@ -7,6 +7,7 @@
       "default": "medium",
       "byAgent": {
         "builder": "low",
+        "verifier": "low",
         "paladin": "low",
         "herald": "low",
         "tester": "low",
