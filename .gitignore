@@ -28,5 +28,8 @@ commands/private/
 # Runtime / Pi state
 .pi/
 
+# Probe / scratch artifacts
+PROBE-*/
+
 # Stakpak session files
 .stakpak/session*

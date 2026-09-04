@@ -1,17 +1,17 @@
 {
-  "name": "user-question-extension",
+  "name": "agent-pi-extensions",
   "private": true,
   "version": "1.0.0",
-  "description": "Tests for user-question extension",
+  "description": "Extension runtime and test harness for the agent-pi package",
   "scripts": {
     "test": "vitest run --config __tests__/vitest.config.ts",
     "test:watch": "vitest watch --config __tests__/vitest.config.ts",
     "test:coverage": "vitest run --coverage --config __tests__/vitest.config.ts"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.9.3",
-    "vitest": "^1.6.1"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "yaml": "^2.8.2"
