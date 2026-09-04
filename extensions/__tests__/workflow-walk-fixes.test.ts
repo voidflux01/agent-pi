@@ -112,9 +112,16 @@ describe("source wiring", () => {
 	});
 
 	it("keeps full worker transcripts out of structured team/chain/pipeline details", () => {
+		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 		for (const file of ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"]) {
-			const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", file), "utf8");
-			expect(source).toContain("outputPreview");
+			const source = readFileSync(join(root, file), "utf8");
+			if (file === "agent-chain.ts") {
+				// Chain bounds worker output via boundedHandoff and a 500-char widget preview.
+				expect(source).toContain("boundedHandoff(");
+				expect(source).toContain("slice(0, 500)");
+			} else {
+				expect(source).toContain("outputPreview");
+			}
 			expect(source).not.toContain("details.fullOutput");
 		}
 	});
@@ -122,7 +129,7 @@ describe("source wiring", () => {
 	it("returns the parent RunContext id from team, chain, and pipeline entry points", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: result.runId");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Pipeline dispatch failed:");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain('reason: "already_dispatched"');

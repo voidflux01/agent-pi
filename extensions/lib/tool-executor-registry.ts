@@ -10,7 +10,7 @@ export interface RegisteredToolDefinition {
 }
 
 const EXECUTOR_KEY = "__piRegisteredToolExecutors";
-const REMOVED_AGENT_TOOLS = new Set(["dispatch_agent", "dispatch_agents", "dispatch_team_batch", "run_chain"]);
+const REMOVED_AGENT_TOOLS = new Set(["dispatch_agent", "dispatch_agents", "dispatch_team_batch"]);
 
 function executorMap(): Record<string, RegisteredToolDefinition["execute"]> {
 	const g = globalThis as any;
