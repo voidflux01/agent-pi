@@ -29,8 +29,7 @@ import {
 	matchesKey, Key, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
-import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
-import { join, resolve, basename, dirname } from "path";
+import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
@@ -59,7 +58,8 @@ import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
-import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { loadAgentModelsConfig, parseAgentMdFile, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { displayName } from "./lib/ui-helpers.ts";
 import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
@@ -114,55 +114,6 @@ interface PhaseState {
 	lastReceiptId?: string;
 }
 
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
-// ── Frontmatter Parser (reused from agent-team) ──
-
-function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfig): AgentDef | null {
-	try {
-		const raw = readFileSync(filePath, "utf-8");
-		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-		if (!match) return null;
-
-		const frontmatter: Record<string, string> = {};
-		for (const line of match[1].split("\n")) {
-			const idx = line.indexOf(":");
-			if (idx > 0) {
-				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-			}
-		}
-
-		if (!frontmatter.name) return null;
-
-		// Model resolution: models.json > frontmatter fallback > empty
-		let model = "";
-		if (modelsConfig) {
-			const key = frontmatter.name.toLowerCase();
-			const entry = modelsConfig.agents[key];
-			if (entry) {
-				model = resolveAgentModelString(frontmatter.name, modelsConfig);
-			}
-		}
-		if (!model && frontmatter.model) {
-			model = frontmatter.model;
-		}
-
-		return {
-			name: frontmatter.name,
-			description: frontmatter.description || "",
-			tools: frontmatter.tools || "read,grep,find,ls",
-			model,
-			systemPrompt: match[2].trim(),
-		};
-	} catch {
-		return null;
-	}
-}
-
 function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: AgentModelsConfig): Map<string, AgentDef> {
 	const dirs = [
 		join(cwd, "agents"),
@@ -179,7 +130,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 			for (const file of readdirSync(dir)) {
 				if (!file.endsWith(".md")) continue;
 				const fullPath = resolve(dir, file);
-				const def = parseAgentFile(fullPath, modelsConfig);
+				const def = parseAgentMdFile(fullPath, modelsConfig);
 				if (def && !agents.has(def.name.toLowerCase())) {
 					agents.set(def.name.toLowerCase(), def);
 				}

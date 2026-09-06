@@ -48,7 +48,8 @@ import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedHandoff, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
-import { loadExplicitAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { loadExplicitAgentModelsConfig, parseAgentMdFile, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { displayName } from "./lib/ui-helpers.ts";
 import { providerModelString, resolveInheritedModel } from "./lib/model-inheritance.ts";
 import { parseChainYaml, type ChainStep, type ChainDef } from "./lib/parse-chain-yaml.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
@@ -82,54 +83,7 @@ interface StepState {
 	toolCount?: number;
 }
 
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
-// ── Frontmatter Parser ───────────────────────────
-
-function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfig): AgentDef | null {
-	try {
-		const raw = readFileSync(filePath, "utf-8");
-		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-		if (!match) return null;
-
-		const frontmatter: Record<string, string> = {};
-		for (const line of match[1].split("\n")) {
-			const idx = line.indexOf(":");
-			if (idx > 0) {
-				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-			}
-		}
-
-		if (!frontmatter.name) return null;
-
-		// Model resolution: models.json > frontmatter fallback > empty
-		let model = "";
-		if (modelsConfig) {
-			const key = frontmatter.name.toLowerCase();
-			const entry = modelsConfig.agents[key] || modelsConfig.default;
-			if (entry?.model) {
-				model = resolveAgentModelString(frontmatter.name, modelsConfig);
-			}
-		}
-		if (!model && frontmatter.model) {
-			model = frontmatter.model;
-		}
-
-		return {
-			name: frontmatter.name,
-			description: frontmatter.description || "",
-			tools: frontmatter.tools || "read,grep,find,ls",
-			model,
-			systemPrompt: match[2].trim(),
-		};
-	} catch {
-		return null;
-	}
-}
+// ── Agent Directory Scan ─────────────────────────
 
 function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: AgentModelsConfig): Map<string, AgentDef> {
 	const dirs = [
@@ -150,7 +104,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 					if (file.isDirectory()) {
 						scan(fullPath);
 					} else if (file.name.endsWith(".md")) {
-						const def = parseAgentFile(fullPath, modelsConfig);
+						const def = parseAgentMdFile(fullPath, modelsConfig, { defaultFallback: true });
 						if (def && !agents.has(def.name.toLowerCase())) {
 							agents.set(def.name.toLowerCase(), def);
 						}

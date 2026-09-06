@@ -3,6 +3,11 @@
 
 import { visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
 
+/** Convert a kebab-case agent name to a display label: "plan-build" → "Plan Build". */
+export function displayName(name: string): string {
+	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 /** Pad a string with spaces to reach the target visible width, truncating if too long. */
 export function padRight(s: string, width: number): string {
 	const vis = visibleWidth(s);

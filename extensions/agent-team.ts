@@ -38,10 +38,10 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
+import { loadAgentModelsConfig, loadToolkitModelsConfig, parseAgentMdFile, scanToolkitAgentDefs, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
-import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
+import { padRight, wordWrap, sideBySide, displayName } from "./lib/ui-helpers.ts";
 import { beginPanel, formatRow, sectionHeader } from "./lib/tui/panel.ts";
 import { toolResultText } from "./lib/tui/tool-render.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
@@ -98,12 +98,6 @@ interface AgentState {
 	proc?: any;                 // ChildProcess ref for escape-cancel
 }
 
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
 function abbreviateAgentName(name: string): string {
 	const parts = name.split("-");
 	if (parts.length > 1) {
@@ -143,49 +137,7 @@ export function defaultTeamName(teams: Record<string, string[]>): string | undef
 	return small || names[0];
 }
 
-// ── Frontmatter Parser ───────────────────────────
-
-function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfig): AgentDef | null {
-	try {
-		const raw = readFileSync(filePath, "utf-8");
-		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-		if (!match) return null;
-
-		const frontmatter: Record<string, string> = {};
-		for (const line of match[1].split("\n")) {
-			const idx = line.indexOf(":");
-			if (idx > 0) {
-				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-			}
-		}
-
-		if (!frontmatter.name) return null;
-
-		// Model resolution: models.json > frontmatter fallback > empty
-		let model = "";
-		if (modelsConfig) {
-			const key = frontmatter.name.toLowerCase();
-			const entry = modelsConfig.agents[key];
-			if (entry) {
-				model = resolveAgentModelString(frontmatter.name, modelsConfig);
-			}
-		}
-		if (!model && frontmatter.model) {
-			model = frontmatter.model;
-		}
-
-		return {
-			name: frontmatter.name,
-			description: frontmatter.description || "",
-			tools: frontmatter.tools || "read,grep,find,ls",
-			model,
-			systemPrompt: match[2].trim(),
-			file: filePath,
-		};
-	} catch {
-		return null;
-	}
-}
+// ── Agent Directory Scan ─────────────────────────
 
 function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: AgentModelsConfig): AgentDef[] {
 	const dirs = [
@@ -207,7 +159,7 @@ function scanAgentDirs(cwd: string, extProjectDir?: string, modelsConfig?: Agent
 					if (file.isDirectory()) {
 						scan(fullPath);
 					} else if (file.name.endsWith(".md")) {
-						const def = parseAgentFile(fullPath, modelsConfig);
+						const def = parseAgentMdFile(fullPath, modelsConfig, { includeFile: true });
 						if (def && !seen.has(def.name.toLowerCase())) {
 							seen.add(def.name.toLowerCase());
 							agents.push(def);

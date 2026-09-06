@@ -180,6 +180,69 @@ export function parseAgentFile(filePath: string, modelsConfig?: AgentModelsConfi
 	}
 }
 
+export interface ParseAgentMdFileOptions {
+	/** agent-chain: fall back to modelsConfig.default AND require entry.model before resolving. */
+	defaultFallback?: boolean;
+	/** agent-team: include file: filePath on the returned def. */
+	includeFile?: boolean;
+}
+
+/**
+ * Parse a single agent .md file using the extension (team/chain/pipeline)
+ * semantics: model is resolved via resolveAgentModelString() when a matching
+ * models.json entry passes the caller's gate, with frontmatter `model:` as
+ * fallback. Unlike parseAgentFile() above, there is no toolkit-CLI
+ * short-circuit when no entry matches.
+ */
+export function parseAgentMdFile(filePath: string, modelsConfig: AgentModelsConfig | undefined, opts: ParseAgentMdFileOptions & { includeFile: true }): AgentDef | null;
+export function parseAgentMdFile(filePath: string, modelsConfig: AgentModelsConfig | undefined, opts?: ParseAgentMdFileOptions): (Omit<AgentDef, "file"> & { file?: string }) | null;
+export function parseAgentMdFile(
+	filePath: string,
+	modelsConfig: AgentModelsConfig | undefined,
+	opts: ParseAgentMdFileOptions = {},
+): (Omit<AgentDef, "file"> & { file?: string }) | null {
+	try {
+		const raw = readFileSync(filePath, "utf-8");
+		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+		if (!match) return null;
+
+		const frontmatter: Record<string, string> = {};
+		for (const line of match[1].split("\n")) {
+			const idx = line.indexOf(":");
+			if (idx > 0) {
+				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+			}
+		}
+
+		if (!frontmatter.name) return null;
+
+		// Model resolution: models.json > frontmatter fallback > empty
+		let model = "";
+		if (modelsConfig) {
+			const key = frontmatter.name.toLowerCase();
+			const entry = modelsConfig.agents[key]
+				|| (opts.defaultFallback ? modelsConfig.default : undefined);
+			if (entry && (!opts.defaultFallback || entry.model)) {
+				model = resolveAgentModelString(frontmatter.name, modelsConfig);
+			}
+		}
+		if (!model && frontmatter.model) {
+			model = frontmatter.model;
+		}
+
+		return {
+			name: frontmatter.name,
+			description: frontmatter.description || "",
+			tools: frontmatter.tools || "read,grep,find,ls",
+			model,
+			systemPrompt: match[2].trim(),
+			...(opts.includeFile ? { file: filePath } : {}),
+		};
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Scan standard agent directories and return a Map<lowercaseName, AgentDef>.
  * Searches: agents/, .claude/agents/, .pi/agents/ in cwd and optionally extProjectDir.
