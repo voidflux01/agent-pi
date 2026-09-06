@@ -1,0 +1,11 @@
+id: functional-budget-and-scheduling
+version: 1
+kind: functional
+task: Enforce token budget and serialize conflicting workspace resources.
+timeout_ms: 5000
+max_tokens: 1000
+expect:
+  - type: exit
+    code: 0
+  - type: contains
+    value: BUDGET_AND_CONFLICT_PASS

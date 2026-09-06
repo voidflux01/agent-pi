@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 export type WorkerThinking = "low" | "medium" | "high";
 
 export interface AgentPiConfig {
+	workflowSupport?: { enabled: boolean; evaluations: boolean; retrospective: boolean; context: boolean; monitoring: boolean };
 	models: { default?: string; toolkit?: string; byAgent: Record<string, string> };
 	workers: {
 		thinking: { default: WorkerThinking; byAgent: Record<string, WorkerThinking> };
@@ -64,6 +65,13 @@ function normalize(raw: unknown): AgentPiConfig {
 	const ui = input.ui && typeof input.ui === "object" ? input.ui : {};
 	const interaction = input.interaction && typeof input.interaction === "object" ? input.interaction : {};
 	return {
+		workflowSupport: {
+			enabled: input.workflowSupport?.enabled !== false,
+			evaluations: input.workflowSupport?.evaluations !== false,
+			retrospective: input.workflowSupport?.retrospective === true,
+			context: input.workflowSupport?.context !== false,
+			monitoring: input.workflowSupport?.monitoring !== false,
+		},
 		models: {
 			byAgent: modelByAgent,
 			...(typeof models.default === "string" && models.default.trim() ? { default: models.default.trim() } : {}),

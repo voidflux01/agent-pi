@@ -19,6 +19,8 @@ export interface CoordinationState {
 	specApprovalBinding?: { folderPath: string; fileFingerprint: string; contentFingerprint: string };
 	/** Current acceptance checklist bound to an approved plan or pipeline $PLAN. */
 	executionContract?: AcceptanceContract;
+	/** Latest mandatory-eval gate result, set by verify_execution and cleared on contract change. */
+	evalGate?: { ok: boolean; checkedAt: string; reason: string };
 	/** Isolated verifier receipt for the current contract fingerprint. */
 	verifierReceipt?: VerifierReceipt;
 	verifierAttempt?: number;
@@ -66,6 +68,7 @@ export function setExecutionContract(contract: AcceptanceContract | undefined): 
 	if (contract?.fingerprint !== previousFingerprint) {
 		state.verifierReceipt = undefined;
 		state.verifierAttempt = 0;
+		state.evalGate = undefined;
 	}
 }
 
@@ -75,6 +78,14 @@ export function getExecutionContract(): AcceptanceContract | undefined {
 
 export function setVerifierReceipt(receipt: VerifierReceipt | undefined): void {
 	coordinationState().verifierReceipt = receipt;
+}
+
+export function setEvalGate(gate: { ok: boolean; reason: string } | undefined): void {
+	coordinationState().evalGate = gate ? { ok: gate.ok, checkedAt: new Date().toISOString(), reason: gate.reason } : undefined;
+}
+
+export function getEvalGate(): { ok: boolean; checkedAt: string; reason: string } | undefined {
+	return coordinationState().evalGate;
 }
 
 export function getVerifierReceipt(): VerifierReceipt | undefined {
@@ -92,6 +103,7 @@ export function resetExecutionVerification(): void {
 	state.executionContract = undefined;
 	state.verifierReceipt = undefined;
 	state.verifierAttempt = 0;
+	state.evalGate = undefined;
 }
 
 /** Live TUI ctx from `/mode` / set_mode so widgets hide on the visible UI. */

@@ -1,0 +1,11 @@
+id: workflow-failure-and-stale-receipt
+version: 1
+kind: workflow
+task: Route failures to repair and refuse completion with stale evidence.
+timeout_ms: 5000
+max_tokens: 1000
+expect:
+  - type: exit
+    code: 0
+  - type: contains
+    value: RECOVERY_AND_STALE_PASS

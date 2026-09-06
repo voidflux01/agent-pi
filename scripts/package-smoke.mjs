@@ -37,6 +37,9 @@ try {
 		"extensions/lib/dispatch-runtime.ts",
 		"extensions/lib/run-state.ts",
 		"scripts/doctor.mjs",
+		"evals/functional-budget-and-scheduling.yaml",
+		"evals/workflow-failure-and-stale-receipt.yaml",
+		"docs/coding-agent-foundations.md",
 	];
 	for (const path of requiredPaths) {
 		if (!existsSync(join(packageDir, path))) throw new Error(`Packed package is missing ${path}`);

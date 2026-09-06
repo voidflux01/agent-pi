@@ -3,7 +3,7 @@
 // Usage: bun tools/e2e/team-herdr-e2e.ts <repo-root>
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
@@ -13,6 +13,7 @@ if (!repo) throw new Error("usage: bun tools/e2e/team-herdr-e2e.ts <repo-root>")
 const h = (args: string[]) => execFileSync("herdr", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 const workspace = mkdtempSync(join(tmpdir(), "team-herdr-e2e-"));
 let workspaceId = "";
@@ -24,19 +25,35 @@ try {
 	const send = (...args: string[]) => execFileSync("herdr", ["pane", ...args], { stdio: ["ignore", "ignore", "ignore"] });
 	const readPane = () => stripAnsi(execFileSync("herdr", ["pane", "read", paneId], { encoding: "utf8", timeout: 20_000 }));
 	const readRows = () => {
-		const path = join(workspace, ".pi", "agent-sessions", "task-journal.jsonl");
-		if (!existsSync(path)) return [] as any[];
-		return readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+		const root = join(workspace, ".pi", "agent-sessions");
+		if (!existsSync(root)) return [] as any[];
+		const files: string[] = [];
+		const visit = (dir: string) => {
+			for (const entry of readdirSync(dir, { withFileTypes: true })) {
+				const path = join(dir, entry.name);
+				if (entry.isDirectory()) visit(path);
+				else if (entry.name.endsWith(".jsonl")) files.push(path);
+			}
+		};
+		visit(root);
+		const rows: any[] = [];
+		for (const path of files) {
+			for (const line of readFileSync(path, "utf8").split("\n").filter(Boolean)) {
+				try { rows.push(JSON.parse(line)); } catch {}
+			}
+		}
+		return rows;
 	};
 
-	send("send-text", paneId, "pi");
+	const piCommand = `pi -e ${shellQuote(repo)}`;
+	send("send-text", paneId, piCommand);
 	send("send-keys", paneId, "enter");
 	let booted = false;
 	for (let i = 0; i < 18; i++) {
 		await sleep(2000);
 		const text = readPane();
 		if (text.includes("Extensions") || text.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(text)) { booted = true; break; }
-		if (i === 8) { send("send-text", paneId, "pi"); send("send-keys", paneId, "enter"); }
+		if (i === 8) { send("send-text", paneId, piCommand); send("send-keys", paneId, "enter"); }
 	}
 	if (!booted) throw new Error(`pi did not boot; tail=${readPane().slice(-500)}`);
 
@@ -52,10 +69,10 @@ try {
 	for (let i = 0; i < 45; i++) {
 		await sleep(3000);
 		finalText = readPane();
-		const teamRows = readRows().filter((row: any) => row.kind === "team");
+		const teamRows = readRows().filter((row: any) => row.mode === "TEAM" && ["team", "sa", "dispatch"].includes(String(row.kind || "").toLowerCase()));
 		if (finalText.includes("TEAM-TASK-PASS") && teamRows.some((row: any) => String(row.agent).toLowerCase() === "reviewer" && row.status === "done")) break;
 	}
-	const teamRows = readRows().filter((row: any) => row.kind === "team");
+	const teamRows = readRows().filter((row: any) => row.mode === "TEAM" && ["team", "sa", "dispatch"].includes(String(row.kind || "").toLowerCase()));
 	if (!finalText.includes("TEAM-TASK-PASS") || !teamRows.some((row: any) => String(row.agent).toLowerCase() === "reviewer" && row.status === "done")) {
 		throw new Error(`TEAM task incomplete; rows=${JSON.stringify(teamRows).slice(0, 1400)}; tail=${finalText.slice(-1000).replace(/\s+/g, " ")}`);
 	}

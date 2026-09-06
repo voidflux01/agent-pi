@@ -10,6 +10,7 @@ export type PipelineSnapshotPhase = {
 	summary: string;
 	dispatchCount: number;
 	lastDispatchSuccess: boolean;
+	lastReceiptId?: string;
 };
 
 export interface PipelineSnapshot {
@@ -49,7 +50,8 @@ export function readPipelineSnapshot(sessionDir: string): PipelineSnapshot | und
 			phase && typeof phase.name === "string" &&
 			["pending", "active", "done", "error", "skipped"].includes(phase.status as string) &&
 			typeof phase.summary === "string" && Number.isInteger(phase.dispatchCount) && phase.dispatchCount >= 0 &&
-			typeof phase.lastDispatchSuccess === "boolean",
+			typeof phase.lastDispatchSuccess === "boolean" &&
+			(phase.lastReceiptId === undefined || typeof phase.lastReceiptId === "string"),
 		));
 		if (phases.length !== value.phases.length || phases.length === 0 || value.currentPhaseIndex >= phases.length) return undefined;
 		return { ...value, phases } as PipelineSnapshot;

@@ -1,40 +1,40 @@
 {
   "default": {
-    "provider": "anthropic",
-    "model": "claude-haiku-4-5-20251001"
+    "provider": "zai-coding-cn",
+    "model": "glm-5.3-flash"
   },
   "agents": {
     "gemini-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "cursor-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "codex-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "qwen-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "groq-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "crush-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "droid-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "omp-agent": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     }
   }
 }

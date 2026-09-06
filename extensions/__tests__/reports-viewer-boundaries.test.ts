@@ -13,6 +13,7 @@ describe("reports viewer boundaries", () => {
 		expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
 		expect(html).toContain("return escapeHtml(JSON.stringify(String(value))");
 		expect(html).toContain("escapeHtml(entry.category)");
+		expect(html).toContain("Workflow Evaluations");
 	});
 
 	it("requires capability auth before serving report data", () => {

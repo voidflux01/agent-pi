@@ -58,6 +58,7 @@ import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type Orchestr
 import { configuredModelForAgent } from "./lib/agent-pi-config.ts";
 import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
 import { getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
+import { workflowDirection } from "./lib/workflow-direction.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -691,6 +692,9 @@ export default function (pi: ExtensionAPI) {
 					runId: orchestrationRun.runId,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, reason: "agent_not_found" });
+				const environmentAdvice = workflowDirection({ status: "BLOCKED", failure: "environment" });
+				orchestrationRun.record("chain.next_action", { step: i + 1, next: environmentAdvice.next, reason: environmentAdvice.reason });
+				failed.output += `\nNext step suggestion: ${environmentAdvice.next} — ${environmentAdvice.reason}`;
 				persistState(i);
 				orchestrationRun.finish("failed", { step: i + 1 });
 				return failed;
@@ -751,6 +755,11 @@ export default function (pi: ExtensionAPI) {
 					runId: orchestrationRun.runId,
 				};
 				orchestrationRun.record("chain.failed", { step: i + 1, agent: step.agent, exitCode: result.exitCode });
+				// The failure source is known here (step exit / RESULT contract), so the
+				// recovery advice is derived from the real failure, not a caller claim.
+				const repairAdvice = workflowDirection({ status: "FAIL", failure: "implementation" });
+				orchestrationRun.record("chain.next_action", { step: i + 1, next: repairAdvice.next, reason: repairAdvice.reason });
+				failed.output += `\nNext step suggestion: ${repairAdvice.next} — ${repairAdvice.reason}`;
 				persistState(i);
 				orchestrationRun.finish("failed", { step: i + 1 });
 				return failed;

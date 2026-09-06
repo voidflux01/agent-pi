@@ -8,6 +8,7 @@
 import { bindAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
 import { canComplete } from "./verifier-runtime.ts";
+import { getEvalGate } from "./coordination-state.ts";
 
 export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "agent-show-report" | "user-report";
 
@@ -17,6 +18,9 @@ export const INCOMPLETE_CONTRACT_REASON =
 	"- [cmd] npm test";
 export const MISSING_RECEIPT_REASON = "This execution requires a deterministic verifier PASS before completion.";
 export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or bound to a different plan/workspace.";
+export const REQUIRED_EVAL_REASON =
+	"The confirmed contract binds a mandatory eval set, but no fresh PASS report satisfies it. " +
+	"Run eval_run with the bound eval set (or fix the failing case), then re-run verify_execution.";
 
 export function verificationRequired(input: {
 	surface: CompletionSurface;
@@ -41,7 +45,8 @@ export function completeDecision(input: {
 		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	}
 	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };
-	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash)) {
+	if (input.contract.requiredEval && getEvalGate()?.ok !== true) return { allowed: false, reason: REQUIRED_EVAL_REASON };
+	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash, getEvalGate())) {
 		return { allowed: false, reason: STALE_RECEIPT_REASON };
 	}
 	return { allowed: true };

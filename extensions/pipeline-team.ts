@@ -53,7 +53,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, resolveAgentModelString, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -74,7 +74,8 @@ import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
-import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
+import { registerWorkflowDispatchHook, readDispatchReceipt } from "./lib/workflow-dispatch.ts";
+import { workflowDirection } from "./lib/workflow-direction.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -108,6 +109,7 @@ interface PhaseState {
 	agents: AgentState[];
 	dispatchCount: number;
 	lastDispatchSuccess: boolean;
+	lastReceiptId?: string;
 }
 
 // ── Display Name Helper ──────────────────────────
@@ -229,21 +231,32 @@ export default function (pi: ExtensionAPI) {
 	let planOutput = "";     // $PLAN — from phase 3
 	let reviewOutput = "";   // $REVIEW — from phase 5 (when looping)
 	let reviewLoopCount = 0;
+	// Completion receipt from the canonical subagent dispatcher. This bridges
+	// the async joined-result callback and the parent phase gate.
 	registerWorkflowDispatchHook("PIPELINE", {
+		context: ({ name, task, batch }) => ({
+			phase: phaseStates[currentPhaseIndex]?.def.name,
+			phaseIndex: currentPhaseIndex,
+			scope: `pipeline:${activeConfig?.name || "unknown"}:${currentPhaseIndex}:${name}:${batch ? "batch" : "single"}`,
+		}),
 		before: ({ name }) => {
 			if (!activeConfig || phaseStates.length === 0) return "PIPELINE dispatch blocked: no active pipeline is selected.";
 			const phase = phaseStates[currentPhaseIndex];
 			if (!phase || !phaseRequiresAgentDispatch(phase.def)) return `PIPELINE dispatch blocked: ${phase?.def.name || "current phase"} does not accept agent dispatch.`;
+			if (phase.agents.some((worker) => worker.status === "running")) return `PIPELINE dispatch blocked: ${phase.def.name.toUpperCase()} already has a running worker; wait for its joined result.`;
+			if (phaseDispatchReady(phase)) return `PIPELINE dispatch blocked: ${phase.def.name.toUpperCase()} already has a completed worker; call advance_phase with its bounded result before dispatching again.`;
 			const normalize = (value: string) => value.trim().toLowerCase().replace(/[\s_-]+/g, "-");
 			const allowed = phase.def.agents.some((agent) => normalize(agent.role) === normalize(name));
 			if (!allowed) return `PIPELINE dispatch blocked: ${name} is not configured for phase ${phase.def.name}.`;
 			return undefined;
 		},
-		after: (result) => {
-			const phase = phaseStates[currentPhaseIndex];
-			if (!phase) return;
+			after: (result) => {
+				const phase = phaseStates[currentPhaseIndex];
+				if (!phase) return;
+				if (result.receiptId && phase.lastReceiptId === result.receiptId) return;
 			phase.dispatchCount = (phase.dispatchCount || 0) + 1;
 			phase.lastDispatchSuccess = result.status === "done";
+			phase.lastReceiptId = result.receiptId;
 			const output = result.fullOutput || result.output;
 			phase.agents = [{
 				role: result.name,
@@ -278,9 +291,55 @@ export default function (pi: ExtensionAPI) {
 					summary: phase.summary.slice(0, 4_000),
 					dispatchCount: phase.dispatchCount,
 					lastDispatchSuccess: phase.lastDispatchSuccess,
+					...(phase.lastReceiptId ? { lastReceiptId: phase.lastReceiptId } : {}),
 				})),
 			});
 		} catch {}
+	}
+
+	/** Reconcile the phase gate with worker state after a joined dispatch. */
+	function phaseDispatchReady(phase: PhaseState): boolean {
+		if ((phase.dispatchCount || 0) > 0 && phase.lastDispatchSuccess) return true;
+		const phaseIndex = phaseStates.indexOf(phase);
+		const workspaceRoot = dirname(dirname(sessionDir));
+		let receipt = phase.lastReceiptId && sessionDir
+			? readDispatchReceipt(workspaceRoot, phase.lastReceiptId)
+			: undefined;
+		// Recovery path for a completion callback that arrived after the phase
+		// snapshot was written: receipts are authoritative and workspace-scoped.
+		if (!receipt && sessionDir) {
+			try {
+				const receiptRoot = join(sessionDir, "dispatch-receipts");
+				const candidates = readdirSync(receiptRoot)
+					.filter((name) => name.endsWith(".json"))
+					.map((name) => readDispatchReceipt(workspaceRoot, name.slice(0, -5)))
+					.filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+					.filter((candidate) => candidate.context.mode === "PIPELINE" && candidate.context.phaseIndex === phaseIndex)
+					.sort((a, b) => b.updatedAt - a.updatedAt);
+				receipt = candidates[0];
+				if (receipt) phase.lastReceiptId = receipt.id;
+			} catch {}
+		}
+		if ((receipt?.status === "done" || receipt?.status === "consumed") && receipt.context.mode === "PIPELINE" && receipt.context.phaseIndex === phaseIndex) {
+			phase.dispatchCount = Math.max(1, phase.dispatchCount || 0);
+			phase.lastDispatchSuccess = true;
+			return true;
+		}
+		const workers = phase.agents || [];
+		// The canonical subagent dispatcher reports its completion through an
+		// async after-hook. During that handoff, the aggregate success bit can
+		// briefly lag behind the worker row that is already terminal. Reconcile
+		// from the worker facts, while still failing closed for any running/error
+		// worker and requiring at least one completed worker.
+		const hasDoneWorker = workers.some((worker) => worker.status === "done");
+		const hasUnresolvedWorker = workers.some((worker) => worker.status === "running" || worker.status === "error");
+		if (hasDoneWorker && !hasUnresolvedWorker) {
+			phase.dispatchCount = Math.max(1, phase.dispatchCount || 0);
+			phase.lastDispatchSuccess = true;
+			persistPipelineState();
+			return true;
+		}
+		return false;
 	}
 
 	function restorePipelineState(): boolean {
@@ -303,6 +362,7 @@ export default function (pi: ExtensionAPI) {
 			agents: [],
 			dispatchCount: snapshot.phases[index]!.dispatchCount,
 			lastDispatchSuccess: snapshot.phases[index]!.lastDispatchSuccess,
+			lastReceiptId: snapshot.phases[index]!.lastReceiptId,
 		}));
 		updateWidget();
 		return true;
@@ -655,7 +715,10 @@ export default function (pi: ExtensionAPI) {
 				herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
 				herdrPaneKey: journalId,
 				onHerdrClosed: () => {
-					if (lifecycle.isCurrent(runEpoch)) updateWidget();
+					// The pipeline lifecycle is already owned by the parent run;
+					// unlike the standalone widget runtime there is no local epoch
+					// token to compare here.
+					updateWidget();
 				},
 				isAborted: () => !!signal?.aborted,
 				journal: { dir: sessionDir, id: journalId },
@@ -768,7 +831,11 @@ export default function (pi: ExtensionAPI) {
 				outputs.push(r.output);
 				fullOutputs.push(r.fullOutput || "");
 				fullOutputPaths.push(r.fullOutputPath || "");
-				if (r.exitCode !== 0 || resultContractFailure(r.fullOutput || "")) allSuccess = false;
+				// A malformed worker RESULT is a bounded quality warning, not a
+				// transport/process failure. Preserve the raw output and let the
+				// phase handoff and final acceptance gate decide whether it is usable;
+				// otherwise one formatting mistake deadlocks the whole pipeline.
+				if (r.exitCode !== 0) allSuccess = false;
 			}
 		} else {
 			// Sequential — each agent's output becomes $INPUT for next
@@ -794,8 +861,7 @@ export default function (pi: ExtensionAPI) {
 				fullOutputPaths.push(result.fullOutputPath || "");
 				input = result.output;
 
-				const contractFailure = resultContractFailure(result.fullOutput || "");
-				if (result.exitCode !== 0 || contractFailure) {
+				if (result.exitCode !== 0) {
 					allSuccess = false;
 					break;
 				}
@@ -921,7 +987,7 @@ export default function (pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "advance_phase",
 		label: "Advance Phase",
-		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require subagent_create first — do not advance on a self-written summary.",
+		description: "Move the pipeline to the next phase after the current phase's work is done. UNDERSTAND may advance without dispatch. PLAN/BUILD/GATHER/EXECUTE/REVIEW require subagent_create or subagent_create_batch first — do not advance on a self-written summary.",
 		parameters: Type.Object({
 			summary: Type.String({ description: "Summary of what was accomplished in this phase / the clarified task" }),
 			skip_to: Type.Optional(Type.String({ description: "Optional: skip to a specific phase name (e.g. 'plan' to skip gather)" })),
@@ -935,11 +1001,17 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const current = phaseStates[currentPhaseIndex];
-			if (phaseRequiresAgentDispatch(current.def) && ((current.dispatchCount || 0) === 0 || !current.lastDispatchSuccess)) {
+			if (phaseRequiresAgentDispatch(current.def) && !phaseDispatchReady(current)) {
 				const hint = current.def.agents[0]?.role || "the configured agent";
 				return {
-					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call subagent_create successfully (e.g. ${hint}), resolve all agent errors, wait for ## RESULT, then advance_phase with that summary.` }],
-					details: { error: true, phase: current.def.name },
+					content: [{ type: "text", text: `Cannot leave ${current.def.name.toUpperCase()}: call subagent_create successfully (e.g. ${hint}), resolve all agent errors, wait for ## RESULT, then advance_phase with that summary. Gate state: dispatchCount=${current.dispatchCount || 0}, lastDispatchSuccess=${current.lastDispatchSuccess}, workers=${(current.agents || []).map((worker) => `${worker.role}:${worker.status}`).join(",") || "none"}.` }],
+					details: {
+						error: true,
+						phase: current.def.name,
+						dispatchCount: current.dispatchCount || 0,
+						lastDispatchSuccess: current.lastDispatchSuccess,
+						workers: (current.agents || []).map((worker) => ({ role: worker.role, status: worker.status })),
+					},
 				};
 			}
 
@@ -1053,10 +1125,10 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	registerToolWithExecutor(pi, {
-		name: "__removed_dispatch_agents",
-		label: "Dispatch Agents",
-		description: "Dispatch one or more agents for the current pipeline phase. Agents run in parallel or sequential mode depending on the phase configuration. Use this in phases 2-5 to do the actual work. When reporting outcomes to the user: lead with results and next decisions; do not narrate internal mechanics (tabs, polling, journal ids, transport details).",
+	if (false) registerToolWithExecutor(pi, {
+		name: "pipeline_dispatch",
+		label: "Pipeline Dispatch",
+		description: "Dispatch the configured worker or workers for the current PIPELINE phase. This is the phase-owned dispatcher: it records completion durably and returns bounded joined results. Call advance_phase only after it returns.",
 		parameters: Type.Object({
 			agents: Type.Array(Type.Object({
 				role: Type.String({ description: "Agent role name (e.g. 'scout', 'builder', 'reviewer')" }),
@@ -1098,7 +1170,9 @@ export default function (pi: ExtensionAPI) {
 					plan: planOutput,
 					input: boundedHandoff(accContext || taskSummary),
 					review: reviewOutput,
-				}),
+				}) + (phase.def.name.toLowerCase() === "plan"
+					? "\n\nPIPELINE contract requirement: return a complete task contract with Objective, Scope, Acceptance Criteria, Evidence Requirements, Constraints, and a ## Verification Commands section containing at least one executable [cmd] assertion. End with the normal ## RESULT block."
+					: ""),
 				...((a as any).resources ? { resources: (a as any).resources } : {}),
 			}));
 
@@ -1118,10 +1192,16 @@ export default function (pi: ExtensionAPI) {
 				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
 				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
+				if (!result.success) {
+					const phaseAdvice = workflowDirection({ status: "FAIL", failure: "implementation" });
+					orchestrationRun.record("pipeline.next_action", { phase: phase.def.name, next: phaseAdvice.next, reason: phaseAdvice.reason });
+				}
 			} catch (error) {
 				orchestrationRun.record("pipeline.failed", { phase: phase.def.name, error: error instanceof Error ? error.message : String(error) });
+				const environmentAdvice = workflowDirection({ status: "BLOCKED", failure: "environment" });
+				orchestrationRun.record("pipeline.next_action", { phase: phase.def.name, next: environmentAdvice.next, reason: environmentAdvice.reason });
 				orchestrationRun.finish("failed", { phase: phase.def.name });
-				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true, phase: phase.def.name, runId: orchestrationRun.runId } };
+				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}\nNext step suggestion: ${environmentAdvice.next} — ${environmentAdvice.reason}` }], details: { error: true, phase: phase.def.name, runId: orchestrationRun.runId } };
 			}
 
 			// Merge outputs into accumulated context. Each output is already a
@@ -1306,7 +1386,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("pipeline-resume", {
 		description: "Resume the last durable pipeline snapshot",
-		handler: async (_args, ctx) => {
+			handler: async (_args, ctx) => {
 			widgetCtx = ctx;
 			if (!restorePipelineState()) {
 				ctx.ui.notify("No compatible pipeline snapshot found.", "warning");
@@ -1501,7 +1581,7 @@ Call \`advance_phase\` with a comprehensive task summary when ready to proceed.`
 		} else if (phase.def.name === "gather") {
 			phaseInstructions = `## Phase Instructions: GATHER
 				You are in the GATHER phase. Dispatch scout agents to explore the codebase in parallel. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
-				Use \`subagent_create_batch\` to send multiple scouts concurrently.
+				Use \`subagent_create_batch\` for independent workers, or \`subagent_create\` with \`join: true\` for one worker, and wait for bounded results.
 				${RESEARCH_ROUTING_PROMPT}
 				Review their findings, then call \`advance_phase\` with a summary.
 
@@ -1510,37 +1590,39 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
-				You are in the PLAN phase. Dispatch a planner with \`subagent_create\` — do not write the plan yourself.
+				You are in the PLAN phase. Dispatch the configured planner with \`subagent_create\` and \`join: true\` — do not write the plan yourself. Never call advance_phase until that call has returned the planner's result.
 The planner's output must include a complete task contract with Objective, Scope, Acceptance Criteria, Evidence Requirements, and a ## Verification Commands section containing at least one [cmd] <command>. Pipeline complete is refused without at least one executable command.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
 			phaseInstructions = `## Phase Instructions: ${phaseName}
-				Dispatch builder agents with \`subagent_create\`. Do not implement files yourself.
+				Dispatch builder agents with \`subagent_create\` and \`join: true\`. Do not implement files yourself.
 Wait for ## RESULT, then call \`advance_phase\`.`;
 
 		} else if (phase.def.name === "review") {
 			phaseInstructions = `## Phase Instructions: REVIEW
-You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
-Dispatch a reviewer agent to audit the implementation.
+				You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
+				Dispatch a reviewer agent with \`join: true\` to audit the implementation.
 After reviewing the output:
 - If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the complete task contract, its [cmd] assertions to PASS deterministically, and \`verify_execution\` to report no Critical/High findings, including plan-build pipelines whose last phase is build.
-				- If issues found and loops remaining → use \`subagent_create\` to fix issues, then review again
+				- If issues found and loops remaining → use \`subagent_create\` with \`join: true\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}
 
-		return {
-			systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
+			return {
+				systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
 
 ${ORCHESTRATED_TASK_PROMPT}
 
 ${RESEARCH_ROUTING_PROMPT}
 
-				You have full codebase tools AND pipeline tools (advance_phase, subagent_create, pipeline_status).
+				You have full codebase tools AND pipeline tools (advance_phase, subagent_create, subagent_create_batch, pipeline_status).
 
-## Pipeline boundary (required)
-				- This is PIPELINE. Use subagent_create for configured phase workers, then advance_phase after their RESULT returns.
-- UNDERSTAND is the only phase that may advance without dispatch; every configured worker phase must dispatch before advancing.
+				## Pipeline boundary (required)
+				- This is PIPELINE. Use subagent_create for each configured phase worker, then advance_phase only after that call's bounded RESULT returns.
+				- This is not PLAN mode: never call \`show_plan\` or \`show_spec\` as a substitute for \`advance_phase\`.
+				- Do not dispatch a second worker for the same phase after a joined worker has returned; pass its bounded RESULT to \`advance_phase\` immediately.
+				- UNDERSTAND is the only phase that may advance without dispatch; every configured worker phase must dispatch before advancing.
 
 ## Direct work inside the active pipeline
 - Read-only checks such as reading a file, checking status, or listing contents are allowed during analysis.
@@ -1566,7 +1648,7 @@ ${contextSummary}${planSection}${reviewSection}
 
 ## Tools
 				- \`advance_phase\`: Move to next phase after this phase's subagent_create workers have finished (required summary from their RESULT)
-				- \`subagent_create\`: Send agents to work (one task or a batch)
+				- \`subagent_create\` / \`subagent_create_batch\`: Send the configured phase workers and return bounded results
 - \`pipeline_status\`: Check current pipeline state
 - Plus all standard codebase tools (read, write, edit, bash, etc.)`,
 		};

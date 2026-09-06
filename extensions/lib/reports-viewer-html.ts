@@ -372,6 +372,7 @@ export function generateReportsViewerHTML(opts: {
   .pill.questions { color: var(--success); border-color: var(--success); }
   .pill.spec { color: var(--warning); border-color: var(--warning); }
   .pill.completion { color: #d291ff; border-color: #d291ff; }
+  .pill.eval { color: #56d4dd; border-color: #56d4dd; }
   .open-cell {
     font-family: var(--mono);
     color: var(--accent);
@@ -403,7 +404,7 @@ export function generateReportsViewerHTML(opts: {
   <div id="homeView">
     <section class="hero">
       <h1>Reports Index</h1>
-      <p>Search persisted plans, clarifying questions, specs, and completion reports.</p>
+      <p>Search persisted plans, clarifying questions, specs, completion reports, and workflow evaluations.</p>
       <div class="search-wrap">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
         <input id="searchInput" type="text" placeholder="Search reports..." />
@@ -442,12 +443,13 @@ export function generateReportsViewerHTML(opts: {
 (function() {
   const PORT = ${port};
   const entries = ${escaped};
-  const categories = ["plan", "questions", "spec", "completion"];
+  const categories = ["plan", "questions", "spec", "completion", "eval"];
   const labels = {
     plan: "Plans",
     questions: "Clarifying Questions",
     spec: "Specs",
-    completion: "Completion Reports"
+    completion: "Completion Reports",
+    eval: "Workflow Evaluations"
   };
   let query = "";
   let activeCategory = "all";
@@ -533,6 +535,7 @@ export function generateReportsViewerHTML(opts: {
       ['Questions', counts.questions],
       ['Specs', counts.spec],
       ['Completion', counts.completion],
+      ['Evaluations', counts.eval],
     ].map(([label, value]) =>
       '<div class="stat-card"><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div></div>'
     ).join('');

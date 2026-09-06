@@ -9,6 +9,7 @@ import { recordRunEvent } from "./evidence-store.ts";
 import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 import { budgetUsageExceededReason } from "./orchestration-budget.ts";
 import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
+import { saveRetrospective } from "./workflow-memory.ts";
 
 export interface RunBudget {
 	maxSteps: number;
@@ -199,6 +200,15 @@ export function createOrchestrationRun(options: {
 				...(payload === undefined ? {} : { result: payload }),
 			});
 			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
+			const retrospectiveCwd = options.workspaceCwd || options.context?.cwd;
+			if (AGENT_PI_CONFIG.workflowSupport?.enabled && AGENT_PI_CONFIG.workflowSupport.retrospective
+				&& typeof retrospectiveCwd === "string" && /^(subagent|team|chain|pipeline)/i.test(actor)) {
+				try {
+					saveRetrospective(retrospectiveCwd, { runId, actor, mode: options.mode, status: terminalStatus,
+						durationMs, stepsUsed: this.stepsUsed, usage,
+						evidenceRefs: events.filter(e => e.type.startsWith("run.")).map(e => `run:${runId}:event:${e.id}`) });
+				} catch { record("retrospective.unavailable", { reason: "Workspace storage unavailable or rejected" }); }
+			}
 			options.signal?.removeEventListener("abort", onExternalAbort);
 		},
 	};

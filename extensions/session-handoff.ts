@@ -5,8 +5,8 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { journalList, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { isResumableRunStatus, normalizeRunStatus } from "./lib/run-state.ts";
@@ -18,8 +18,10 @@ import {
 	renderHandoff,
 	renderHandoffPrompt,
 	writeHandoff,
+	type HandoffContextLink,
 	type HandoffSnapshot,
 } from "./lib/handoff-state.ts";
+import type { ObjectiveSource } from "./lib/handoff-state.ts";
 
 const g = globalThis as any;
 
@@ -35,7 +37,14 @@ function sessionIdOf(ctx: any): string | undefined {
 	try { return ctx?.sessionManager?.getSessionId?.() || ctx?.sessionManager?.getSessionFile?.(); } catch { return undefined; }
 }
 
-function latestObjective(ctx: any): string {
+const MAX_NEXT_ACTION_TASK = 80;
+
+function shortNextAction(value: string): string {
+	const trimmed = value.replace(/\s+/g, " ").trim();
+	return trimmed.length > MAX_NEXT_ACTION_TASK ? `${trimmed.slice(0, MAX_NEXT_ACTION_TASK - 1)}…` : trimmed;
+}
+
+function branchObjective(ctx: any): string {
 	try {
 		const branch = ctx?.sessionManager?.getBranch?.() || [];
 		for (const entry of branch) {
@@ -49,6 +58,77 @@ function latestObjective(ctx: any): string {
 		}
 	} catch {}
 	return "";
+}
+
+interface SessionStateFile {
+	continue?: string;
+	task?: string;
+}
+
+function readSessionState(workspace: string): SessionStateFile {
+	try {
+		const parsed = JSON.parse(readFileSync(join(workspace, ".context", "session-state.json"), "utf8")) as SessionStateFile;
+		return { continue: parsed?.continue, task: parsed?.task };
+	} catch { return {}; }
+}
+
+function latestResearchSession(workspace: string): HandoffContextLink["researchSession"] {
+	try {
+		const dir = join(workspace, ".context", "research-sessions");
+		const index = JSON.parse(readFileSync(join(dir, "index.json"), "utf8")) as { sessions?: Array<{ id: string; goal?: string; status?: string; updatedAt?: string }> };
+		const latest = [...index.sessions ?? []].sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")))[0];
+		if (!latest?.id) return undefined;
+		return {
+			id: latest.id,
+			goal: latest.goal || "(no goal recorded)",
+			status: latest.status || "unknown",
+			updatedAt: latest.updatedAt || "",
+		};
+	} catch { return undefined; }
+}
+
+function recentReports(workspace: string): string[] {
+	try {
+		const dir = join(workspace, ".context", "reports");
+		if (!existsSync(dir)) return [];
+		return readdirSync(dir)
+			.filter((name) => name.endsWith(".md"))
+			.map((name) => ({ name, mtimeMs: statSync(join(dir, name)).mtimeMs }))
+			.sort((a, b) => b.mtimeMs - a.mtimeMs)
+			.slice(0, 3)
+			.map((entry) => entry.name);
+	} catch { return []; }
+}
+
+interface ObjectiveInfo {
+	objective: string;
+	source?: ObjectiveSource;
+}
+
+function resolveObjective(ctx: any, workspace: string): ObjectiveInfo {
+	const sessionState = readSessionState(workspace);
+	const curated = [sessionState.continue, sessionState.task].find((value) => value?.trim());
+	if (curated?.trim()) return { objective: curated.trim(), source: "session-state" };
+	const tasks = currentTasks();
+	const activeTask = tasks.find((task) => task.status === "inprogress") ?? tasks.find((task) => task.status !== "done");
+	if (activeTask?.text?.trim()) return { objective: activeTask.text.trim(), source: "task-list" };
+	const research = latestResearchSession(workspace);
+	if (research?.goal?.trim() && research.goal !== "(no goal recorded)") return { objective: research.goal.trim(), source: "research" };
+	const branch = branchObjective(ctx);
+	if (branch) return { objective: branch, source: "branch" };
+	return { objective: "" };
+}
+
+function resolveContext(workspace: string): HandoffContextLink | undefined {
+	const todoPath = join(workspace, ".context", "todo.md");
+	const research = latestResearchSession(workspace);
+	const context: HandoffContextLink = {
+		...(existsSync(todoPath) ? { todoPath } : {}),
+		...(research ? { researchSession: research } : {}),
+	};
+	const reports = recentReports(workspace);
+	if (reports.length) context.reports = reports;
+	return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function readChildren(workspace: string): TaskJournalEntry[] {
@@ -67,12 +147,6 @@ function currentTasks(): Array<{ id: number; text: string; status: string }> {
 		return Array.isArray(g.__piTaskList?.tasks) ? g.__piTaskList.tasks : [];
 }
 
-function changedFiles(workspace: string): boolean {
-	try {
-		return Boolean(execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: workspace, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim());
-	} catch { return false; }
-}
-
 function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: HandoffSnapshot["status"] } = {}): HandoffSnapshot {
 	const state = coordinationState();
 	const tasks = currentTasks();
@@ -84,20 +158,29 @@ function snapshotFrom(ctx: any, extra: { parentSessionId?: string; status?: Hand
 		...child,
 		status: normalizeRunStatus(child.runStatus || child.status),
 	}));
+	const workspace = cwdOf(ctx);
+	const objective = resolveObjective(ctx, workspace);
 	const activeTask = tasks.find((task) => task.status === "inprogress");
 	const activeChild = children.find((child) => isResumableRunStatus(child.runStatus || child.status));
+	const nextAction = activeTask?.text?.trim()
+		? `Continue task #${activeTask.id}: ${shortNextAction(activeTask.text)}`
+		: activeChild
+			? `${normalizeRunStatus(activeChild.runStatus || activeChild.status) === "failed" ? "Re-dispatch" : "Continue"} ${activeChild.agent} ${activeChild.id}: ${shortNextAction(activeChild.task || "recorded child task")}`
+			: undefined;
 	const receipt = state.verifierReceipt;
 	return buildHandoffSnapshot({
-		workspace: cwdOf(ctx),
+		workspace,
 		sessionId: sessionIdOf(ctx),
 		parentSessionId: extra.parentSessionId,
-		objective: latestObjective(ctx),
+		objective: objective.objective,
+		objectiveSource: objective.source,
 		mode: state.mode,
 		activeChain: state.activeChain,
 		activePipeline: state.activePipeline,
 		tasks,
 		children: handoffChildren,
-		nextAction: activeTask?.text || (activeChild ? `${normalizeRunStatus(activeChild.runStatus || activeChild.status) === "failed" ? "Re-dispatch" : "Continue"} ${activeChild.agent}: ${activeChild.task || "recorded child task"}` : undefined),
+		context: resolveContext(workspace),
+		nextAction,
 		verification: state.executionContract ? {
 			status: receipt?.status || "UNVERIFIED",
 			attempt: state.verifierAttempt,
@@ -117,6 +200,13 @@ export default function (pi: ExtensionAPI) {
 	const persist = (ctx: any, status?: HandoffSnapshot["status"]) => {
 		const snapshot = snapshotFrom(ctx, { status });
 		if (!hasMeaningfulHandoff(snapshot)) return;
+		if (!status && !dirty) {
+			// A caller without an explicit status and without fresh work in this
+			// session must never upgrade an acknowledged `interrupted` handoff back
+			// to `in_progress`; that is what resurrected repeated startup warnings.
+			const existing = readHandoff(snapshot.workspace);
+			if (existing?.status === "interrupted") snapshot.status = "interrupted";
+		}
 		if (existsSync(handoffClearMarkerPath(snapshot.workspace))) return;
 		try { writeHandoff(snapshot.workspace, snapshot); } catch {}
 		dirty = false;
@@ -215,24 +305,37 @@ export default function (pi: ExtensionAPI) {
 		// handoff belongs to the parent session. Never consume or mutate it from
 		// a SCOUT/TEAM/CHAIN/Pipeline worker.
 		if (process.env.PI_SUBAGENT === "1") return;
-		if (existsSync(handoffClearMarkerPath(cwdOf(ctx)))) return;
-		const saved = readHandoff(cwdOf(ctx));
-		if (saved && saved.status !== "completed" && saved.sessionId !== sessionIdOf(ctx)) {
-			pendingPrompt = saved;
-			// An in-progress handoff is newly discovered on this boundary. Once a
-			// session has acknowledged it, it becomes interrupted and remains
-			// resumable without producing the same warning on every later startup.
-			if (saved.status === "in_progress") {
-				const label = saved.objective || saved.nextAction || saved.tasks[0]?.text || saved.children[0]?.task || "unnamed task";
+		markStaleSnapshotInterrupted(ctx, event?.previousSessionFile);
+	});
+
+	// /new and session switching must also retire a snapshot owned by the
+	// outgoing session, otherwise the live session can keep writing in_progress
+	// state for work that no longer belongs to it.
+	pi.on("session_switch", async (event: any, ctx) => {
+		if (process.env.PI_SUBAGENT === "1") return;
+		markStaleSnapshotInterrupted(ctx, event?.previousSessionFile);
+	});
+
+	const markStaleSnapshotInterrupted = (ctx: any, previousSessionFile?: string) => {
+		const workspace = cwdOf(ctx);
+		if (existsSync(handoffClearMarkerPath(workspace))) return;
+		const saved = readHandoff(workspace);
+		if (!saved || saved.status === "completed" || saved.sessionId === sessionIdOf(ctx)) return;
+		pendingPrompt = saved;
+		const label = saved.objective || saved.nextAction || saved.tasks[0]?.text || saved.children[0]?.task || "unnamed task";
+		if (saved.status === "in_progress") {
+			// Downgrade BEFORE notifying: if the write fails, the next startup may
+			// warn again, but a successful write guarantees it will not.
+			let downgraded = false;
+			try {
+				writeHandoff(workspace, { ...saved, status: "interrupted", parentSessionId: previousSessionFile || saved.sessionId, updatedAt: new Date().toISOString() });
+				downgraded = true;
+			} catch {}
+			if (downgraded) {
 				try { ctx.ui?.notify?.(`Unfinished handoff found: ${label}. It will be available to the next turn.`, "warning"); } catch {}
 			}
 		}
-		// Any cross-session discovery is a boundary, including cold startup. Mark
-		// it interrupted immediately so the same stale snapshot cannot warn again.
-		if (saved && saved.status === "in_progress" && saved.sessionId !== sessionIdOf(ctx)) {
-			try { writeHandoff(cwdOf(ctx), { ...saved, status: "interrupted", parentSessionId: event?.previousSessionFile || saved.sessionId, updatedAt: new Date().toISOString() }); } catch {}
-		}
-	});
+	};
 
 	const unsubscribeMode = onCoordinationModeChange((_mode, _previous, modeCtx) => {
 		// Mode changes are meaningful handoff state even when no mode tool result
@@ -253,8 +356,12 @@ export default function (pi: ExtensionAPI) {
 		unsubscribeMode();
 		if (clearedThisSession) return;
 		if (existsSync(handoffClearMarkerPath(cwdOf(ctx)))) return;
-		const saved = readHandoff(cwdOf(ctx));
-		if (saved?.status === "completed" && !dirty) return;
-		if (dirty || changedFiles(cwdOf(ctx)) || currentTasks().length > 0) persist(ctx, pendingStatus || "in_progress");
+		if (!dirty) {
+			// No meaningful action happened in this session. The snapshot on disk
+			// belongs to a previous session (its lifecycle already ran); rewriting
+			// it here would resurrect an `interrupted` handoff as `in_progress`.
+			return;
+		}
+		persist(ctx, pendingStatus || "in_progress");
 	});
 }

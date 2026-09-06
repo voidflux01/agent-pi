@@ -20,6 +20,9 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
+import { setEvalGate } from "./lib/coordination-state.ts";
+import { workflowDirection } from "./lib/workflow-direction.ts";
+import { checkRequiredEvalBinding } from "./lib/eval-sets.ts";
 
 const Params = Type.Object({
 	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including Objective, Scope, Acceptance Criteria, Evidence Requirements, and Verification Commands with [cmd] assertions" })),
@@ -79,6 +82,15 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			const cwd = ctx.cwd || process.cwd();
+			// A contract-bound eval set is a mandatory acceptance item: a missing, stale
+			// or failed report blocks verification itself, so no receipt can exist.
+			if (contract.requiredEval) {
+				const gate = checkRequiredEvalBinding(cwd, contract.requiredEval);
+				setEvalGate(gate);
+				if (!gate.ok) {
+					return { content: [{ type: "text", text: `Verification blocked: ${gate.reason} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false, reason: "required eval gate not satisfied" } };
+				}
+			} else setEvalGate(undefined);
 			const attempt = bumpVerifierAttempt();
 			// Re-verification rounds against the same contract get a narrowed delta
 			// prompt built from the prior receipt — fresh session, focused audit.
@@ -129,7 +141,8 @@ export default function (pi: ExtensionAPI) {
 			});
 			return {
 				content: [{ type: "text", text: `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => r.raw).join("; ") || "all assertions passed"}` }],
-				details: { status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt },
+					details: { status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt,
+						nextAction: workflowDirection({ status: verification.receipt.status, attempt }) },
 			};
 		}) as any,
 

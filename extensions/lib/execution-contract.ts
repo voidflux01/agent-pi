@@ -7,7 +7,15 @@ import { resolve } from "node:path";
 export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
 export type ContractAssertion =
 	| { kind: "cmd"; raw: string; command: string; args: string[] }
+	| { kind: "eval"; raw: string; path: string; sha256: string }
 	| { kind: "advisory"; raw: string; text: string };
+
+export interface RequiredEvalBinding {
+	/** Workspace-relative path of the eval set the user made mandatory. */
+	path: string;
+	/** Content hash the eval report must match; the set is bound by version + content. */
+	sha256: string;
+}
 
 export interface AcceptanceContract {
 	version: 3;
@@ -22,6 +30,8 @@ export interface AcceptanceContract {
 	assertions: ContractAssertion[];
 	/** [cmd] only — the assertions that decide deterministic PASS. */
 	mandatory: ContractAssertion[];
+	/** Present when the confirmed contract binds a mandatory eval set via [eval]. */
+	requiredEval?: RequiredEvalBinding;
 	fingerprint: string;
 }
 
@@ -74,7 +84,7 @@ function commandText(value: string): string {
 }
 
 /** Parse shell-like quoting without invoking a shell or expansion. */
-function tokenizeCommand(input: string): string[] {
+export function tokenizeCommand(input: string): string[] {
 	const tokens: string[] = [];
 	let token = "";
 	let quote: "'" | '"' | undefined;
@@ -101,6 +111,14 @@ function tokenizeCommand(input: string): string[] {
 /** Unknown checklist markers, including removed [file]/[match], are advisory. */
 export function parseAssertion(raw: string): ContractAssertion {
 	const advisory: ContractAssertion = { kind: "advisory", raw, text: raw.replace(/^advisory\s*[:\-]\s*/i, "").trim() };
+	const evalMarker = raw.match(/^\[eval\]\s+(.+)$/i);
+	if (evalMarker) {
+		const [path, hash] = tokenizeCommand(commandText(evalMarker[1]));
+		const hashValue = hash?.match(/^sha256:([0-9a-f]{64})$/i)?.[1];
+		return path && hashValue && !path.includes("..") && !path.startsWith("/")
+			? { kind: "eval", raw, path, sha256: hashValue.toLowerCase() }
+			: advisory;
+	}
 	const marker = raw.match(/^\[cmd\]\s+(.+)$/i);
 	if (!marker) return advisory;
 	const tokens = tokenizeCommand(commandText(marker[1]));
@@ -136,6 +154,8 @@ function buildContract(markdown: string, source: AcceptanceContract["source"], h
 		contractPath: contractPath ? resolve(contractPath) : undefined,
 		assertions,
 		mandatory: assertions.filter(isMandatory),
+		/** Set when the user marked an eval set as a mandatory acceptance item via [eval]. */
+		requiredEval: assertions.find((a): a is Extract<ContractAssertion, { kind: "eval" }> => a.kind === "eval"),
 		fingerprint: planFingerprint(markdown),
 	};
 }

@@ -41,11 +41,12 @@ export function createVerifierReceipt(input: {
 	};
 }
 
-/** Completion predicate: PASS + correct contract + current workspace manifest + all assertions green. */
+/** Completion predicate: PASS + correct contract + current workspace manifest + all assertions green + satisfied mandatory eval. */
 export function canComplete(
 	receipt: VerifierReceipt | undefined,
 	contract: AcceptanceContract,
 	currentManifestHash?: string,
+	evalGate?: { ok: boolean },
 ): boolean {
 	if (!receipt) return false;
 	if (receipt.status !== "PASS") return false;
@@ -53,5 +54,7 @@ export function canComplete(
 	if (receipt.contractFingerprint !== contract.fingerprint) return false;
 	if (!receipt.workspaceManifestHash || !currentManifestHash || receipt.workspaceManifestHash !== currentManifestHash) return false;
 	if (receipt.results.length === 0 || !receipt.results.every(r => r.status === "pass")) return false;
+	// A contract-bound eval set is mandatory: missing, stale or failed reports block completion.
+	if (contract.requiredEval && !evalGate?.ok) return false;
 	return true;
 }

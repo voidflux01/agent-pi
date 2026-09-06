@@ -22,6 +22,8 @@ This repository is a maintained fork of [ruizrica/agent-pi](https://github.com/r
 
 The project is intentionally configuration-driven: extensions, Markdown agent definitions, YAML workflows, prompts, skills, and themes are loaded by Pi. There is no patched Pi runtime to maintain.
 
+The operating model and safety boundaries are documented in [coding-agent-foundations.md](docs/coding-agent-foundations.md), while the staged implementation contract lives in [iteration-roadmap.md](docs/iteration-roadmap.md).
+
 ## Why agent-pi?
 
 - **Six operating modes** — NORMAL, PLAN, SPEC, TEAM, CHAIN, and PIPELINE.
@@ -31,6 +33,7 @@ The project is intentionally configuration-driven: extensions, Markdown agent de
 - **Browser viewers** — review plans, specs, diffs, reports, and session artifacts in a local browser UI.
 - **Research handoffs** — preserve source URLs, retrieval dates, uncertainty, conflicts, and failed lookups as structured context.
 - **Customizable runtime** — add teams, chains, models, themes, commands, and skills without editing the Pi core.
+- **Workflow support** — run bounded local evaluations, inspect the next workflow action, draft project context, search opt-in retrospectives, triage local logs, and prepare deployment checklists.
 
 ## Requirements
 
@@ -87,6 +90,8 @@ Useful controls and commands:
 | Inspect persisted reports | `/reports` |
 
 For a low-ceremony task, stay in NORMAL. Use PLAN, SPEC, TEAM, CHAIN, or PIPELINE when you need explicit planning, specialist delegation, or review gates.
+
+The optional workflow-support extension adds `workflow_advice`, `eval_run`, `context_draft`, `retrospective_search`, `log_watch`, and `deployment_checklist`. These tools preserve the existing task, approval, security, and verification gates. `eval_run` is a regression signal and never marks a user task complete; deployment checklists only report readiness and never deploy. Set `PI_WORKFLOW_SUPPORT=0` to disable the extension for a session. Automatic retrospectives are opt-in through `workflowSupport.retrospective` in the global agent-pi configuration.
 
 ## Operational modes
 

@@ -13,6 +13,7 @@ if (!repo) throw new Error("usage: bun tools/e2e/plan-herdr-e2e.ts <repo-root>")
 const h = (args: string[]) => execFileSync("herdr", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 const workspace = mkdtempSync(join(tmpdir(), "plan-herdr-e2e-"));
 let workspaceId = "";
@@ -24,7 +25,8 @@ try {
 	const send = (...args: string[]) => execFileSync("herdr", ["pane", ...args], { stdio: ["ignore", "ignore", "ignore"] });
 	const readPane = () => stripAnsi(execFileSync("herdr", ["pane", "read", paneId], { encoding: "utf8", timeout: 20_000 }));
 
-	send("send-text", paneId, "pi");
+	const piCommand = `pi -e ${shellQuote(repo)}`;
+	send("send-text", paneId, piCommand);
 	send("send-keys", paneId, "enter");
 	let booted = false;
 	for (let i = 0; i < 18; i++) {
@@ -35,7 +37,7 @@ try {
 			break;
 		}
 		if (i === 8) {
-			send("send-text", paneId, "pi");
+			send("send-text", paneId, piCommand);
 			send("send-keys", paneId, "enter");
 		}
 	}

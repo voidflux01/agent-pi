@@ -18,7 +18,16 @@ export interface HandoffChild {
 	status: string;
 	task?: string;
 	outputFile?: string;
+	sessionFile?: string;
 	resumed?: boolean;
+}
+
+export type ObjectiveSource = "session-state" | "task-list" | "research" | "branch";
+
+export interface HandoffContextLink {
+	todoPath?: string;
+	researchSession?: { id: string; goal: string; status: string; updatedAt: string };
+	reports?: string[];
 }
 
 export interface HandoffSnapshot {
@@ -28,11 +37,14 @@ export interface HandoffSnapshot {
 	parentSessionId?: string;
 	status: HandoffStatus;
 	objective: string;
+	objectiveSource?: ObjectiveSource;
 	mode: string;
 	activeChain?: string | null;
 	activePipeline?: string | null;
 	tasks: HandoffTask[];
 	children: HandoffChild[];
+	childrenOmitted?: number;
+	context?: HandoffContextLink;
 	nextAction?: string;
 	verification?: {
 		status: string;
@@ -45,8 +57,19 @@ export interface HandoffSnapshot {
 export const HANDOFF_FILE = "handoff.json";
 const MAX_OBJECTIVE = 1200;
 const MAX_TASKS = 40;
-const MAX_CHILDREN = 24;
+const MAX_CHILDREN = 8;
 const MAX_TASK_TEXT = 500;
+const MAX_CHILD_TASK = 200;
+const MAX_NEXT_ACTION = 160;
+const MAX_REPORTS = 3;
+
+// Children that still need a worker are the actionable handoff payload; failed
+// rows come next; terminal rows are noise and are dropped first by the sort.
+function childPriority(status: string): number {
+	if (status === "running" || status === "queued" || status === "waiting") return 0;
+	if (status === "failed") return 1;
+	return 2;
+}
 
 export function handoffPath(workspace: string): string {
 	return join(workspace, ".pi", HANDOFF_FILE);
@@ -63,6 +86,11 @@ function canonicalWorkspace(workspace: string, relativeTo?: string): string {
 
 function trim(value: unknown, max: number): string {
 	return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function shortNextAction(value: string): string {
+	const trimmed = value.replace(/\s+/g, " ").trim();
+	return trimmed.length > MAX_NEXT_ACTION ? `${trimmed.slice(0, MAX_NEXT_ACTION - 1)}…` : trimmed;
 }
 
 export function readHandoff(workspace: string): HandoffSnapshot | undefined {
@@ -105,6 +133,8 @@ export function buildHandoffSnapshot(input: {
 	tasks?: Array<{ id: number; text: string; status: string }>;
 	children?: Array<{ id: string; agent: string; status: string; task?: string; outputFile?: string; resumed?: boolean }>;
 	nextAction?: string;
+	objectiveSource?: ObjectiveSource;
+	context?: HandoffContextLink;
 	verification?: { status: string; attempt?: number; contractFingerprint?: string };
 	status?: HandoffStatus;
 }): HandoffSnapshot {
@@ -113,14 +143,31 @@ export function buildHandoffSnapshot(input: {
 		text: trim(task.text, MAX_TASK_TEXT),
 		status: trim(task.status, 32),
 	}));
-	const children = (input.children ?? []).slice(-MAX_CHILDREN).map((child) => ({
+	const childRows = [...input.children ?? []]
+		.map((child) => ({ ...child, status: trim(child.status, 32) }))
+		.sort((a, b) => childPriority(a.status) - childPriority(b.status));
+	const children = childRows.slice(0, MAX_CHILDREN).map((child) => ({
 		id: trim(child.id, 160),
 		agent: trim(child.agent, 80),
-		status: trim(child.status, 32),
-		...(child.task ? { task: trim(child.task, MAX_TASK_TEXT) } : {}),
+		status: child.status,
+		...(child.task ? { task: trim(child.task, MAX_CHILD_TASK) } : {}),
 		...(child.outputFile ? { outputFile: trim(child.outputFile, 300) } : {}),
+		...(child.sessionFile ? { sessionFile: trim(child.sessionFile, 300) } : {}),
 		...(child.resumed ? { resumed: true } : {}),
 	}));
+	const childrenOmitted = Math.max(0, childRows.filter((child) => childPriority(child.status) < 2).length - children.length);
+	const context = input.context ? {
+		...(input.context.todoPath ? { todoPath: trim(input.context.todoPath, 300) } : {}),
+		...(input.context.researchSession ? {
+			researchSession: {
+				id: trim(input.context.researchSession.id, 160),
+				goal: trim(input.context.researchSession.goal, MAX_TASK_TEXT),
+				status: trim(input.context.researchSession.status, 32),
+				updatedAt: trim(input.context.researchSession.updatedAt, 40),
+			},
+		} : {}),
+		...(input.context.reports?.length ? { reports: input.context.reports.slice(0, MAX_REPORTS).map((report) => trim(report, 200)) } : {}),
+	} : undefined;
 	return {
 		version: 1,
 		workspace: input.workspace,
@@ -128,12 +175,15 @@ export function buildHandoffSnapshot(input: {
 		...(input.parentSessionId ? { parentSessionId: input.parentSessionId } : {}),
 		status: input.status ?? "in_progress",
 		objective: trim(input.objective, MAX_OBJECTIVE),
+		...(input.objectiveSource ? { objectiveSource: input.objectiveSource } : {}),
 		mode: trim(input.mode || "NORMAL", 32),
 		activeChain: input.activeChain ?? null,
 		activePipeline: input.activePipeline ?? null,
 		tasks,
 		children,
-		...(input.nextAction ? { nextAction: trim(input.nextAction, 800) } : {}),
+		...(childrenOmitted > 0 ? { childrenOmitted } : {}),
+		...(context ? { context } : {}),
+		...(input.nextAction ? { nextAction: shortNextAction(input.nextAction) } : {}),
 		...(input.verification ? { verification: input.verification } : {}),
 		updatedAt: new Date().toISOString(),
 	};
@@ -143,7 +193,7 @@ export function renderHandoff(snapshot: HandoffSnapshot): string {
 	const lines = [
 		`Status: ${snapshot.status}`,
 		`Mode: ${snapshot.mode}`,
-		`Objective: ${snapshot.objective || "(not recorded)"}`,
+		`Objective: ${snapshot.objective || "(not recorded)"}${snapshot.objectiveSource ? ` (source: ${snapshot.objectiveSource})` : ""}`,
 	];
 	if (snapshot.nextAction) lines.push(`Next action: ${snapshot.nextAction}`);
 	if (snapshot.tasks.length) {
@@ -152,7 +202,19 @@ export function renderHandoff(snapshot: HandoffSnapshot): string {
 	}
 	if (snapshot.children.length) {
 		lines.push("Children:");
-		for (const child of snapshot.children) lines.push(`- [${child.status}] ${child.agent}: ${child.task || child.id}`);
+		for (const child of snapshot.children) {
+			const locations = [child.sessionFile, child.outputFile].filter(Boolean).join(" | ");
+			lines.push(`- [${child.status}] ${child.agent} ${child.id}: ${child.task || "(recorded child task)"}${locations ? ` — ${locations}` : ""}`);
+		}
+		if (snapshot.childrenOmitted) lines.push(`- … and ${snapshot.childrenOmitted} more omitted child runs`);
+	}
+	if (snapshot.context) {
+		lines.push("Context:");
+		if (snapshot.context.todoPath) lines.push(`- Plan: ${snapshot.context.todoPath}`);
+		if (snapshot.context.researchSession) {
+			lines.push(`- Research: ${snapshot.context.researchSession.id} [${snapshot.context.researchSession.status}] ${snapshot.context.researchSession.goal}`);
+		}
+		if (snapshot.context.reports?.length) lines.push(`- Reports: ${snapshot.context.reports.join(", ")}`);
 	}
 	if (snapshot.verification) lines.push(`Verification: ${snapshot.verification.status}`);
 	lines.push(`Updated: ${snapshot.updatedAt}`);
@@ -163,6 +225,7 @@ export function renderHandoffPrompt(snapshot: HandoffSnapshot): string {
 	return `## Resumable task handoff
 A previous Pi session left this compact handoff. Use it only when the user's current request continues this work; otherwise ignore it.
 Do not treat claims as proof: inspect the listed next evidence and run verification before declaring completion.
+For richer local context, read the linked files (plan, research session, reports) instead of guessing from task labels.
 
 ${renderHandoff(snapshot)}
 
@@ -170,5 +233,5 @@ If continuing, keep the existing objective and task statuses coherent. For each 
 }
 
 export function hasMeaningfulHandoff(snapshot: HandoffSnapshot): boolean {
-	return Boolean(snapshot.objective || snapshot.tasks.length || snapshot.children.length || snapshot.mode !== "NORMAL");
+	return Boolean(snapshot.objective || snapshot.tasks.length || snapshot.children.length || snapshot.context);
 }

@@ -4,6 +4,37 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Workflow gap closure (approval gate, user evals, experience layer, recovery advice)
+
+- Proposal-bound approval gate (`extensions/lib/workflow-approval-gate.ts`):
+  approvals are keyed by a canonical proposal fingerprint, so any change to
+  title, action, scope or artifacts invalidates them. `workflow_approval` now
+  supports a fail-closed check mode (omit `approved`) alongside explicit
+  record mode; re-requests never override a rejection. Approvals expire and
+  are listed via `/workflow approvals`.
+- User task evals: `eval_run` accepts `evalSet` (workspace JSON/YAML) and
+  `caseId`. Eval sets bind by content hash (`sha256`), default to a shell-free
+  `command` executor (`execFile`, bounded output, abort/cancel aware), and
+  report `BLOCKED` for unavailable executors instead of passing. Contracts may
+  bind a mandatory eval set via a new `[eval] <path> sha256:<hex>` assertion;
+  `verify_execution` blocks until a fresh PASS report for that exact set
+  exists, and the completion gate (`canComplete`, `completeDecision`) enforces
+  it independently. See `evals/user-smoke-example.yaml`.
+- Retrospective experience layer: records now separate deterministic `facts`
+  from model-supplied `insights` (`fact` / `hypothesis` / `rule_draft` with
+  `active` / `adopted` / `rejected` / `stale` lifecycle). Without model review
+  only facts are stored — no fabricated lessons or root causes. Search injects
+  only active/adopted insights; `/workflow retrospective list|clear|mark`
+  covers listing, explicit user deletion and lifecycle transitions. Top-level
+  task completion (tasks toggle → done) now also writes a facts-only
+  retrospective when the opt-in `workflowSupport.retrospective` flag is on.
+- Recovery advice at orchestration failure points: CHAIN and PIPELINE failure
+  paths derive `next_action` from the real failure source (missing agent →
+  environment/ASK_USER; step or phase failure → implementation/BUILD) and
+  surface it in both the run events and the returned output.
+- New direct unit tests: workflow-approval-gate, eval-sets, workflow-monitor,
+  workflow-context, workflow-artifacts, workflow-direction + config defaults.
+
 ### Runtime reliability and release verification
 
 - TEAM, CHAIN, PIPELINE, and SUBAGENT workers now share lifecycle bookkeeping

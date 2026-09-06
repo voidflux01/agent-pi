@@ -1,60 +1,60 @@
 {
   "default": {
-    "provider": "anthropic",
-    "model": "claude-haiku-4-5-20251001"
+    "provider": "zai-coding-cn",
+    "model": "glm-5.3-flash"
   },
   "agents": {
     "scout": {
-      "provider": "x-ai",
-      "model": "grok-4.1-fast"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "ranger": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "builder": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "paladin": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "reviewer": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "warden": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "planner": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "researcher": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "tester": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "herald": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "red-team": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "knight": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     },
     "rlm-subcall": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5"
+      "provider": "zai-coding-cn",
+      "model": "glm-5.3-flash"
     }
   }
 }

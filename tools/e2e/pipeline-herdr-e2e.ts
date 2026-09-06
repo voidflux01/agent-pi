@@ -13,6 +13,8 @@ if (!repo) throw new Error("usage: bun tools/e2e/pipeline-herdr-e2e.ts <repo-roo
 const h = (args: string[]) => execFileSync("herdr", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+const modelArg = process.env.PIPELINE_E2E_MODEL ? ` --model ${shellQuote(process.env.PIPELINE_E2E_MODEL)}` : "";
 
 const workspace = mkdtempSync(join(tmpdir(), "pipeline-herdr-e2e-"));
 let workspaceId = "";
@@ -29,14 +31,15 @@ try {
 		return readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 	};
 
-	send("send-text", paneId, "pi");
+	const piCommand = `pi -e ${shellQuote(repo)}${modelArg}`;
+	send("send-text", paneId, piCommand);
 	send("send-keys", paneId, "enter");
 	let booted = false;
 	for (let i = 0; i < 18; i++) {
 		await sleep(2000);
 		const text = readPane();
 		if (text.includes("Extensions") || text.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(text)) { booted = true; break; }
-		if (i === 8) { send("send-text", paneId, "pi"); send("send-keys", paneId, "enter"); }
+		if (i === 8) { send("send-text", paneId, piCommand); send("send-keys", paneId, "enter"); }
 	}
 	if (!booted) throw new Error(`pi did not boot; tail=${readPane().slice(-500)}`);
 
@@ -50,18 +53,18 @@ try {
 	// this TUI; the first option is the configured four-phase smoke pipeline.
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
-	send("send-text", paneId, "Run the active PIPELINE for this tiny disposable task: verify that `printf pipeline-ok` outputs pipeline-ok. Do not modify the repository. Complete understand, plan, build, and review, then reply exactly PIPELINE-TASK-PASS.");
+	send("send-text", paneId, "Run the active four-phase PIPELINE for this workflow-protocol smoke task: verify that `printf pipeline-ok` outputs pipeline-ok. Do not modify the repository. Treat this as COMPLEX for the purpose of exercising the pipeline: do not skip UNDERSTAND or any configured phase. In PIPELINE mode never call show_plan or show_spec. Follow the exact loop for each phase: call subagent_create with the configured worker name, join:true, and the phase task; wait for its bounded ## RESULT, then immediately call advance_phase with that summary. Repeat for UNDERSTAND, PLAN, BUILD, and REVIEW; after the final phase returns, reply exactly PIPELINE-TASK-PASS.");
 	send("send-keys", paneId, "enter");
 
 	let finalText = "";
 	for (let i = 0; i < 75; i++) {
 		await sleep(3000);
 		finalText = readPane();
-		const rows = readRows().filter((row: any) => row.kind === "pipeline" && row.mode === "PIPELINE");
+		const rows = readRows().filter((row: any) => (row.kind === "pipeline" || row.kind === "sa") && row.mode === "PIPELINE");
 		const terminal = rows.filter((row: any) => row.status === "done" || row.status === "error");
 		if (finalText.includes("PIPELINE-TASK-PASS") && terminal.length >= 3) break;
 	}
-	const rows = readRows().filter((row: any) => row.kind === "pipeline" && row.mode === "PIPELINE");
+	const rows = readRows().filter((row: any) => (row.kind === "pipeline" || row.kind === "sa") && row.mode === "PIPELINE");
 	const terminal = rows.filter((row: any) => row.status === "done" || row.status === "error");
 	if (!finalText.includes("PIPELINE-TASK-PASS") || terminal.length < 3 || terminal.some((row: any) => row.status !== "done")) {
 		throw new Error(`PIPELINE task incomplete; rows=${JSON.stringify(rows).slice(0, 2200)}; tail=${finalText.slice(-1200).replace(/\s+/g, " ")}`);

@@ -23,6 +23,11 @@ the authoritative fixture command is `node --test`.
 | 12 | NORMAL batch join:true | PASS | In an isolated `/tmp` workspace with the real provider, one parent call to `subagent_create_batch` used `join:true` for two parallel SCOUT workers; no separate `subagent_wait` call occurred, the parent returned `JOIN-TRUE-SMOKE-PASS`, and both worker journal rows/transcript archives were retained. The `--no-session` smoke intentionally had no parent composition event directory. |
 | 13 | NORMAL headless batch join:true | PASS | A repeat isolated `--no-session` real-provider smoke used one `join:true` batch call for two SCOUT workers and returned `HEADLESS-EVENTS-SMOKE-PASS`; the parent composition event directory contained run start, child starts/completions, usage, workspace delta, and terminal success. |
 | 14 | NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE | PASS | Real `opencode-go/deepseek-v4-flash` entry smoke in six isolated `/tmp` workspaces: each session called `set_mode` exactly once and returned its mode marker. All 6/6 passed; wall time was 15.8–28.1s including Pi startup, with CHAIN the slowest. No worker was started and no repository file was modified, so this is entry-path evidence rather than full workflow-performance evidence. |
+| 15 | Plugin workflow support | PASS | Provider-free functional and workflow eval-sets loaded from `evals/*.yaml`; extension registration, bounded evidence, stale-receipt routing, context drift, local log triage, deployment fail-closed behavior, retrospective persistence/search, and explicit approval recording are covered by repository tests. |
+| 16 | PLAN / show_plan | PASS | Real Herdr Pi TUI smoke loaded the checkout extension, switched to PLAN, displayed a read-only plan, and returned `PLAN-TASK-PASS` without changing files. |
+| 17 | CHAIN / plan-build-review | PASS | Real Herdr Pi TUI smoke explicitly loaded the plugin package root, switched to CHAIN, drove planner → builder → reviewer through sequential `subagent_create`, and observed three terminal CHAIN journal rows. The task was provider-backed and disposable; no repository files were changed. |
+| 18 | TEAM / REVIEWER | PASS | Real Herdr Pi TUI smoke explicitly loaded the plugin package root, dispatched one REVIEWER worker, observed `SA1 done`, and returned `TEAM-TASK-PASS`; the harness now accepts the implementation's `kind: sa` journal schema. |
+| 19 | PIPELINE | INCONCLUSIVE | Explicit package loading succeeded, but the default provider session did not reach the final marker within the bounded window. A retry with an unsupported Codex model was rejected before execution. No repository files or persistent external workspaces were modified. |
 
 ## Current evidence
 
@@ -317,3 +322,54 @@ the authoritative fixture command is `node --test`.
   was blocked before execution, while approval, security, timeout, cancel, and
   audit boundary tests passed in the same targeted run (69 tests, 0 failures).
   No provider model request or business MCP tool was used.
+
+## 2026-09-06 — PIPELINE gate re-audit
+
+- The earlier PIPELINE pass entry above is not reproducible under the current
+  four-phase harness and is superseded by this re-audit. A fresh real Pi/Herdr
+  run reached PLAN and the first planner returned terminal `done`, but the
+  parent gate still requested another planner and the run timed out before
+  BUILD/REVIEW. The resulting second planner row is evidence of a phase-state
+  reconciliation bug, not a valid workflow pass.
+- The parent prompt was tightened to forbid `show_plan`/`show_spec` in PIPELINE
+  and to require immediate `advance_phase` after a joined result. The local
+  regression suite passes, but the real PIPELINE canary remains FAIL until the
+  canonical `subagent_create` completion callback and the pipeline phase state
+  share one durable completion fact.
+
+- The unified-dispatch migration was then exercised with the real Pi/Herdr
+  harness: PIPELINE used only `subagent_create`, completed UNDERSTAND → PLAN →
+  BUILD → REVIEW, produced three terminal worker rows, and returned
+  `PIPELINE-TASK-PASS`. The run did not expose `pipeline_dispatch` as a public
+  tool. Completion was backed by workspace-scoped dispatch receipts, including
+  the planner phase receipt consumed by `advance_phase`.
+
+## 2026-09-06 · Workflow gap closure round
+
+Scope: approval gate, user evals, retrospective experience layer, recovery
+advice, direct unit tests for previously indirectly-covered libs.
+
+- bun test: 241 passed / 0 failed (incl. 5 new test files:
+  workflow-approval-gate, eval-sets, workflow-monitor, workflow-context,
+  workflow-artifacts, workflow-direction-config). Vitest: 1004 passed,
+  13 skipped. `npm run verify:package`: clean-tarball install PASS.
+- Real tool-surface run in-session: `eval_run` (bundled provider-free set)
+  returned PASS with two persisted reports under `.pi/workflow/evals/` and
+  `completionAllowed: false`.
+- Known boundary recorded honestly: the session that authored these changes
+  had loaded the extension before the edit, so the new `evalSet` parameter,
+  `/workflow approvals` and `/workflow retrospective` surfaces require a fresh
+  session to exercise through the live tool. Lib-level equivalents ran for
+  real in bun tests, including an actual `echo` child process through the
+  command executor and `loadEvalSet` hash binding.
+- Findings fixed during the round: (1) `readBounded` was handed absolute
+  retrospective paths that failed the realpath root check on macOS `/var`
+  symlinks — all store reads now use workspace-relative paths; (2) the log
+  sensitive-path regex missed `.env.production`-style suffixes — corrected;
+  (3) approval records initially wrote via absolute paths into
+  `safeWorkspacePath` and failed identically — corrected to relative paths.
+- Deliberate deferrals: NORMAL top-level auto-retrospective is facts-only and
+  opt-in; model-supplied insights enter only through the explicit
+  `augmentRetrospective` integration point, never automatically. The
+  `pi-workflow` eval executor reports BLOCKED until the live harness is
+  wired; it never fabricates a PASS.

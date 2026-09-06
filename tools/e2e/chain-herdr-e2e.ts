@@ -3,7 +3,7 @@
 // Usage: bun tools/e2e/chain-herdr-e2e.ts <repo-root>
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeHerdrWorkspace } from "./lib-close-workspace.ts";
@@ -13,6 +13,7 @@ if (!repo) throw new Error("usage: bun tools/e2e/chain-herdr-e2e.ts <repo-root>"
 const h = (args: string[]) => execFileSync("herdr", args, { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 const budgetTokens = process.env.CHAIN_E2E_BUDGET_TOKENS || "100000";
 const budgetCommand = `/budget ${budgetTokens} 0.20`;
 
@@ -26,26 +27,33 @@ try {
 	const send = (...args: string[]) => execFileSync("herdr", ["pane", ...args], { stdio: ["ignore", "ignore", "ignore"] });
 	const readPane = () => stripAnsi(execFileSync("herdr", ["pane", "read", paneId], { encoding: "utf8", timeout: 20_000 }));
 	const readRows = () => {
-		const path = join(workspace, ".pi", "agent-sessions", "task-journal.jsonl");
-		if (!existsSync(path)) return [] as any[];
-		return readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+		const root = join(workspace, ".pi", "agent-sessions");
+		if (!existsSync(root)) return [] as any[];
+		const rows: any[] = [];
+		for (const name of readdirSync(root).filter((entry) => entry.endsWith(".jsonl"))) {
+			for (const line of readFileSync(join(root, name), "utf8").split("\n").filter(Boolean)) {
+				try { rows.push(JSON.parse(line)); } catch {}
+			}
+		}
+		return rows;
 	};
 
-	send("send-text", paneId, "pi");
+	const piCommand = `pi -e ${shellQuote(repo)}`;
+	send("send-text", paneId, piCommand);
 	send("send-keys", paneId, "enter");
 	let booted = false;
 	for (let i = 0; i < 18; i++) {
 		await sleep(2000);
 		const text = readPane();
 		if (text.includes("Extensions") || text.includes("F I G H T I N G") || /\n│.*\d+\.\d+%\//.test(text)) { booted = true; break; }
-		if (i === 8) { send("send-text", paneId, "pi"); send("send-keys", paneId, "enter"); }
+		if (i === 8) { send("send-text", paneId, piCommand); send("send-keys", paneId, "enter"); }
 	}
 	if (!booted) throw new Error(`pi did not boot; tail=${readPane().slice(-500)}`);
 
 	send("send-text", paneId, budgetCommand);
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
-	send("send-text", paneId, "Use set_mode to switch to CHAIN, then run_chain with chain plan-build-review for this tiny disposable task: verify that `printf chain-ok` produces chain-ok. Do not make repository changes. Wait for all three chain steps to finish, then reply exactly CHAIN-TASK-PASS.");
+	send("send-text", paneId, "Use set_mode to switch to CHAIN. Then execute the active plan-build-review chain through exactly three sequential subagent_create calls (planner, builder, reviewer), passing each result to the next. The disposable task is only to verify that `printf chain-ok` produces chain-ok; do not make repository changes. Wait for all three workers to finish, then reply exactly CHAIN-TASK-PASS.");
 	send("send-keys", paneId, "enter");
 	await sleep(2000);
 	send("send-keys", paneId, "enter");
@@ -54,12 +62,12 @@ try {
 	for (let i = 0; i < 60; i++) {
 		await sleep(3000);
 		finalText = readPane();
-		const chainRows = readRows().filter((row: any) => row.kind === "chain");
-		const terminal = chainRows.filter((row: any) => row.status === "done" || row.status === "error");
+		const chainRows = readRows().filter((row: any) => row.mode === "CHAIN" && ["chain", "sa", "dispatch"].includes(String(row.kind || "").toLowerCase()));
+		const terminal = chainRows.filter((row: any) => row.status === "done" || row.status === "error" || row.status === "failed");
 		if (finalText.includes("CHAIN-TASK-PASS") && terminal.length >= 3) break;
 	}
-	const chainRows = readRows().filter((row: any) => row.kind === "chain");
-	const terminal = chainRows.filter((row: any) => row.status === "done" || row.status === "error");
+	const chainRows = readRows().filter((row: any) => row.mode === "CHAIN" && ["chain", "sa", "dispatch"].includes(String(row.kind || "").toLowerCase()));
+	const terminal = chainRows.filter((row: any) => row.status === "done" || row.status === "error" || row.status === "failed");
 	if (!finalText.includes("CHAIN-TASK-PASS") || terminal.length < 3 || terminal.some((row: any) => row.status !== "done")) {
 		throw new Error(`CHAIN task incomplete; rows=${JSON.stringify(chainRows).slice(0, 1800)}; tail=${finalText.slice(-1200).replace(/\s+/g, " ")}`);
 	}

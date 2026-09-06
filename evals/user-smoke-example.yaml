@@ -1,0 +1,21 @@
+# Example user eval set for `eval_run { evalSet: "evals/user-smoke-example.yaml" }`.
+# Bind this set into an acceptance contract with an `[eval]` assertion:
+#   - [eval] evals/user-smoke-example.yaml sha256:<sha256 of this file>
+# After `eval_run` produces a PASS report, verify_execution satisfies the gate
+# and completion is allowed; missing, stale or failing reports block completion.
+name: user-smoke-example
+version: 1
+cases:
+  - id: echo-marker
+    version: 1
+    kind: functional
+    task: Demonstrate the command executor end to end.
+    timeout_ms: 10000
+    max_tokens: 1
+    executor: command
+    command: echo USER_EVAL_SMOKE_PASS
+    expect:
+      - type: contains
+        value: USER_EVAL_SMOKE_PASS
+      - type: exit
+        code: 0

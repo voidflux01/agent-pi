@@ -35,6 +35,9 @@ import { padRight } from "./lib/ui-helpers.ts";
 import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
+import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
+import { saveRetrospective } from "./lib/workflow-memory.ts";
+import { digest } from "./lib/workflow-artifacts.ts";
 
 // Pure gate decision helper (exported for tests). State changes must go through
 // the `tasks` tool so they are recorded in the session transcript and survive
@@ -574,6 +577,21 @@ export default function (pi: ExtensionAPI) {
 						}],
 						details: makeDetails("toggle"),
 					};
+					// Opt-in retrospective on top-level task completion (facts only;
+					// sub-steps and re-toggles are deduped by run id).
+					if (prev !== "done" && task.status === "done") {
+						const wsConfig = AGENT_PI_CONFIG.workflowSupport;
+						if (wsConfig?.enabled && wsConfig.retrospective) {
+							try {
+								saveRetrospective(ctx.cwd || process.cwd(), {
+									runId: `task-${task.id}-${digest(`${task.text}`).slice(0, 16)}`,
+									actor: "task", mode: coordinationState().mode, status: "succeeded",
+									durationMs: 0, stepsUsed: 0, usage: { totalTokens: 0, costUsd: 0 },
+									evidenceRefs: [], taskText: task.text,
+								});
+							} catch { /* Retrospective storage must never break task toggling. */ }
+						}
+					}
 					refreshUI(ctx);
 					return result;
 				}
