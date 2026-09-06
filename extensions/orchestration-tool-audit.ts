@@ -69,8 +69,8 @@ export default function (pi: ExtensionAPI) {
 		resetBlockedToolAudit();
 	};
 	pi.on("session_start", resetSessionAudit);
-	pi.on("session_switch", resetSessionAudit);
-	pi.on("session_fork", resetSessionAudit);
+	pi.on("session_before_switch", resetSessionAudit);
+	pi.on("session_before_fork", resetSessionAudit);
 	pi.on("session_tree", resetSessionAudit);
 
 	pi.on("tool_execution_start", (event, ctx) => {

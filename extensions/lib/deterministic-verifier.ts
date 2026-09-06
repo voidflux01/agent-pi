@@ -106,6 +106,10 @@ export async function runAssertion(assertion: ContractAssertion, root: string, c
 			return { kind: "advisory", raw: assertion.raw, status: "pass", note: "advisory — not part of the PASS decision" };
 		case "cmd":
 			return runCommand(assertion.raw, assertion.command, assertion.args, root, timeoutMs);
+		case "eval":
+			return { kind: "eval", raw: assertion.raw, status: "blocked", note: "eval assertions are not executed by the deterministic verifier" };
+		default:
+			throw new Error("unsupported assertion kind");
 	}
 }
 

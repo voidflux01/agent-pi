@@ -1,7 +1,7 @@
 // ABOUTME: Safe port scan wrapper around nmap with strict local/private scope checks and conservative defaults.
 // ABOUTME: Refuses public targets, arbitrary flags, and aggressive scanning behavior.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
@@ -151,11 +151,11 @@ export default function (pi: ExtensionAPI) {
         };
       }
     },
-    renderCall(args, theme) {
+    renderCall(args: Record<string, unknown>, theme: Theme) {
       const p = args as any;
       return new Text(theme.fg("toolTitle", theme.bold("safe_port_scan ")) + theme.fg("accent", p.target || ""), 0, 0);
     },
-    renderResult(result, _options, theme) {
+    renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
       const details = result.details as any;
       if (details?.error) return new Text(theme.fg("error", `safe_port_scan error: ${details.error}`), 0, 0);
       if (details?.dryRun) return new Text(theme.fg("accent", "safe_port_scan dry run"), 0, 0);

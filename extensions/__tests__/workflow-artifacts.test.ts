@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ARTIFACT_LIMIT, digest, readBounded, redactEvidence, saveArtifact, safeWorkspacePath } from "../lib/workflow-artifacts.ts";
 

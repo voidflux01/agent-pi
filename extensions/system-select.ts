@@ -136,7 +136,7 @@ export default function (pi: ExtensionAPI) {
 				activeAgent = null;
 				pi.setActiveTools(defaultTools);
 				ctx.ui.setStatus("system-prompt", "System Prompt: Default");
-				ctx.ui.notify("System Prompt reset to Default", "success");
+				ctx.ui.notify("System Prompt reset to Default", "info");
 				return;
 			}
 
@@ -151,7 +151,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			ctx.ui.setStatus("system-prompt", `System Prompt: ${displayName(agent.name)}`);
-			ctx.ui.notify(`System Prompt switched to: ${displayName(agent.name)}`, "success");
+			ctx.ui.notify(`System Prompt switched to: ${displayName(agent.name)}`, "info");
 		},
 	});
 

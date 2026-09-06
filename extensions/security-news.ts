@@ -1,7 +1,7 @@
 // ABOUTME: Curated security news/advisory retrieval for trusted sources like CISA, NVD, OWASP, and CVE.
 // ABOUTME: Registers a security_news tool that returns trust-ranked, freshness-aware advisory data.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
@@ -360,12 +360,12 @@ export default function (pi: ExtensionAPI) {
         };
       }
     },
-    renderCall(args, theme) {
+    renderCall(args: Record<string, unknown>, theme: Theme) {
       const p = args as any;
       const label = `${p.action || "security_news"}${p.source ? `:${p.source}` : ""}`;
       return new Text(theme.fg("toolTitle", theme.bold("security_news ")) + theme.fg("accent", label), 0, 0);
     },
-    renderResult(result, _options, theme) {
+    renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
       const details = result.details as any;
       if (details?.error) return new Text(theme.fg("error", `security_news error: ${details.error}`), 0, 0);
       return new Text(theme.fg("success", `security_news ${details?.count ?? 0} result(s)`), 0, 0);

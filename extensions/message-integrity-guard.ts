@@ -27,7 +27,7 @@
  * regardless of how it happened.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 
 // ============================================================================
 // Types (minimal, matching what we see in the message objects)
@@ -325,7 +325,8 @@ export default function messageIntegrityGuard(pi: ExtensionAPI) {
 
 			// Silent self-healing — no console output for routine repairs
 
-			return { messages };
+			// Message[] is structurally compatible with ContextEventResult["messages"].
+			return { messages: messages as never };
 		}
 
 		// No repairs needed — return nothing to pass through unchanged
@@ -357,7 +358,7 @@ export default function messageIntegrityGuard(pi: ExtensionAPI) {
 	// ========================================================================
 	// SESSION RESTORE DEFENSE: Validate history on session switch
 	// ========================================================================
-	pi.on("session_switch", async (event, ctx) => {
+	pi.on("session_before_switch", async (event, ctx) => {
 		// The actual validation happens in the "context" handler on the next
 		// LLM call. We just reset our counters here.
 		totalRepairs = 0;

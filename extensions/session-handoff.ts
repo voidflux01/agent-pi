@@ -1,7 +1,7 @@
 // ABOUTME: Keeps a compact, durable task handoff across new Pi sessions.
 // ABOUTME: Restores only a bounded summary on the first turn; full transcripts remain in Pi sessions.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import type { AutocompleteItem } from "@mariozechner/pi-tui";
@@ -249,7 +249,7 @@ export default function (pi: ExtensionAPI) {
 				pendingStatus = undefined;
 				clearedThisSession = true;
 				try { writeFileSync(handoffClearMarkerPath(workspace), `${new Date().toISOString()}\n`, { encoding: "utf8", mode: 0o600 }); } catch {}
-				ctx.ui.notify("Task handoff cleared.", "success");
+				ctx.ui.notify("Task handoff cleared.", "info");
 				return;
 			}
 			if (String(args || "").trim() === "resume") {
@@ -264,11 +264,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (String(args || "").trim() === "complete") {
 				persist(ctx, "completed");
-				ctx.ui.notify("Task handoff marked completed.", "success");
+				ctx.ui.notify("Task handoff marked completed.", "info");
 				return;
 			}
 			if (!saved) { ctx.ui.notify("No task handoff found for this workspace.", "info"); return; }
-			ctx.ui.notify(renderHandoff(saved), saved.status === "completed" ? "success" : "warning");
+			ctx.ui.notify(renderHandoff(saved), saved.status === "completed" ? "info" : "warning");
 		},
 	});
 
@@ -289,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 		// resume_handoff is a read operation. It must not make an otherwise idle
 		// session dirty, or shutdown will resurrect the handoff as in_progress.
 		if (["tasks", "set_mode", "subagent_create", "subagent_create_batch", "verify_execution", "show_report"].includes(event.toolName)) {
-			const details = event.result?.details;
+			const details = event.details as { completionBlocked?: boolean; error?: boolean } | undefined;
 			const completed = event.toolName === "show_report" && details?.completionBlocked !== true && details?.error !== true;
 			schedule(ctx, completed ? "completed" : undefined);
 		}
@@ -311,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 	// /new and session switching must also retire a snapshot owned by the
 	// outgoing session, otherwise the live session can keep writing in_progress
 	// state for work that no longer belongs to it.
-	pi.on("session_switch", async (event: any, ctx) => {
+	pi.on("session_before_switch", async (event: any, ctx) => {
 		if (process.env.PI_SUBAGENT === "1") return;
 		markStaleSnapshotInterrupted(ctx, event?.previousSessionFile);
 	});

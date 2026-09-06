@@ -1,17 +1,17 @@
 // ABOUTME: Cycles operational modes (NORMAL/PLAN/SPEC/PIPELINE/TEAM/CHAIN) via Shift+Tab.
 // ABOUTME: Gates which extension's before_agent_start fires and injects PLAN/SPEC prompts.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
 import { MODES, nextMode, modeLabel, type Mode } from "./lib/mode-cycler-logic.ts";
 import { SPEC_PROMPT, buildNormalPrompt, buildPlanPrompt } from "./lib/mode-prompts.ts";
 import { rewritePayloadSystemPrompt } from "./lib/rewrite-system-prompt.ts";
-import { coordinationState, setCoordinationMode } from "./lib/coordination-state.ts";
+import { coordinationState, setCoordinationMode, type ModeChangeUi } from "./lib/coordination-state.ts";
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
@@ -28,7 +28,7 @@ export default function (pi: ExtensionAPI) {
 	midRunSystemPrompt = null;
 	resetApprovals();
 	setCoordinationMode("NORMAL");
-	installPinnedToolSurface(pi);
+	installPinnedToolSurface(pi as unknown as Parameters<typeof installPinnedToolSurface>[0]);
 	const normalEscalationState = createNormalEscalationState();
 
 
@@ -87,7 +87,7 @@ export default function (pi: ExtensionAPI) {
 
 	function setMode(mode: Mode, ctx: ExtensionContext) {
 		const previous = coordinationState().mode;
-		setCoordinationMode(mode, ctx);
+		setCoordinationMode(mode, ctx as unknown as ModeChangeUi);
 		if (mode === "PIPELINE") {
 			// Pipeline selection is owned by pipeline-team. Ask it to reconcile
 			// its config here because its session-start listener can be registered
@@ -194,7 +194,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const target = (args as any).mode || "?";
 			const reason = (args as any).reason || "";
 			const preview = reason.length > 50 ? reason.slice(0, 47) + "..." : reason;
@@ -202,13 +202,13 @@ export default function (pi: ExtensionAPI) {
 				theme.fg("toolTitle", theme.bold("set_mode ")) +
 				theme.fg("accent", target.toUpperCase()) +
 				(preview ? theme.fg("dim", " — ") + theme.fg("muted", preview) : "");
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			const msg = text?.type === "text" ? text.text : "";
-			return new Text(outputLine(theme, "success", msg), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
 		},
 	});
 
@@ -225,7 +225,7 @@ export default function (pi: ExtensionAPI) {
 			// Do not carry pre-approval pressure into the unlocked phase.
 			resetNormalEscalation(normalEscalationState);
 		} else {
-			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.arguments || event.params || event.input);
+			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.input);
 			if (escalation.block) {
 				const reason = reconEscalationReason(mode, escalation.count);
 				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason, context: ctx });
@@ -236,7 +236,7 @@ export default function (pi: ExtensionAPI) {
 			mode,
 			approved: approvalStateForMode(mode),
 			toolName: event.toolName,
-			args: event.arguments || event.params || event.input,
+			args: event.input,
 			cwd: ctx?.cwd,
 		});
 		if (decision.block) {
@@ -277,7 +277,7 @@ export default function (pi: ExtensionAPI) {
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};
-		setCoordinationMode("NORMAL", ctx);
+		setCoordinationMode("NORMAL", ctx as unknown as ModeChangeUi);
 		(globalThis as any).__piRefreshModeBlock = () => refreshModeBlock(ctx);
 		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}
 		if (ctx.hasUI) {
@@ -288,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Session switch (/new) ──────────────────────
 
-	pi.on("session_switch", async (_event, ctx) => {
+	pi.on("session_before_switch", async (_event, ctx) => {
 		// A resumed/new session must not inherit recon pressure or a pending
 		// provider-prompt rewrite from the session that was left behind.
 		resetNormalEscalation(normalEscalationState);
@@ -297,16 +297,16 @@ export default function (pi: ExtensionAPI) {
 		// Match session_start: a new session starts in NORMAL. This also gives
 		// mode-owned extensions a deterministic cancellation boundary for work
 		// that must not cross the session switch.
-		setCoordinationMode("NORMAL", ctx);
+		setCoordinationMode("NORMAL", ctx as unknown as ModeChangeUi);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
 		};
 		try { writeFileSync(MODE_FILE, "NORMAL", "utf-8"); } catch {}
 		if (ctx.hasUI) ctx.ui.setStatus("mode", "");
 		// Re-apply current mode widgets after banner is shown to ensure correct rendering order
-		// The banner is shown in agent-banner.ts's session_switch handler, so we need to
+		// The banner is shown in agent-banner.ts's session_before_switch handler, so we need to
 		// re-set widgets here to ensure mode-block (if any) renders before banner is re-set
-		// Use process.nextTick to ensure banner's session_switch handler runs first
+		// Use process.nextTick to ensure banner's session_before_switch handler runs first
 		process.nextTick(() => {
 			updateWidgets(coordinationState().mode, ctx);
 		});

@@ -26,7 +26,7 @@
  * Usage: pi -e extensions/debug-capture.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@mariozechner/pi-tui";
@@ -504,12 +504,13 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(
 					`Captured ${count} screenshot${count !== 1 ? "s" : ""} in ${Math.round(result.elapsed / 1000)}s. ` +
 					`Use Read on the paths to inspect.`,
-					"success",
+					"info",
 				);
 			}
 
 			// Print full result to chat
-			return formatResult(result);
+			// Command handlers must return void; result was already reported via ui.notify.
+			void formatResult(result);
 		},
 	});
 
@@ -579,7 +580,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(_params, _theme) {
+		renderCall(_params: Record<string, unknown>, _theme: Theme) {
 			const p = _params as { scenario: string };
 			const DIM = "\x1b[90m";
 			const BRIGHT = "\x1b[1;97m";
@@ -587,7 +588,7 @@ export default function (pi: ExtensionAPI) {
 			return new Text(`${DIM}debug-capture:${RST} ${BRIGHT}${p.scenario}${RST}`, 0, 0);
 		},
 
-		renderResult(result, _options, _theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, _theme: Theme) {
 			const details = result.details as any;
 			const DIM = "\x1b[90m";
 			const GREEN = "\x1b[32m";

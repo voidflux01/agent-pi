@@ -21,13 +21,12 @@
  * Usage: pi -e extensions/tasks.ts
  */
 
-import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ThemeColor, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
 import { Container, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
-import { outputLine } from "./lib/output-box.ts";
-import { Type } from "@sinclair/typebox";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
+import { Type, type Static } from "@sinclair/typebox";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
@@ -91,7 +90,15 @@ interface TasksDetails {
 }
 
 const TasksParams = Type.Object({
-	action: StringEnum(["new-list", "add", "toggle", "remove", "update", "list", "clear"] as const),
+	action: Type.Union([
+		Type.Literal("new-list"),
+		Type.Literal("add"),
+		Type.Literal("toggle"),
+		Type.Literal("remove"),
+		Type.Literal("update"),
+		Type.Literal("list"),
+		Type.Literal("clear"),
+	], { description: "Task action" }),
 	text: Type.Optional(Type.String({ description: "Task text (for add/update), or list title (for new-list)" })),
 	texts: Type.Optional(Type.Array(Type.String(), { description: "Multiple task texts (for add). Use this to batch-add several tasks at once." })),
 	description: Type.Optional(Type.String({ description: "List description (for new-list)" })),
@@ -270,7 +277,7 @@ export default function (pi: ExtensionAPI) {
 						const availableHeight = Math.max(3, Math.min(termHeight - 10, 14));
 						const taskLines = renderTaskList(
 							tl, localTaskListState, width, availableHeight,
-							{ truncateToWidth, fg: (c: string, t: string) => theme.fg(c, t) },
+							{ truncateToWidth, fg: (c: string, t: string) => theme.fg(c as ThemeColor, t) },
 						);
 						const taskBg = "\x1b[48;5;236m";
 						const taskReset = "\x1b[0m";
@@ -342,8 +349,8 @@ export default function (pi: ExtensionAPI) {
 		reconstructState(ctx);
 		taskRefreshRequired = false;
 	});
-	pi.on("session_switch", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
-	pi.on("session_fork", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
+	pi.on("session_before_switch", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
+	pi.on("session_before_fork", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
 	pi.on("session_tree", async (_event, ctx) => { reconstructState(ctx); taskRefreshRequired = false; });
 
 	// A task list describes one workflow context. Do not silently reuse a
@@ -364,9 +371,9 @@ export default function (pi: ExtensionAPI) {
 		const mode = coordinationState().mode;
 		const requiredMode = taskRequiredForMode(mode);
 		if (event.toolName === "tasks") return { block: false };
-		if (isPlanningArtifactWrite(event.toolName, mode, event.arguments || event.params || event.input)) return { block: false };
+		if (isPlanningArtifactWrite(event.toolName, mode, event.input)) return { block: false };
 		if (taskRefreshRequired && requiredMode) {
-			const args = event.arguments || event.params || event.input;
+			const args = event.input;
 			if (isScoutRecon(event.toolName, args)) return { block: false };
 			const reason = "This mode has a task list from an earlier workflow. Rebuild it with `tasks new-list`, add concrete steps from the current plan/spec, and mark the first implementation step inprogress before continuing.";
 			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "task_gate", reason, context: _ctx });
@@ -374,7 +381,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		// In orchestration modes, delegated work is subject to the same hard gate
 		// as local write/execution tools. Setup and status tools remain available.
-		if (shouldBypassTaskGate(event.toolName, requiredMode, event.arguments || event.params || event.input)) return { block: false };
+		if (shouldBypassTaskGate(event.toolName, requiredMode, event.input)) return { block: false };
 
 		// A malformed historical tool result must not crash the extension or
 		// create an unrecoverable gate. Reconstruction normalizes this, but keep
@@ -462,7 +469,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Only confirm if incomplete tasks exist; finished lists clear silently
-					if (shouldConfirmNewList(tasks, listTitle)) {
+					if (shouldConfirmNewList(tasks, listTitle ?? null)) {
 						const confirmed = await ctx.ui.confirm(
 							"Start a new list?",
 							`This will replace${listTitle ? ` "${listTitle}"` : " the current list"} (${tasks.length} task(s)). Continue?`,
@@ -650,7 +657,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				case "clear": {
-					if (shouldConfirmNewList(tasks, listTitle)) {
+					if (shouldConfirmNewList(tasks, listTitle ?? null)) {
 						const confirmed = await ctx.ui.confirm(
 							"Clear task list?",
 							`This will remove all ${tasks.length} task(s)${listTitle ? ` from "${listTitle}"` : ""}. Continue?`,
@@ -687,16 +694,16 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Static<typeof TasksParams>, theme: Theme) {
 			let text = theme.fg("toolTitle", theme.bold("tasks ")) + theme.fg("muted", args.action);
 			if (args.texts?.length) text += ` ${theme.fg("dim", `${args.texts.length} tasks`)}`;
 			else if (args.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
 			if (args.description) text += ` ${theme.fg("dim", `— ${args.description}`)}`;
 			if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result: AgentToolResult<TasksDetails>, { expanded }: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as TasksDetails | undefined;
 			if (!details) {
 				const text = result.content[0];
@@ -704,7 +711,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (details.error) {
-				return new Text(outputLine(theme, "error", `Error: ${details.error}`), 0, 0);
+				return new Text(outputLine(theme as unknown as OutputBoxTheme, "error", `Error: ${details.error}`), 0, 0);
 			}
 
 			const taskList = details.tasks;
@@ -715,11 +722,11 @@ export default function (pi: ExtensionAPI) {
 					if (details.listDescription) {
 						msg += theme.fg("dim", ` — ${details.listDescription}`);
 					}
-					return new Text(outputLine(theme, "success", msg), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
 				}
 
 				case "list": {
-					if (taskList.length === 0) return new Text(outputLine(theme, "accent", "No tasks"), 0, 0);
+					if (taskList.length === 0) return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", "No tasks"), 0, 0);
 
 					let listText = "";
 					if (details.listTitle) {
@@ -744,38 +751,38 @@ export default function (pi: ExtensionAPI) {
 					if (!expanded && taskList.length > 5) {
 						listText += `\n${theme.fg("dim", `... ${taskList.length - 5} more`)}`;
 					}
-					return new Text(outputLine(theme, "accent", listText), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", listText), 0, 0);
 				}
 
 				case "add": {
 					const text = result.content[0];
 					const msg = text?.type === "text" ? text.text : "";
-					return new Text(outputLine(theme, "success", msg), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
 				}
 
 				case "toggle": {
 					const text = result.content[0];
 					const msg = text?.type === "text" ? text.text : "";
-					return new Text(outputLine(theme, "accent", msg), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", msg), 0, 0);
 				}
 
 				case "remove": {
 					const text = result.content[0];
 					const msg = text?.type === "text" ? text.text : "";
-					return new Text(outputLine(theme, "warning", msg), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "warning", msg), 0, 0);
 				}
 
 				case "update": {
 					const text = result.content[0];
 					const msg = text?.type === "text" ? text.text : "";
-					return new Text(outputLine(theme, "success", msg), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
 				}
 
 				case "clear":
-					return new Text(outputLine(theme, "success", "Cleared all tasks"), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", "Cleared all tasks"), 0, 0);
 
 				default:
-					return new Text(outputLine(theme, "dim", "done"), 0, 0);
+					return new Text(outputLine(theme as unknown as OutputBoxTheme, "dim", "done"), 0, 0);
 			}
 		},
 	});

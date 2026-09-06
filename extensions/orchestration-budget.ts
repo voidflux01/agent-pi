@@ -27,7 +27,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const budget = initOrchestrationBudget(`${ctx.cwd}/.pi/agent-sessions`, tokens, cost);
-			ctx.ui.notify(`Shared orchestration budget active: ${budget.maxTokens} tokens · $${budget.maxCostUsd.toFixed(2)}`, "success");
+			ctx.ui.notify(`Shared orchestration budget active: ${budget.maxTokens} tokens · $${budget.maxCostUsd.toFixed(2)}`, "info");
 		},
 	});
 	pi.on("session_start", async (_event, ctx) => applyExtensionDefaults(import.meta.url, ctx));

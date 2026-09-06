@@ -12,7 +12,7 @@ export default function delegationGuard(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_DELEGATION_GUARD === "0") return { block: false };
 		if (event.toolName !== "bash") return { block: false };
-		const params = event.arguments || event.params || event.input || {};
+		const params: Record<string, unknown> = event.input as Record<string, unknown>;
 		const cmd = String(params.command || params.cmd || "");
 		if (!cmd || !probeNestedPiLaunch(cmd)) return { block: false };
 		recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "delegation_guard", reason: "nested pi launch", context: ctx });

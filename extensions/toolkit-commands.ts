@@ -238,7 +238,7 @@ export default function (pi: ExtensionAPI) {
 									if (output.length + next.length > MAX_WORKER_CAPTURE) outputTruncated = true;
 									output += next.slice(0, MAX_WORKER_CAPTURE - output.length);
 								},
-							}));
+							}))();
 						} finally {
 							ctx?.ui?.setWidget?.(widgetId, undefined);
 						}
@@ -267,7 +267,7 @@ export default function (pi: ExtensionAPI) {
 								content: body,
 								display: true,
 							},
-							{ deliverAs: "user", triggerTurn: true },
+							{ deliverAs: "steer", triggerTurn: true },
 						);
 					}
 				},

@@ -14,7 +14,7 @@
  *   /subclear                              — clear all subagent widgets
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -34,6 +34,7 @@ import { scanAgentDefs, scanToolkitAgentDefs, resolveAgentByName, loadAgentModel
 import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
+import type { DispatchOrigin } from "./lib/dispatch-gate.ts";
 import { buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, extractResultBlock, normalizeResultContract, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
 import { decideScopeDispatch } from "./lib/subagent-scope.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
@@ -556,7 +557,7 @@ export default function (pi: ExtensionAPI) {
 				} catch {}
 				settleOrchestration(state.status === "done" ? "succeeded" : code === 130 ? "cancelled" : "failed", {
 					agent: state.name,
-					exitCode: code,
+					exitCode: code ?? 1,
 					failure,
 					...(contractFailure ? { contractFailure } : {}),
 					outputFile: fullOutputPath || undefined,
@@ -572,8 +573,8 @@ export default function (pi: ExtensionAPI) {
 				state.contractProblems = contractProblems;
 				try {
 					journalUpdate(saOutDir, state.saRunId ?? "", {
-						status: state.status,
-						exitCode: code,
+						status: state.status as WorkflowDispatchResult["status"],
+						exitCode: code ?? 1,
 						elapsedMs: state.elapsed,
 						model: state.model || undefined,
 						outputFile: fullOutputPath || undefined,
@@ -589,8 +590,8 @@ export default function (pi: ExtensionAPI) {
 
 				const compactResult = composeAgentResult({
 					agent: `SA${state.id} (${state.name})`,
-					status: state.status,
-					exitCode: code,
+					status: state.status as WorkflowDispatchResult["status"],
+					exitCode: code ?? 1,
 					elapsedMs: state.elapsed,
 					model: state.model,
 					outputText: result,
@@ -601,7 +602,7 @@ export default function (pi: ExtensionAPI) {
 				state.result = compactResult.content;
 				if (state.dispatchReceiptId) {
 					finishDispatchReceipt(spawnCwd, state.dispatchReceiptId, {
-						status: state.status,
+						status: state.status as WorkflowDispatchResult["status"],
 						exitCode: code ?? 1,
 						fullOutputPath,
 						elapsedMs: state.elapsed,
@@ -614,11 +615,11 @@ export default function (pi: ExtensionAPI) {
 					mode: state.dispatchMode as WorkflowDispatchResult["mode"],
 					name: state.name,
 					task: state.task,
-					status: state.status,
+					status: state.status as WorkflowDispatchResult["status"],
 					output: compactResult.content,
 					fullOutput: result,
 					fullOutputPath,
-					exitCode: code,
+					exitCode: code ?? 1,
 					batch: state.retainUntilCollected === true,
 					context: state.workflowContext,
 					receiptId: state.dispatchReceiptId,
@@ -631,7 +632,7 @@ export default function (pi: ExtensionAPI) {
 							customType: "subagent-result",
 							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
 							display: true,
-						}, { deliverAs: "steer", triggerTurn: true }).catch(() => {});
+						}, { deliverAs: "steer", triggerTurn: true });
 					} catch {}
 				}
 
@@ -850,7 +851,7 @@ export default function (pi: ExtensionAPI) {
 			if (!awaitResult) {
 				return {
 					content: [{ type: "text", text: `SA${id} (${state.name}) spawned and running in background.${priorNote ? `\n${priorNote}` : ""}` }],
-					details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId, receiptId: state.dispatchReceiptId },
+					details: { id, name: state.name, status: state.status as WorkflowDispatchResult["status"], runId: state.orchestrationRunId, receiptId: state.dispatchReceiptId },
 				};
 			}
 			const result = await started;
@@ -861,9 +862,9 @@ export default function (pi: ExtensionAPI) {
 				mode: state.dispatchMode as WorkflowDispatchResult["mode"],
 				name: state.name,
 				task: state.task,
-				status: state.status,
+				status: state.status as WorkflowDispatchResult["status"],
 				output: state.result || result,
-				fullOutput: state.output || result,
+				fullOutput: result,
 				fullOutputPath: "",
 				exitCode: state.status === "done" ? 0 : 1,
 				batch: state.retainUntilCollected === true,
@@ -882,12 +883,12 @@ export default function (pi: ExtensionAPI) {
 				state.completion = repaired;
 				return {
 					content: [{ type: "text", text: await repaired }],
-					details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId, repaired: true },
+					details: { id, name: state.name, status: state.status as WorkflowDispatchResult["status"], runId: state.orchestrationRunId, repaired: true },
 				};
 			}
 			return {
 				content: [{ type: "text", text: resultText }],
-					details: { id, name: state.name, status: state.status, runId: state.orchestrationRunId, receiptId: state.dispatchReceiptId },
+					details: { id, name: state.name, status: state.status as WorkflowDispatchResult["status"], runId: state.orchestrationRunId, receiptId: state.dispatchReceiptId },
 			};
 		},
 	});
@@ -1465,7 +1466,7 @@ export default function (pi: ExtensionAPI) {
 			agents.set(id, state);
 			registerWidget(state);
 			ctx.ui.notify(`Resuming ${entry.agent} from ${runId} as SA${id}…`, "info");
-			explicitDispatchHandler("subagent-command-resume", () => spawnAgent(state, prompt, ctx))();
+			explicitDispatchHandler("subagent-command-resume" as DispatchOrigin, () => spawnAgent(state, prompt, ctx))();
 		},
 	});
 
@@ -1640,7 +1641,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── /new resets widgets; it must not start a child ──────────────────────
 
-	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
+	pi.on("session_before_switch", async (_event, ctx) => withSessionLifecycle(async () => {
 		// Bind the replacement context and invalidate old callbacks before awaits.
 		sessionEpoch++;
 		const switchEpoch = sessionEpoch;

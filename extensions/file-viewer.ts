@@ -1,17 +1,17 @@
 // ABOUTME: Lightweight local file viewer/editor for the Pi runtime.
 // ABOUTME: Serves a local web UI for viewing and optionally editing a single file directly from the CLI.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateFileViewerHTML } from "./lib/file-viewer-html.ts";
-import { registerActiveViewer, clearActiveViewer, closeActiveViewer, getActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { registerActiveViewer, clearActiveViewer, closeActiveViewer, getActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 
@@ -238,7 +238,7 @@ const ShowFileParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
-	let activeSession: { kind: "file"; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: ActiveViewerSession | null = null;
 
 	function cleanupServer() {
 		const server = activeServer;
@@ -364,14 +364,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 
 	pi.registerCommand("show-file-help", {
 		description: "Show help for the local file viewer tool",
 		handler: async (_args, ctx) => {
-			outputLine(ctx, "show_file { file_path: \"path/to/file\", editable: true }", "info");
+			outputLine(ctx as unknown as OutputBoxTheme, "accent", "show_file { file_path: \"path/to/file\", editable: true }");
 		},
 	});
 }

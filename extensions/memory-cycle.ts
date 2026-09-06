@@ -15,7 +15,7 @@
  * everything that happened before.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 // convertToLlm and serializeConversation available if needed for custom summary generation
 import { Type } from "@sinclair/typebox";
@@ -155,7 +155,7 @@ export default function (pi: ExtensionAPI) {
 	// messages to guide the LLM toward compaction before overflow.
 	pi.on("before_agent_start", async (_event, ctx) => {
 		const usage = ctx.getContextUsage();
-		const { phase, percent } = getProactiveCompactionPhase(usage?.percent);
+		const { phase, percent } = getProactiveCompactionPhase(usage?.percent ?? undefined);
 
 		if (phase === "compact" && !compactInjected) {
 			compactInjected = true;
@@ -226,7 +226,7 @@ export default function (pi: ExtensionAPI) {
 			// Build a compact summary from the messages being compacted
 			const { summaryText, continueText } = extractCompactionContext(
 				preparation.messagesToSummarize,
-				preparation.previousSummary,
+				preparation.previousSummary ?? null,
 			);
 
 			// Write daily log entry
@@ -402,7 +402,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			ctx.ui.notify("Memory Cycle complete — fresh context with full memory.", "success");
+			ctx.ui.notify("Memory Cycle complete — fresh context with full memory.", "info");
 		},
 	});
 
@@ -502,7 +502,7 @@ export default function (pi: ExtensionAPI) {
 		],
 		parameters: CycleParams,
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const hint = (args as any).instructions as string | undefined;
 			const preview = hint
 				? hint.length > 50 ? hint.slice(0, 47) + "..." : hint
@@ -512,7 +512,7 @@ export default function (pi: ExtensionAPI) {
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as { status?: string } | undefined;
 			const status = details?.status ?? "done";
 			const msg = status === "scheduled"

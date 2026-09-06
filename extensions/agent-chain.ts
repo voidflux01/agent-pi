@@ -24,7 +24,7 @@
  * Usage: pi -e extensions/agent-chain.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key, type AutocompleteItem } from "@mariozechner/pi-tui";
@@ -302,7 +302,7 @@ export default function (pi: ExtensionAPI) {
 		return lines;
 	}
 
-	function hideChainWidget(ctx?: { ui?: { setWidget: (key: string, renderer: unknown) => void } }) {
+	function hideChainWidget(ctx?: ExtensionContext | { ui?: { setWidget: (key: string, renderer: unknown) => void } }) {
 		const ui = ctx?.ui || widgetCtx?.ui;
 		try { ui?.setWidget("agent-chain", undefined); } catch {}
 	}
@@ -1185,7 +1185,7 @@ ${agentCatalog}
 		widgetCtx = undefined;
 	});
 
-	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
+	pi.on("session_before_switch", async (_event, ctx) => withSessionLifecycle(async () => {
 		// /new is not guaranteed to emit session_shutdown. Stop every chain-owned
 		// process/timer and invalidate callbacks before the replacement session
 		// can issue another dispatch.

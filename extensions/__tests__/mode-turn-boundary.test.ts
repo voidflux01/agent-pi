@@ -65,20 +65,20 @@ describe("set_mode turn boundary", () => {
 		setCoordinationMode("PLAN");
 
 		const ctx = { cwd: "/tmp/app" };
-		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", arguments: { path: "src/a.ts" } }, ctx)));
+		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", input: { path: "src/a.ts" } }, ctx)));
 		expect(blocked.some((r) => r?.block === true)).toBe(true);
 
 		const viaCallTool = await Promise.all(toolCallHandlers.map((h) => h({
 			toolName: "call_tool",
-			arguments: { tool_name: "write", arguments: { path: "src/a.ts", content: "x" } },
+			input: { tool_name: "write", input: { path: "src/a.ts", content: "x" } },
 		}, ctx)));
 		expect(viaCallTool.some((r) => r?.block === true)).toBe(true);
 
-		const planWrite = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", arguments: { path: ".context/todo.md" } }, ctx)));
+		const planWrite = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", input: { path: ".context/todo.md" } }, ctx)));
 		expect(planWrite.every((r) => !r || r.block === false)).toBe(true);
 
 		markPlanApproved();
-		const after = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", arguments: { path: "src/a.ts" } }, ctx)));
+		const after = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "write", input: { path: "src/a.ts" } }, ctx)));
 		expect(after.every((r) => !r || r.block === false)).toBe(true);
 	});
 
@@ -107,15 +107,15 @@ describe("set_mode turn boundary", () => {
 		modeCycler(pi);
 
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
-			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", arguments: { command: "rg -n TODO ." } }, {})));
+			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "rg -n TODO ." } }, {})));
 			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}
-		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", arguments: { command: "find . -type f" } }, {})));
+		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "find . -type f" } }, {})));
 		expect(blocked.some((r) => r?.block === true)).toBe(true);
 
-		const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", arguments: { name: "scout", task: "map" } }, {})));
+		const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", input: { name: "scout", task: "map" } }, {})));
 		expect(scout.every((r) => !r || r.block !== true)).toBe(true);
-		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "README.md" } }, {})));
+		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "README.md" } }, {})));
 		expect(released.every((r) => !r || r.block !== true)).toBe(true);
 	});
 
@@ -135,15 +135,15 @@ describe("set_mode turn boundary", () => {
 		for (const mode of ["PLAN", "SPEC"]) {
 			await modeTools[0].execute("mode-recon", { mode }, undefined, undefined, { abort: vi.fn() });
 			for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
-				const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+				const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 				expect(result.every((r) => !r || r.block !== true)).toBe(true);
 			}
-			const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", arguments: { pattern: "TODO" } }, {})));
+			const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", input: { pattern: "TODO" } }, {})));
 			expect(blocked.some((r) => r?.block === true)).toBe(true);
 
-			const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", arguments: { name: "scout", task: "re-check the unresolved question" } }, {})));
+			const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", input: { name: "scout", task: "re-check the unresolved question" } }, {})));
 			expect(scout.every((r) => !r || r.block !== true)).toBe(true);
-			const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+			const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 			expect(released.every((r) => !r || r.block !== true)).toBe(true);
 		}
 	});
@@ -164,7 +164,7 @@ describe("set_mode turn boundary", () => {
 		markSpecApproved();
 
 		for (let i = 0; i < NORMAL_RECON_LIMIT * 2; i++) {
-			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "src/a.ts" } }, {})));
+			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}
 	});
@@ -172,10 +172,10 @@ describe("set_mode turn boundary", () => {
 	it("starts a fresh NORMAL scout decision for a follow-up user message", async () => {
 		const { handlers } = registerModeTool();
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
-			await handlers.tool_call({ toolName: "read", arguments: { path: "x" } }, {});
+			await handlers.tool_call({ toolName: "read", input: { path: "x" } }, {});
 		}
 		await handlers.input({ type: "input", source: "interactive", text: "follow-up" }, {});
-		const firstFollowUpRead = await handlers.tool_call({ toolName: "read", arguments: { path: "x" } }, {});
+		const firstFollowUpRead = await handlers.tool_call({ toolName: "read", input: { path: "x" } }, {});
 		expect(firstFollowUpRead?.block).not.toBe(true);
 		expect(firstFollowUpRead?.reason).toBeUndefined();
 	});
@@ -195,15 +195,15 @@ describe("set_mode turn boundary", () => {
 		};
 		modeCycler(pi);
 
-		for (let i = 0; i < 6; i++) await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "x" } }, {})));
-		await handlers.session_switch({}, { hasUI: false });
-		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", arguments: { path: "x" } }, {})));
+		for (let i = 0; i < 6; i++) await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "x" } }, {})));
+		await handlers.session_before_switch({}, { hasUI: false });
+		const released = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "x" } }, {})));
 		expect(released.every((r) => !r || r.block !== true)).toBe(true);
 
 		await tools.set_mode.execute("mode-1", { mode: "PLAN" }, undefined, undefined, { abort: vi.fn(), hasUI: false });
 		markPlanApproved();
 		const replacementCtx: any = { hasUI: true, ui: { setStatus: vi.fn(), setWidget: vi.fn() } };
-		await handlers.session_switch({}, replacementCtx);
+		await handlers.session_before_switch({}, replacementCtx);
 		expect(coordinationState().mode).toBe("NORMAL");
 		expect(coordinationState().planApproved).toBe(false);
 		expect(replacementCtx.ui.setStatus).toHaveBeenCalledWith("mode", "");

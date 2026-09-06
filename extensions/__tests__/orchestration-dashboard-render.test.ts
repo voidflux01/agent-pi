@@ -37,7 +37,7 @@ describe("orchestration dashboard renderer", () => {
 		const ansiTheme = { fg: (color: string, text: string) => `\x1b[31m${text}\x1b[0m`, bold: (text: string) => text };
 		const lines = renderOrchestrationDashboard({
 			limit: 1,
-			runs: [{ runId: "very-long-run-id", actor: "tool-runtime", mode: "NORMAL", toolName: "bash", status: "failed", durationMs: 1000, eventCount: 5, eventDir: "/tmp/run", failureCause: "command failed" }],
+			runs: [{ runId: "very-long-run-id", actor: "tool-runtime", mode: "NORMAL", toolName: "bash", status: "failed", durationMs: 1000, eventCount: 5, eventDir: "/tmp/run", failureCause: "process_error" }],
 		}, 48, ansiTheme);
 		const visible = lines[2]!.replace(/\x1b\[[0-9;]*m/g, "");
 		expect(visible.length).toBeLessThanOrEqual(48);

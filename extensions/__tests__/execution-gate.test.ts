@@ -38,7 +38,7 @@ function verification(status: DeterministicVerification["status"] = "PASS"): Det
 		status,
 		results: status === "PASS"
 			? [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: "pass" as const }]
-			: [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: status === "fail" ? "fail" as const : "blocked" as const, note: "boom" }],
+			: [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: status === "FAIL" ? "fail" as const : "blocked" as const, note: "boom" }],
 	};
 }
 

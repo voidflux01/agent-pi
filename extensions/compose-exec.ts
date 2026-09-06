@@ -2,8 +2,8 @@
 // ABOUTME: Executes independent steps in parallel, preserves ordered dependencies,
 // and returns compact structured results without exposing intermediate noise.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import { Type, type Static } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
 import { capabilityConflict, getCapability, getCapabilityForTool, listCapabilities, registerCapability, validateCapabilityArguments } from "./lib/capability-registry.ts";
@@ -312,7 +312,7 @@ export default function (pi: ExtensionAPI) {
 					if (results[index]?.status === "completed") continue;
 					const result = await runStep(steps[index]!, index, results);
 					results.push(result);
-					if (stopOnError && (result.status === "failed" || result.status === "blocked")) break;
+					if (stopOnError && (result!.status === "failed" || result!.status === "blocked")) break;
 				}
 			}
 			const failed = results.filter((result) => result.status === "failed" || result.status === "blocked").length;
@@ -322,10 +322,10 @@ export default function (pi: ExtensionAPI) {
 				details: { runId: run.runId, eventDir: run.eventDir, ...(resumeOf ? { resumeOf, reusedSteps: reusedResults.map((result) => result.index) } : {}), parallel, total: steps.length, completed: results.filter((result) => result.status === "completed").length, failed, results },
 			};
 		},
-		renderCall(args, theme) {
+		renderCall(args: Static<typeof ComposeParams>, theme: Theme) {
 			return new Text(theme.fg("toolTitle", theme.bold("compose_exec ")) + theme.fg("accent", `${args.steps?.length ?? 0} step(s)${args.parallel ? " · parallel" : ""}`), 0, 0);
 		},
-		renderResult(result, { expanded }, theme) {
+		renderResult(result: AgentToolResult<unknown>, { expanded }: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			const summary = `${details?.completed ?? 0}/${details?.total ?? 0} completed${details?.failed ? ` · ${details.failed} issue(s)` : ""}`;
 			if (!expanded) return new Text(theme.fg(details?.failed ? "warning" : "success", summary), 0, 0);

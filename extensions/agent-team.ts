@@ -21,7 +21,7 @@
  * Usage: pi -e extensions/agent-team.ts -e extensions/footer.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
@@ -47,6 +47,7 @@ import { boundedOutputPreview, buildWorkerInitialPrompt, composeAgentResult, ext
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import type { DispatchOrigin } from "./lib/dispatch-gate.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
 import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, workerHitToolCap } from "./lib/worker-budget.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
@@ -991,7 +992,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		}),
 
-		renderResult(result, options, theme) {
+		renderResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];
@@ -1021,8 +1022,8 @@ export default function (pi: ExtensionAPI) {
 				model: model || undefined,
 			};
 
-			const outerWidth = options.width || 80;
-			const rendered = renderSubagentWidget(renderState, Math.max(1, outerWidth - 2), theme);
+			const outerWidth = (options as { width?: number }).width || 80;
+			const rendered = renderSubagentWidget(renderState, Math.max(1, outerWidth - 2), theme as unknown as Parameters<typeof renderSubagentWidget>[2]);
 			const bg = STATUS_BG[status] || STATUS_BG.running;
 			const bgFn = (text: string): string => `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
 			const box = new Box(1, 1, bgFn);
@@ -1053,7 +1054,7 @@ export default function (pi: ExtensionAPI) {
 			}), { maxItems: 8, description: "Independent jobs to run concurrently (maximum 8)" }),
 		}),
 
-		execute: explicitDispatchHandler("agent-team-batch", async (_toolCallId, params, signal, onUpdate, ctx) => {
+		execute: explicitDispatchHandler("agent-team-batch" as DispatchOrigin, async (_toolCallId, params, signal, onUpdate, ctx) => {
 			const requested = Array.isArray((params as any)?.jobs) ? (params as any).jobs : [];
 			if (requested.length === 0) {
 				return { content: [{ type: "text", text: "Error: jobs must contain at least one independent team task." }] };
@@ -1427,7 +1428,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	async function showAgentDetail(ctx: any, agent: AgentState) {
+	async function showAgentDetail(ctx: ExtensionContext, agent: AgentState) {
 		await ctx.ui.custom((tui, theme, _kb, done) => {
 			const overlay = new AgentDetailOverlay(agent, () => done(undefined));
 			return {
@@ -1611,7 +1612,7 @@ ${agentCatalog}`,
 
 	// ── Reset agent boxes on /new ─────────────────────────────────────
 
-	pi.on("session_switch", async (_event, _ctx) => withSessionLifecycle(async () => {
+	pi.on("session_before_switch", async (_event, _ctx) => withSessionLifecycle(async () => {
 		// /new fires session_switch — bind the replacement ctx before touching UI.
 		sessionEpoch++;
 		widgetCtx = _ctx;

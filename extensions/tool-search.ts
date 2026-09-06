@@ -1,10 +1,9 @@
 // ABOUTME: Tool Search — meta-tool that lets the agent discover and inspect available tools at runtime.
 // ABOUTME: Provides search, list, and inspect operations against the tool registry.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { StringEnum } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { refreshToolRegistry, getToolRegistry, type ToolEntry } from "./tool-registry.ts";
 import { getCapabilityForTool } from "./lib/capability-registry.ts";
@@ -13,7 +12,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 // ── Tool Parameters ────────────────────────────────────────────────────
 
 const ToolSearchParams = Type.Object({
-	operation: StringEnum(["search", "list", "inspect"] as const),
+	operation: Type.Union([Type.Literal("search"), Type.Literal("list"), Type.Literal("inspect")], { description: "Operation to perform" }),
 	query: Type.Optional(Type.String({ description: "Search query — matches tool names, descriptions, tags, and categories" })),
 	category: Type.Optional(Type.String({ description: "Filter by category (for 'list' operation). Use 'list' without category to see all categories." })),
 	tool_name: Type.Optional(Type.String({ description: "Tool name to inspect (for 'inspect' operation)" })),
@@ -175,7 +174,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Static<typeof ToolSearchParams>, theme: Theme) {
 			let text = theme.fg("toolTitle", theme.bold("tool_search "));
 			text += theme.fg("accent", args.operation || "");
 			if (args.query) text += theme.fg("dim", ` "${args.query}"`);
@@ -184,7 +183,7 @@ export default function (pi: ExtensionAPI) {
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result: AgentToolResult<unknown>, { expanded }: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];

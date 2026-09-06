@@ -20,7 +20,7 @@ describe("session-scoped contract receipts", () => {
 		expect(getExecutionContract()?.fingerprint).toBe(bound.fingerprint);
 		expect(getVerifierReceipt()).toBeUndefined();
 		setVerifierReceipt({
-			version: 2,
+			version: 3,
 			status: "PASS",
 			contractFingerprint: bound.fingerprint,
 			workspaceManifestHash: "m",

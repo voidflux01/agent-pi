@@ -1,7 +1,7 @@
 // ABOUTME: Disk Cleanup viewer — opens a browser GUI for scanning, analyzing, and deleting junk files.
 // ABOUTME: Provides /cleanup slash command and show_cleanup tool. AI analysis via Claude Agent SDK (OAuth).
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -12,10 +12,10 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateCleanupViewerHTML } from "./lib/cleanup-viewer-html.ts";
-import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { registerActiveViewer, clearActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 
@@ -253,7 +253,9 @@ Respond with:
 Keep it concise and practical. No emojis. Use plain text formatting with dashes for lists.`;
 
 	try {
-		const { query } = await import("@anthropic-ai/claude-agent-sdk");
+		// Indirect specifier: optional peer dependency that may not be installed.
+		const sdkModuleId = "@anthropic-ai/claude-agent-sdk";
+		const { query } = await import(sdkModuleId);
 		const stream = query({
 			prompt,
 			options: {
@@ -533,7 +535,7 @@ const ShowCleanupParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
-	let activeSession: { kind: "report"; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: ActiveViewerSession | null = null;
 
 	function cleanupServer() {
 		const server = activeServer;
@@ -595,18 +597,18 @@ export default function (pi: ExtensionAPI) {
 			return { content: [{ type: "text" as const, text: msg }] };
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const dir = (args as any).directory || "~";
 			const text =
 				theme.fg("toolTitle", theme.bold("show_cleanup ")) +
 				theme.fg("accent", dir);
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			return new Text(
-				outputLine(theme, "success", text?.type === "text" ? text.text : ""),
+				outputLine(theme as unknown as OutputBoxTheme, "success", text?.type === "text" ? text.text : ""),
 				0, 0,
 			);
 		},
@@ -637,7 +639,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }

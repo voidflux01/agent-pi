@@ -131,7 +131,7 @@ export function buildHandoffSnapshot(input: {
 	activeChain?: string | null;
 	activePipeline?: string | null;
 	tasks?: Array<{ id: number; text: string; status: string }>;
-	children?: Array<{ id: string; agent: string; status: string; task?: string; outputFile?: string; resumed?: boolean }>;
+	children?: Array<{ id: string; agent: string; status: string; task?: string; outputFile?: string; sessionFile?: string; resumed?: boolean }>;
 	nextAction?: string;
 	objectiveSource?: ObjectiveSource;
 	context?: HandoffContextLink;

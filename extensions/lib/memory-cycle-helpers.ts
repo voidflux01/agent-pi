@@ -231,7 +231,7 @@ export function buildRestorationContent(
 	if (sessionState?.task) {
 		parts.push(`**Task:** ${sessionState.task}`);
 	}
-	if (sessionState?.files?.length > 0) {
+	if (sessionState?.files && sessionState.files.length > 0) {
 		parts.push(`**Recently edited:** ${sessionState.files.join(", ")}`);
 	}
 

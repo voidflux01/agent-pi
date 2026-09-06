@@ -396,7 +396,7 @@ export function sumJournalUsage(entries: TaskJournalEntry[]): { totalTokens: num
 	const acc = { totalTokens: 0, costUsd: 0, runs: 0 };
 	for (const e of entries) {
 		const totalTokens = e.usage?.totalTokens;
-		if (!Number.isFinite(totalTokens) || totalTokens <= 0) continue;
+		if (totalTokens === undefined || !Number.isFinite(totalTokens) || totalTokens <= 0) continue;
 		acc.totalTokens += totalTokens;
 		acc.costUsd += Number.isFinite(e.usage?.costUsd) ? (e.usage?.costUsd ?? 0) : 0;
 		acc.runs += 1;

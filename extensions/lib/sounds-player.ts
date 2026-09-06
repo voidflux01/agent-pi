@@ -24,7 +24,7 @@ function soundPath(name: string): string {
 function detectAudioPlayer(): AudioPlayer {
 	if (cachedPlayer !== undefined) return cachedPlayer;
 
-	const candidates: AudioPlayer[] = ["afplay", "aplay", "mpv"];
+	const candidates: Array<Exclude<AudioPlayer, null>> = ["afplay", "aplay", "mpv"];
 	for (const cmd of candidates) {
 		try {
 			execFileSync("which", [cmd], { stdio: "ignore" });

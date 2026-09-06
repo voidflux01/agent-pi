@@ -230,9 +230,9 @@ describe("mode-aware gate integration", () => {
 			const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
 			setCoordinationMode("PLAN");
 			tasksExtension(pi as any);
-			const scout = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "scout", task: "map auth" } }, ctx);
+			const scout = await handlers.get("tool_call")!({ toolName: "subagent_create", input: { name: "scout", task: "map auth" } }, ctx);
 			expect(scout.block).toBe(false);
-			const builder = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "builder", task: "edit files" } }, ctx);
+			const builder = await handlers.get("tool_call")!({ toolName: "subagent_create", input: { name: "builder", task: "edit files" } }, ctx);
 			expect(builder.block).toBe(true);
 		} finally {
 			setCoordinationMode(previous);
@@ -250,7 +250,7 @@ describe("mode-aware gate integration", () => {
 			};
 			setCoordinationMode("PLAN");
 			tasksExtension(pi as any);
-			const researcher = await handlers.get("tool_call")!({ toolName: "subagent_create", arguments: { name: "researcher", task: "check current API docs" } }, {});
+			const researcher = await handlers.get("tool_call")!({ toolName: "subagent_create", input: { name: "researcher", task: "check current API docs" } }, {});
 			expect(researcher.block).toBe(false);
 		} finally {
 			setCoordinationMode(previous);

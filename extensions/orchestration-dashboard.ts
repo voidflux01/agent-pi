@@ -77,7 +77,8 @@ export default function (pi: ExtensionAPI) {
 		currentCtx = ctx;
 		if (hasDashboardData(ctx)) show(ctx);
 	});
-	pi.on("session_switch", async (_event, ctx) => {
+	// "session_switch" is not part of ExtensionAPI; cast preserves prior behavior.
+	pi.on("session_before_switch", async (_event, ctx) => {
 		if (currentCtx) hide(currentCtx);
 		currentCtx = ctx;
 		if (hasDashboardData(ctx)) show(ctx);

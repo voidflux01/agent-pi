@@ -24,7 +24,7 @@
  * Usage: Loaded via packages in agent/settings.json
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync, mkdirSync } from "node:fs";
@@ -256,7 +256,7 @@ export default function securityGuard(pi: ExtensionAPI) {
 		if (!policy.settings.enabled) return { block: false };
 
 		const { toolName } = event;
-		const params = event.arguments || event.params || event.input || {};
+		const params = event.input as Record<string, any>;;
 		const allThreats: ThreatResult[] = [];
 
 		// ── Tool budget check (OWASP #6) ──────────────────────────
@@ -680,18 +680,18 @@ export default function securityGuard(pi: ExtensionAPI) {
 		stats = freshStats();
 		budgetCounters = { turn: 0, session: 0, bashTurn: 0 };
 
-		if (ctx?.ui?.setStatus) {
+		if (typeof ctx?.ui?.setStatus === "function") {
 			ctx.ui.setStatus("security", "🛡️ Security Guard");
 		}
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
+	pi.on("session_before_switch", async (_event, ctx) => {
 		// Re-init on session switch (cwd might change)
 		const cwd = ctx?.cwd || defaultRoot;
 		initPolicy(cwd);
 
 		// Keep stats across session switches (they're cumulative)
-		if (ctx?.ui?.setStatus) {
+		if (typeof ctx?.ui?.setStatus === "function") {
 			updateStatusBar(ctx);
 		}
 	});
@@ -796,7 +796,7 @@ export default function securityGuard(pi: ExtensionAPI) {
 						`${policy.blocked_commands.length} command rules, ` +
 						`${policy.protected_paths.length} path rules, ` +
 						`${policy.prompt_injection_patterns.length} injection patterns.`,
-						"success",
+						"info",
 					);
 					break;
 				}

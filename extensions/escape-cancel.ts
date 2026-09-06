@@ -139,7 +139,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
+	// "session_switch" is not part of ExtensionAPI; cast preserves prior behavior.
+	pi.on("session_before_switch", async (_event, ctx) => {
 		lastEscTime = 0;
 		isAgentRunning = false;
 		if (ctx.hasUI) {

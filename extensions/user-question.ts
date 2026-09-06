@@ -1,14 +1,13 @@
 // ABOUTME: User Question — Interactive UI tool for agent-to-user communication
 // ABOUTME: Three inline modes: select (pick from list), input (free text), confirm (yes/no)
 
-import { StringEnum } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import {
 	Text,
 } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
-import { outputLine } from "./lib/output-box.ts";
+import { Type, type Static } from "@sinclair/typebox";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { buildAskUserDetails, type AskUserDetails } from "./lib/ask-user-details.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
@@ -16,7 +15,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
 const AskUserParams = Type.Object({
 	question: Type.String({ description: "The question to ask the user" }),
-	mode: StringEnum(["select", "input", "confirm"] as const),
+	mode: Type.Union([Type.Literal("select"), Type.Literal("input"), Type.Literal("confirm")], { description: "Question mode" }),
 	options: Type.Optional(Type.Array(Type.Object({
 		label: Type.String({ description: "Option label shown in the list" }),
 		markdown: Type.Optional(Type.String({ description: "Markdown preview shown when this option is highlighted" })),
@@ -48,7 +47,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
-				const labels = options.map((o) => o.label);
+				const labels = options.map((o: { label: string }) => o.label);
 				const result = await ctx.ui.select(question, labels);
 
 				if (result == null) {
@@ -57,7 +56,7 @@ export default function (pi: ExtensionAPI) {
 						details: buildAskUserDetails({ mode, question, cancelled: true }),
 					};
 				}
-				const opt = options.find((o) => o.label === result);
+				const opt = options.find((o: { label: string }) => o.label === result);
 				return {
 					content: [{ type: "text" as const, text: `User selected: ${result}` }],
 					details: buildAskUserDetails({
@@ -98,17 +97,17 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Static<typeof AskUserParams>, theme: Theme) {
 			let text = theme.fg("toolTitle", theme.bold("ask_user "));
 			text += theme.fg("muted", args.mode || "");
 			text += theme.fg("dim", `  "${args.question}"`);
 			if (args.mode === "select" && args.options?.length) {
 				text += theme.fg("dim", `  ${args.options.length} options`);
 			}
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result: AgentToolResult<unknown>, { expanded }: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as AskUserDetails | undefined;
 			if (!details) {
 				const text = result.content[0];
@@ -116,14 +115,14 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (details.cancelled) {
-				return new Text(outputLine(theme, "dim", "[Cancelled]"), 0, 0);
+				return new Text(outputLine(theme as unknown as OutputBoxTheme, "dim", "[Cancelled]"), 0, 0);
 			}
 
 			if (details.mode === "confirm") {
 				const color = details.answer === "Yes" ? "success" : "warning";
 				const bar = details.answer === "Yes" ? "success" : "warning";
 				const label = details.answer === "Yes" ? "Confirmed" : "Declined";
-				return new Text(outputLine(theme, bar, label), 0, 0);
+				return new Text(outputLine(theme as unknown as OutputBoxTheme, bar, label), 0, 0);
 			}
 
 			// select or input
@@ -139,12 +138,12 @@ export default function (pi: ExtensionAPI) {
 					.map((l) => theme.fg("muted", "  " + l))
 					.join("\n");
 				return new Text(
-					outputLine(theme, "accent", summary) + "\n" + preview,
+					outputLine(theme as unknown as OutputBoxTheme, "accent", summary) + "\n" + preview,
 					0, 0,
 				);
 			}
 
-			return new Text(outputLine(theme, "accent", summary), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", summary), 0, 0);
 		},
 	});
 

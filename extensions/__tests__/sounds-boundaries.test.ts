@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isSafeSoundName } from "../lib/sounds-player.ts";
-import { readFileSync } from "node:fs";
 import { generateSoundsViewerHTML } from "../lib/sounds-viewer-html.ts";
 
 describe("sound viewer boundaries", () => {

@@ -21,7 +21,7 @@
  * Usage: pi -e extensions/pipeline-team.ts
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import {
@@ -50,8 +50,8 @@ import {
 } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
-import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
-import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
+import { outputLine, outputBox, type BarColor, type OutputBoxTheme } from "./lib/output-box.ts";
+import { renderVerticalTimeline, renderCollapsedTimeline, statusButton, type RenderTheme } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
@@ -518,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 					const allDone = phaseStates.every(p => p.status === "done");
 					const hasError = phaseStates.some(p => p.status === "error");
 					const barColor: BarColor = hasError ? "error" : allDone ? "success" : "accent";
-					const outputLines = outputBox(theme, barColor, rawLines);
+					const outputLines = outputBox(theme as unknown as OutputBoxTheme, barColor, rawLines);
 
 					text.setText(outputLines.join("\n"));
 					return text.render(width);
@@ -1109,19 +1109,19 @@ export default function (pi: ExtensionAPI) {
 		}) as any,
 
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const summary = (args as any).summary || "";
 			const preview = summary.length > 60 ? summary.slice(0, 57) + "..." : summary;
 			const text =
 				theme.fg("toolTitle", theme.bold("advance_phase ")) +
 				theme.fg("muted", preview);
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			const msg = text?.type === "text" ? text.text : "";
-			return new Text(outputLine(theme, "success", msg), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
 		},
 	});
 
@@ -1143,8 +1143,8 @@ export default function (pi: ExtensionAPI) {
 			if (!phase) {
 				return { content: [{ type: "text", text: "No active phase." }], details: {} };
 			}
-			if (phase.def.name.toLowerCase() === "review" && reviewLoopCount >= activeConfig.review_max_loops) {
-				return { content: [{ type: "text", text: `Review loop limit reached (${activeConfig.review_max_loops}). Advance the pipeline or revise the configuration.` }], details: { error: true, phase: phase.def.name, reviewLoop: reviewLoopCount } };
+			if (phase.def.name.toLowerCase() === "review" && reviewLoopCount >= activeConfig!.review_max_loops) {
+				return { content: [{ type: "text", text: `Review loop limit reached (${activeConfig!.review_max_loops}). Advance the pipeline or revise the configuration.` }], details: { error: true, phase: phase.def.name, reviewLoop: reviewLoopCount } };
 			}
 			if (phase.status === "active" && phase.lastDispatchSuccess) {
 				return {
@@ -1180,7 +1180,7 @@ export default function (pi: ExtensionAPI) {
 			const orchestrationRun = createOrchestrationRun({
 				context: ctx,
 				signal,
-				actor: `pipeline:${activeConfig.name}:phase:${phase.def.name}`,
+				actor: `pipeline:${activeConfig!.name}:phase:${phase.def.name}`,
 				mode: "PIPELINE",
 				budget: { maxSteps: Math.max(1, resolved.length) },
 				workspaceCwd: ctx?.cwd,
@@ -1256,7 +1256,7 @@ export default function (pi: ExtensionAPI) {
 		}) as any,
 
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const agents = (args as any).agents || [];
 			const roles = agents.map((a: any) => a.role).join(", ");
 			const text =
@@ -1264,10 +1264,10 @@ export default function (pi: ExtensionAPI) {
 				theme.fg("accent", `${agents.length} agent(s)`) +
 				theme.fg("dim", " — ") +
 				theme.fg("muted", roles);
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, options, theme) {
+		renderResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];
@@ -1276,15 +1276,15 @@ export default function (pi: ExtensionAPI) {
 
 			const normalizedStatus = normalizeRunStatus(details.status || "done");
 			if (options.isPartial || normalizedStatus === "running" || normalizedStatus === "queued") {
-				const runningBtn = statusButton("active", details.phase || "?", theme);
+				const runningBtn = statusButton("active", details.phase || "?", theme as unknown as RenderTheme);
 				const content = runningBtn +
 					theme.fg("dim", ` dispatching ${(details.agents || []).length} agents...`);
-				return new Text(outputLine(theme, "accent", content), 0, 0);
+				return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", content), 0, 0);
 			}
 
 			const status = normalizedStatus === "succeeded" ? "done" : "error";
 			const bar = status === "done" ? "success" : "error";
-			const statusBtn = statusButton(status, details.phase, theme);
+			const statusBtn = statusButton(status, details.phase, theme as unknown as RenderTheme);
 			const header = statusBtn +
 				theme.fg("dim", ` ${(details.agents || []).length} agents`);
 
@@ -1292,12 +1292,12 @@ export default function (pi: ExtensionAPI) {
 				const output = details.outputPreview;
 				const mdTheme = getPiMdTheme();
 				const container = new Container();
-				container.addChild(new Text(outputLine(theme, bar, header), 0, 0));
+				container.addChild(new Text(outputLine(theme as unknown as OutputBoxTheme, bar, header), 0, 0));
 				container.addChild(new Markdown(output, 2, 0, mdTheme));
 				return container;
 			}
 
-			return new Text(outputLine(theme, bar, header), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, bar, header), 0, 0);
 		},
 	});
 
@@ -1336,14 +1336,14 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(_args, theme) {
-			return new Text(outputLine(theme, "accent", theme.bold("pipeline_status")), 0, 0);
+		renderCall(_args: Record<string, unknown>, theme: Theme) {
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", theme.bold("pipeline_status")), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			const msg = text?.type === "text" ? text.text : "";
-			return new Text(outputLine(theme, "accent", msg), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", msg), 0, 0);
 		},
 	});
 
@@ -1768,7 +1768,7 @@ ${contextSummary}${planSection}${reviewSection}
 		widgetCtx = undefined;
 	});
 
-	pi.on("session_switch", async (_event, ctx) => withSessionLifecycle(async () => {
+	pi.on("session_before_switch", async (_event, ctx) => withSessionLifecycle(async () => {
 		// /new can switch sessions without a shutdown event. Invalidate and stop
 		// every pipeline-owned worker before the replacement session is usable.
 		lifecycle.stopAll();

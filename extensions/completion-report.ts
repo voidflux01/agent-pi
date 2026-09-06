@@ -1,7 +1,7 @@
 // ABOUTME: Completion Report Viewer — opens a GUI browser window showing work summary, file diffs, and rollback controls.
 // ABOUTME: Gathers git diff data, renders interactive report with per-file rollback capability.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateCompletionReportHTML, type ReportData, type ChangedFile } from "./lib/completion-report-html.ts";
 import { createCompletionReportStandaloneExport, saveStandaloneExport } from "./lib/viewer-standalone-export.ts";
@@ -612,15 +612,15 @@ export default function (pi: ExtensionAPI) {
 		}) as any,
 
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const titleArg = (args as any).title || "Completion Report";
 			const text =
 				theme.fg("toolTitle", theme.bold("show_report ")) +
 				theme.fg("success", titleArg);
-			return new Text(outputLine(theme, "success", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const details = ((result as any).details || result) as any;
 			if (!details || (details.totalFiles === undefined && !details.content)) {
 				const text = result.content[0];
@@ -636,13 +636,13 @@ export default function (pi: ExtensionAPI) {
 			if (rolledBack > 0) {
 				info += ` · ${rolledBack} rolled back`;
 				return new Text(
-					outputLine(theme, "warning", `Report closed — ${info}`),
+					outputLine(theme as unknown as OutputBoxTheme, "warning", `Report closed — ${info}`),
 					0, 0,
 				);
 			}
 
 			return new Text(
-				outputLine(theme, "success", `Report closed — ${info}`),
+				outputLine(theme as unknown as OutputBoxTheme, "success", `Report closed — ${info}`),
 				0, 0,
 			);
 		},
@@ -719,7 +719,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }

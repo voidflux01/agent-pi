@@ -262,6 +262,7 @@ export function addSection(doc: PlanDocument, afterItemId: number | null, title:
 		text: title,
 		checked: false,
 		indent: 0,
+		number: 0,
 	};
 
 	const blankLine: PlanItem = {
@@ -272,6 +273,7 @@ export function addSection(doc: PlanDocument, afterItemId: number | null, title:
 		text: "",
 		checked: false,
 		indent: 0,
+		number: 0,
 	};
 
 	let items: PlanItem[];
@@ -307,6 +309,7 @@ export function addItem(doc: PlanDocument, afterItemId: number | null, text: str
 		text,
 		checked: false,
 		indent: 0,
+		number: 0,
 	};
 	newItem.raw = itemToMarkdown(newItem);
 

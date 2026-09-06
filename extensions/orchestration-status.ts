@@ -1,7 +1,7 @@
 // ABOUTME: Unified read-only orchestration status command and tool.
 // ABOUTME: Aggregates compose, standard Pi, and toolkit runs by persisted runId.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
@@ -91,8 +91,8 @@ export default function (pi: ExtensionAPI) {
 			const metrics = summarizeOrchestrationModes(topology.runs);
 			return { content: [{ type: "text" as const, text: `${text}${text === "No persisted orchestration runs found." ? "" : `\n${renderModeMetrics(topology.runs)}`}` }], details: { count: Math.min(topology.runs.length, limit), runs: topology.runs.slice(0, limit), topology, modeMetrics: metrics } };
 		},
-		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_status ")) + theme.fg("accent", args.run_id || `${args.mode || "all"} ${args.limit || 25}`), 0, 0); },
-		renderResult(result, _opts, theme) { return new Text(theme.fg("muted", `${result.details?.count ?? 0} orchestration run(s)`), 0, 0); },
+		renderCall(args: { run_id?: string; mode?: string; limit?: number }, theme: Theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_status ")) + theme.fg("accent", args.run_id || `${args.mode || "all"} ${args.limit || 25}`), 0, 0); },
+		renderResult(result: AgentToolResult<{ count?: number }>, _opts: ToolRenderResultOptions, theme: Theme) { return new Text(theme.fg("muted", `${result.details?.count ?? 0} orchestration run(s)`), 0, 0); },
 	});
 
 	registerToolWithExecutor(pi, {
@@ -126,8 +126,8 @@ export default function (pi: ExtensionAPI) {
 				details: { found: true, recoverable: true, action, target, instruction, run },
 			};
 		},
-		renderCall(args, theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_recover ")) + theme.fg("accent", args.run_id || "?"), 0, 0); },
-		renderResult(result, _opts, theme) { return new Text(theme.fg(result.details?.recoverable ? "warning" : "muted", result.content[0]?.type === "text" ? result.content[0].text : ""), 0, 0); },
+		renderCall(args: { run_id?: string }, theme: Theme) { return new Text(theme.fg("toolTitle", theme.bold("orchestration_recover ")) + theme.fg("accent", args.run_id || "?"), 0, 0); },
+		renderResult(result: AgentToolResult<{ recoverable?: boolean }>, _opts: ToolRenderResultOptions, theme: Theme) { return new Text(theme.fg(result.details?.recoverable ? "warning" : "muted", result.content[0]?.type === "text" ? result.content[0].text : ""), 0, 0); },
 	});
 
 	pi.registerCommand("orchestration-status", {

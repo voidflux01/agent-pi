@@ -1,7 +1,7 @@
 // ABOUTME: Soundcn Extension — Browser-based sound viewer with Pi lifecycle hook notifications.
 // ABOUTME: /sounds command opens browser UI to browse, preview, and assign sounds from soundcn.xyz to Pi events.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -10,7 +10,7 @@ import { join, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { generateSoundsViewerHTML, type CatalogItem } from "./lib/sounds-viewer-html.ts";
@@ -74,7 +74,7 @@ async function fetchCatalog(): Promise<CatalogItem[]> {
 				meta: item.meta && typeof item.meta === "object" ? item.meta : undefined,
 			};
 		})
-		.filter((item) => isSafeSoundName(item.name))
+		.filter((item: CatalogItem) => isSafeSoundName(item.name))
 		.slice(0, 5000);
 
 	cachedCatalog = items;
@@ -455,13 +455,13 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(_args, theme) {
+		renderCall(_args: Record<string, unknown>, theme: Theme) {
 			const text = theme.fg("toolTitle", theme.bold("show_sounds ")) +
 				theme.fg("dim", "Opening sound browser...");
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];
@@ -469,9 +469,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (details.action === "applied") {
 				const count = getActiveAssignmentCount(details.config || {});
-				return new Text(outputLine(theme, "success", `Sound config applied — ${count} hooks`), 0, 0);
+				return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", `Sound config applied — ${count} hooks`), 0, 0);
 			}
-			return new Text(outputLine(theme, "warning", "Sound browser closed"), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "warning", "Sound browser closed"), 0, 0);
 		},
 	});
 
@@ -529,7 +529,7 @@ export default function (pi: ExtensionAPI) {
 		cleanupServer();
 		cleanupAllPlayback();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 		cleanupAllPlayback();
 	});

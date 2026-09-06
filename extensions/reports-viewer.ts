@@ -1,7 +1,7 @@
 // ABOUTME: Persisted reports browser for plans, questions, specs, and completion reports.
 // ABOUTME: Opens a search-first /reports view with recent category sections and full-screen tables.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
@@ -182,9 +182,9 @@ export default function (pi: ExtensionAPI) {
 			await runViewer(ctx, p.title || "Reports Index");
 			return { content: [{ type: "text" as const, text: "Reports viewer closed." }] };
 		},
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const text = theme.fg("toolTitle", theme.bold("show_reports ")) + theme.fg("accent", (args as any).title || "Reports Index");
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 	});
 
@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }

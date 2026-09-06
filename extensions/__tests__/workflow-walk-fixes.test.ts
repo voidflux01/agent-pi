@@ -179,11 +179,11 @@ describe("source wiring", () => {
 		const mode = readFileSync(join(root, "mode-cycler.ts"), "utf8");
 		const chain = readFileSync(join(root, "agent-chain.ts"), "utf8");
 		const pipeline = readFileSync(join(root, "pipeline-team.ts"), "utf8");
-		expect(mode).toContain('pi.on("session_switch"');
-		expect(mode).toContain('setCoordinationMode("NORMAL", ctx)');
-		expect(chain).toContain('pi.on("session_switch"');
+		expect(mode).toContain('pi.on("session_before_switch"');
+		expect(mode).toContain('setCoordinationMode("NORMAL"');
+		expect(chain).toContain('pi.on("session_before_switch"');
 		expect(chain).toContain("lifecycle.stopAll()");
-		expect(pipeline).toContain('pi.on("session_switch"');
+		expect(pipeline).toContain('pi.on("session_before_switch"');
 		expect(pipeline).toContain("lifecycle.stopAll()");
 	});
 
@@ -195,7 +195,7 @@ describe("source wiring", () => {
 			"security-report.ts", "cleanup-viewer.ts",
 		]) {
 			const source = readFileSync(join(root, file), "utf8");
-			expect(source).toContain('pi.on("session_switch"');
+			expect(source).toContain('pi.on("session_before_switch"');
 		}
 	});
 	it("gates advance_phase on dispatchCount", () => {

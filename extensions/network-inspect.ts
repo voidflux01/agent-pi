@@ -1,7 +1,7 @@
 // ABOUTME: Guarded passive local network inspection tool with interface/listener discovery and bounded capture summaries.
 // ABOUTME: Uses safe system command wrappers and refuses invasive or privileged escalation behavior.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
@@ -121,11 +121,11 @@ export default function (pi: ExtensionAPI) {
         };
       }
     },
-    renderCall(args, theme) {
+    renderCall(args: Record<string, unknown>, theme: Theme) {
       const p = args as any;
       return new Text(theme.fg("toolTitle", theme.bold("network_inspect ")) + theme.fg("accent", p.action || ""), 0, 0);
     },
-    renderResult(result, _options, theme) {
+    renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
       const details = result.details as any;
       if (details?.error) return new Text(theme.fg("error", `network_inspect error: ${details.error}`), 0, 0);
       return new Text(theme.fg("success", `network_inspect ${details?.action || "done"}`), 0, 0);

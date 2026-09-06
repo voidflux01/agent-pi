@@ -27,6 +27,7 @@ describe("decideScopeDispatch", () => {
 		];
 		const decision = decideScopeDispatch(others, "verifier", "auth-review");
 		expect(decision.action).toBe("spawn");
+		if (decision.action !== "spawn") throw new Error("expected spawn");
 		expect(decision.priorNote).toBe("");
 	});
 

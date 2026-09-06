@@ -71,8 +71,9 @@ export default function (pi: ExtensionAPI) {
 		showBanner(ctx);
 	});
 
-	// Show banner when switching to a new session (/new)
-	pi.on("session_switch", async (_event, ctx: ExtensionContext) => {
+	// Show banner when switching to a new session (/new).
+	// "session_switch" is not part of ExtensionAPI; cast preserves prior behavior.
+	pi.on("session_before_switch", async (_event, ctx: ExtensionContext) => {
 		bannerCtx = ctx;
 		bannerVisible = true;
 		showBanner(ctx);

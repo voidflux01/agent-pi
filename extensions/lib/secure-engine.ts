@@ -1,7 +1,7 @@
 // ABOUTME: Security sweep engine — scans projects for AI security vulnerabilities, prompt injection risks, and credential exposure.
 // ABOUTME: Stateless detection functions for AI service identification, input validation gaps, and protection coverage analysis.
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
 import { join, extname, relative } from "node:path";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -360,7 +360,7 @@ export function* walkProjectFiles(root: string, maxFiles = MAX_FILES): Generator
 	function* walk(dir: string): Generator<string> {
 		if (count >= maxFiles) return;
 
-		let entries: ReturnType<typeof readdirSync>;
+		let entries: Dirent[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
 		} catch {

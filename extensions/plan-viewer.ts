@@ -1,7 +1,7 @@
 // ABOUTME: Interactive Plan Viewer — opens a GUI browser window for markdown plan review.
 // ABOUTME: Supports plan mode (approve/edit/reorder) and questions mode (inline answers). Markdown-driven UI.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generatePlanViewerHTML } from "./lib/plan-viewer-html.ts";
 import { createPlanStandaloneExport, saveStandaloneExport } from "./lib/viewer-standalone-export.ts";
@@ -384,7 +384,7 @@ export default function (pi: ExtensionAPI) {
 			"The markdown file IS the UI — update it to change what the user sees.",
 		parameters: ShowPlanParams,
 
-		execute: (async (_toolCallId, params, signal, _onUpdate, ctx) => {
+		execute: (async (_toolCallId: string, params: unknown, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: ExtensionContext) => {
 			const { file_path, title, mode: modeStr } = params as {
 				file_path: string;
 				title?: string;
@@ -491,7 +491,7 @@ export default function (pi: ExtensionAPI) {
 			};
 			}) as any,
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const filePath = (args as any).file_path || "?";
 			const titleArg = (args as any).title || "";
 			const modeArg = (args as any).mode || "plan";
@@ -501,10 +501,10 @@ export default function (pi: ExtensionAPI) {
 				theme.fg("accent", filePath) +
 				theme.fg("dim", ` [${modeLabel}]`) +
 				(titleArg ? theme.fg("dim", ` — ${titleArg}`) : "");
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];
@@ -514,12 +514,12 @@ export default function (pi: ExtensionAPI) {
 			if (details.purpose === "questions") {
 				if (details.action === "submitted") {
 					return new Text(
-						outputLine(theme, "success", "Answers submitted"),
+						outputLine(theme as unknown as OutputBoxTheme, "success", "Answers submitted"),
 						0, 0,
 					);
 				}
 				return new Text(
-					outputLine(theme, "warning", "Questions closed without answers"),
+					outputLine(theme as unknown as OutputBoxTheme, "warning", "Questions closed without answers"),
 					0, 0,
 				);
 			}
@@ -527,13 +527,13 @@ export default function (pi: ExtensionAPI) {
 			if (details.action === "approved") {
 				const modNote = details.modified ? " (edited)" : "";
 				return new Text(
-					outputLine(theme, "success", `Plan approved${modNote}`),
+					outputLine(theme as unknown as OutputBoxTheme, "success", `Plan approved${modNote}`),
 					0, 0,
 				);
 			}
 
 			return new Text(
-				outputLine(theme, "warning", "Plan viewer closed without approval"),
+				outputLine(theme as unknown as OutputBoxTheme, "warning", "Plan viewer closed without approval"),
 				0, 0,
 			);
 		},
@@ -568,7 +568,7 @@ export default function (pi: ExtensionAPI) {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
 				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
 				markPlanApproved(filePath, approvedMarkdown);
-					bindApprovedPlanContract(approvedMarkdown, file_path);
+					bindApprovedPlanContract(approvedMarkdown, filePath);
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",
@@ -593,7 +593,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }

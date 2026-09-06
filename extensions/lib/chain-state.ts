@@ -29,10 +29,11 @@ export function readChainSnapshot(sessionDir: string): ChainSnapshot | undefined
 	try {
 		if (!existsSync(path) || !lstatSync(path).isFile()) return undefined;
 		const value = JSON.parse(readFileSync(path, "utf8")) as Partial<ChainSnapshot>;
+		const stepIndex = value.currentStepIndex;
 		if (value.version !== 1 || typeof value.chain !== "string" || !value.chain ||
-			typeof value.originalTask !== "string" || !Number.isInteger(value.currentStepIndex) || value.currentStepIndex < 0 ||
+			typeof value.originalTask !== "string" || typeof stepIndex !== "number" || !Number.isInteger(stepIndex) || stepIndex < 0 ||
 			!Array.isArray(value.stepOutputs) || !Array.isArray(value.steps) || value.steps.length === 0 ||
-			value.currentStepIndex > value.steps.length) return undefined;
+			stepIndex > value.steps.length) return undefined;
 		const outputs = value.stepOutputs.filter((output): output is string => typeof output === "string");
 		const steps = value.steps.filter((step): step is ChainSnapshotStep => Boolean(
 			step && typeof step.agent === "string" &&

@@ -288,7 +288,7 @@ describe("shared dispatch runtime", () => {
 			launchId: "unauthorized",
 			transport: "headless",
 			spawnProcess: (() => { starts++; return fakeChild(); }) as any,
-			onStderr: (message) => errors.push(message),
+			onStderr: (message: string) => errors.push(message),
 		} as any);
 
 		expect(result.exitCode).toBe(126);

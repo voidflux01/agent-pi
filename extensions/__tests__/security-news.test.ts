@@ -30,7 +30,7 @@ describe("security_news", () => {
 
   it("bounds trusted feed responses", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("x".repeat(5 * 1024 * 1024 + 1), { status: 200 })) as typeof fetch;
+    globalThis.fetch = (async () => new Response("x".repeat(5 * 1024 * 1024 + 1), { status: 200 })) as unknown as typeof fetch;
     try {
       const pi = createPiMock();
       securityNewsExt(pi as any);

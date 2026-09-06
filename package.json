@@ -7,15 +7,18 @@
     "pi-package"
   ],
   "scripts": {
+    "typecheck": "node node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "test": "node scripts/run-tests.mjs",
     "check": "npm run verify:release",
     "doctor": "node scripts/doctor.mjs",
     "doctor:strict": "node scripts/doctor.mjs --strict",
     "eval:orchestration": "bun scripts/orchestration-eval.ts",
     "verify:package": "node scripts/package-smoke.mjs",
-    "verify:release": "npm run doctor:strict && npm test && npm audit --omit=dev --audit-level=high && npm run verify:package"
+    "verify:release": "npm run doctor:strict && npm run typecheck && npm test && npm audit --omit=dev --audit-level=high && npm run verify:package"
   },
   "devDependencies": {
+    "bun-types": "^1.4.2",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "pi": {

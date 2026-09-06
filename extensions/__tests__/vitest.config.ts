@@ -20,10 +20,12 @@ export default defineConfig({
 			reporter: ["text", "json", "html"],
 			include: ["../user-question.ts"],
 			exclude: ["**/*.test.ts", "**/*.spec.ts"],
-			lines: 80,
-			functions: 80,
-			branches: 75,
-			statements: 80,
+			thresholds: {
+				lines: 80,
+				functions: 80,
+				branches: 75,
+				statements: 80,
+			},
 		},
 	},
 	resolve: {

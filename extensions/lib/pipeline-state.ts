@@ -41,8 +41,9 @@ export function readPipelineSnapshot(sessionDir: string): PipelineSnapshot | und
 	try {
 		if (!existsSync(path) || !lstatSync(path).isFile()) return undefined;
 		const value = JSON.parse(readFileSync(path, "utf8")) as Partial<PipelineSnapshot>;
+		const phaseIndex = value.currentPhaseIndex;
 		if (value.version !== 1 || typeof value.pipeline !== "string" || !value.pipeline ||
-			!Number.isInteger(value.currentPhaseIndex) || value.currentPhaseIndex < 0 ||
+			typeof phaseIndex !== "number" || !Number.isInteger(phaseIndex) || phaseIndex < 0 ||
 			!Array.isArray(value.phases) || typeof value.taskSummary !== "string" ||
 			typeof value.accContext !== "string" || typeof value.planOutput !== "string" ||
 			typeof value.reviewOutput !== "string" || !Number.isInteger(value.reviewLoopCount)) return undefined;
@@ -53,7 +54,7 @@ export function readPipelineSnapshot(sessionDir: string): PipelineSnapshot | und
 			typeof phase.lastDispatchSuccess === "boolean" &&
 			(phase.lastReceiptId === undefined || typeof phase.lastReceiptId === "string"),
 		));
-		if (phases.length !== value.phases.length || phases.length === 0 || value.currentPhaseIndex >= phases.length) return undefined;
+		if (phases.length !== value.phases.length || phases.length === 0 || phaseIndex >= phases.length) return undefined;
 		return { ...value, phases } as PipelineSnapshot;
 	} catch { return undefined; }
 }

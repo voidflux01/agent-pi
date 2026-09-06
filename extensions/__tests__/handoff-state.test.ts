@@ -265,7 +265,7 @@ describe("handoff state", () => {
 		try {
 			writeHandoff(workspace, buildHandoffSnapshot({ workspace, sessionId: "outgoing-session", objective: "Mid-run work", status: "in_progress" }));
 			handoffExtension(pi as any);
-			await handlers.get("session_switch")!({ reason: "switch" }, ctx);
+			await handlers.get("session_before_switch")!({ reason: "switch" }, ctx);
 			expect(readHandoff(workspace)?.status).toBe("interrupted");
 		} finally {
 			await handlers.get("session_shutdown")?.({ reason: "quit" }, ctx);

@@ -1,7 +1,7 @@
 // ABOUTME: Task Board Viewer — opens a GUI browser window showing a live Kanban board of agent work.
 // ABOUTME: Shows the local Pi task list in a browser Kanban board.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -10,12 +10,12 @@ import { join, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { generateBoardViewerHTML } from "./lib/board-viewer-html.ts";
-import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { registerActiveViewer, clearActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -203,7 +203,7 @@ const ShowBoardParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
-	let activeSession: { kind: "board"; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: ActiveViewerSession | null = null;
 
 	function cleanupServer() {
 		const server = activeServer;
@@ -278,19 +278,19 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const titleArg = (args as any).title || "Task Board";
 			const text =
 				theme.fg("toolTitle", theme.bold("show_board ")) +
 				theme.fg("accent", titleArg);
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			const firstLine = text?.type === "text" ? text.text.split("\n")[0] : "";
 			return new Text(
-				outputLine(theme, "success", firstLine),
+				outputLine(theme as unknown as OutputBoxTheme, "success", firstLine),
 				0, 0,
 			);
 		},
@@ -337,7 +337,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }

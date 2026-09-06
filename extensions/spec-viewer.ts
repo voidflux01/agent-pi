@@ -1,7 +1,7 @@
 // ABOUTME: Spec Viewer — opens a multi-page browser GUI for reviewing, commenting, and approving specifications.
 // ABOUTME: Wizard-style navigation between spec docs, inline comment threads, visual asset gallery, markdown editing.
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -10,12 +10,12 @@ import { join, basename, dirname, extname, resolve, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine } from "./lib/output-box.ts";
+import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateSpecViewerHTML, type SpecDocument } from "./lib/spec-viewer-html.ts";
 import { createSpecStandaloneExport, loadVisualAsExportAsset, saveStandaloneExport, type SpecExportDocument } from "./lib/viewer-standalone-export.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
-import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
+import { registerActiveViewer, clearActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
@@ -356,7 +356,7 @@ const ShowSpecParams = Type.Object({
 export default function (pi: ExtensionAPI) {
 	let piRef = pi;
 	let activeServer: Server | null = null;
-	let activeSession: { kind: "spec"; title: string; url: string; server: Server; onClose: () => void } | null = null;
+	let activeSession: ActiveViewerSession | null = null;
 
 	/** Bind the approved spec.md snapshot as the acceptance contract for verification. */
 	function bindApprovedSpecContract(folderPath: string): void {
@@ -584,17 +584,17 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 
-		renderCall(args, theme) {
+		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const folderPath = (args as any).folder_path || "?";
 			const titleArg = (args as any).title || "";
 			const text =
 				theme.fg("toolTitle", theme.bold("show_spec ")) +
 				theme.fg("accent", folderPath) +
 				(titleArg ? theme.fg("dim", ` — ${titleArg}`) : "");
-			return new Text(outputLine(theme, "accent", text), 0, 0);
+			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
-		renderResult(result, _options, theme) {
+		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
 				const text = result.content[0];
@@ -604,7 +604,7 @@ export default function (pi: ExtensionAPI) {
 			if (details.action === "approved") {
 				const modNote = details.modified ? " (edited)" : "";
 				return new Text(
-					outputLine(theme, "success", `Spec approved${modNote}`),
+					outputLine(theme as unknown as OutputBoxTheme, "success", `Spec approved${modNote}`),
 					0, 0,
 				);
 			}
@@ -612,13 +612,13 @@ export default function (pi: ExtensionAPI) {
 			if (details.action === "changes_requested") {
 				const count = details.comments?.length || 0;
 				return new Text(
-					outputLine(theme, "warning", `Changes requested (${count} comment${count !== 1 ? "s" : ""})`),
+					outputLine(theme as unknown as OutputBoxTheme, "warning", `Changes requested (${count} comment${count !== 1 ? "s" : ""})`),
 					0, 0,
 				);
 			}
 
 			return new Text(
-				outputLine(theme, "warning", "Spec viewer closed without action"),
+				outputLine(theme as unknown as OutputBoxTheme, "warning", "Spec viewer closed without action"),
 				0, 0,
 			);
 		},
@@ -694,7 +694,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		cleanupServer();
 	});
-	pi.on("session_switch", async () => {
+	pi.on("session_before_switch", async () => {
 		cleanupServer();
 	});
 }
