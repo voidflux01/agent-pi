@@ -50,7 +50,7 @@ describe("worker first-turn prompt", () => {
 describe("pipeline dispatch_agents records success on the phase", () => {
 	it("assigns lastDispatchSuccess on phase, not an undefined phaseState", () => {
 		const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "pipeline-team.ts"), "utf8");
-		expect(src).toContain("phase.lastDispatchSuccess = result.success");
+		expect(src).toContain('phase.lastDispatchSuccess = result.status === "done"');
 		expect(src).not.toContain("phaseState.lastDispatchSuccess = result.success");
 	});
 });
@@ -120,7 +120,7 @@ describe("source wiring", () => {
 				expect(source).toContain("boundedHandoff(");
 				expect(source).toContain("slice(0, 500)");
 			} else {
-				expect(source).toContain("outputPreview");
+				expect(source).toContain("boundedOutputPreview");
 			}
 			expect(source).not.toContain("details.fullOutput");
 		}
@@ -130,10 +130,10 @@ describe("source wiring", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Pipeline dispatch failed:");
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain('reason: "already_dispatched"');
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("recovery can ask it to advance instead of repeating side effects");
+		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
+		// pipeline's retired synchronous dispatch tool was deleted; live path returns dispatch
+		// state via the advance_phase gate text instead.
+		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Gate state: dispatchCount=");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("const resumable = snapshot && pipelineConfigs.some");
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).not.toContain("// Wipe pipeline session files");
 		const team = readFileSync(join(root, "agent-team.ts"), "utf8");

@@ -25,10 +25,9 @@ import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } fr
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import {
-	Box, Text, Container, Spacer, Markdown, type AutocompleteItem,
+	Box, Text, Container, Spacer, type AutocompleteItem,
 	matchesKey, Key, truncateToWidth, visibleWidth,
 } from "@mariozechner/pi-tui";
-import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve, basename, dirname } from "path";
@@ -51,7 +50,11 @@ import {
 import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor, type OutputBoxTheme } from "./lib/output-box.ts";
-import { renderVerticalTimeline, renderCollapsedTimeline, statusButton, type RenderTheme } from "./lib/pipeline-render.ts";
+import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
+import { toolCallText } from "./lib/tui/tool-render.ts";
+import { beginPanel, endPanel, KEY_HINT_FOOTER } from "./lib/tui/panel.ts";
+import { truncatePreview } from "./lib/tui/text.ts";
+import { hideWidget } from "./lib/tui/widget.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
@@ -67,7 +70,6 @@ import { verifierAction, DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-po
 import { pipelineCompleteDecision } from "./lib/execution-gate.ts";
 import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
-import { normalizeRunStatus } from "./lib/run-state.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
@@ -455,7 +457,7 @@ export default function (pi: ExtensionAPI) {
 
 	function clearPipelineUI() {
 		if (!widgetCtx) return;
-		widgetCtx.ui.setWidget("pipeline-team", undefined);
+		hideWidget(widgetCtx, "pipeline-team");
 		widgetCtx.ui.setStatus("pipeline-team", undefined);
 	}
 
@@ -912,10 +914,7 @@ export default function (pi: ExtensionAPI) {
 		render(width: number, height: number, theme: any): string[] {
 			this.ensureVisible(height);
 
-			const container = new Container();
-
-			// Header
-			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			const container = beginPanel(theme, new Container());
 			const phaseName = phaseStates[currentPhaseIndex]?.def.name.toUpperCase() || "PIPELINE";
 			container.addChild(new Text(
 				`${theme.fg("accent", theme.bold(` AGENTS — ${phaseName}`))} ${theme.fg("dim", "|")} ${theme.fg("success", this.items.length.toString())} agents`,
@@ -946,7 +945,7 @@ export default function (pi: ExtensionAPI) {
 					cardBox.addChild(new Text(theme.fg("muted", output), 0, 0));
 				} else {
 					const preview = (item.lastWork || item.task || "—").replace(/\n/g, " ");
-					const truncated = preview.length > width - 10 ? preview.slice(0, width - 13) + "..." : preview;
+					const truncated = truncatePreview(preview, width - 10);
 					cardBox.addChild(new Text(theme.fg("dim", "  " + truncated), 0, 0));
 				}
 
@@ -954,9 +953,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			// Footer
-			container.addChild(new Spacer(1));
-			container.addChild(new Text(theme.fg("dim", " ↑/↓ Navigate • Enter Expand • Esc Close"), 1, 0));
-			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			endPanel(container, theme, KEY_HINT_FOOTER);
 
 			return container.render(width);
 		}
@@ -1111,10 +1108,7 @@ export default function (pi: ExtensionAPI) {
 
 		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const summary = (args as any).summary || "";
-			const preview = summary.length > 60 ? summary.slice(0, 57) + "..." : summary;
-			const text =
-				theme.fg("toolTitle", theme.bold("advance_phase ")) +
-				theme.fg("muted", preview);
+			const text = toolCallText(theme, "advance_phase ", summary);
 			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
 		},
 
@@ -1122,182 +1116,6 @@ export default function (pi: ExtensionAPI) {
 			const text = result.content[0];
 			const msg = text?.type === "text" ? text.text : "";
 			return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
-		},
-	});
-
-	if (false) registerToolWithExecutor(pi, {
-		name: "pipeline_dispatch",
-		label: "Pipeline Dispatch",
-		description: "Dispatch the configured worker or workers for the current PIPELINE phase. This is the phase-owned dispatcher: it records completion durably and returns bounded joined results. Call advance_phase only after it returns.",
-		parameters: Type.Object({
-			agents: Type.Array(Type.Object({
-				role: Type.String({ description: "Agent role name (e.g. 'scout', 'builder', 'reviewer')" }),
-				task: Type.Optional(Type.String({ description: "Task description; defaults to the configured phase task_template" })),
-			}), { description: "Array of agents to dispatch" }),
-		}),
-
-		execute: explicitDispatchHandler("pipeline-team", async (_toolCallId, params, signal, onUpdate, ctx) => {
-			const { agents } = params as { agents: { role: string; task: string }[] };
-			const phase = phaseStates[currentPhaseIndex];
-
-			if (!phase) {
-				return { content: [{ type: "text", text: "No active phase." }], details: {} };
-			}
-			if (phase.def.name.toLowerCase() === "review" && reviewLoopCount >= activeConfig!.review_max_loops) {
-				return { content: [{ type: "text", text: `Review loop limit reached (${activeConfig!.review_max_loops}). Advance the pipeline or revise the configuration.` }], details: { error: true, phase: phase.def.name, reviewLoop: reviewLoopCount } };
-			}
-			if (phase.status === "active" && phase.lastDispatchSuccess) {
-				return {
-					content: [{ type: "text", text: `${phase.def.name.toUpperCase()} already has a successful dispatch. Call advance_phase with its bounded summary before dispatching it again.` }],
-					details: { error: true, phase: phase.def.name, reason: "already_dispatched" },
-				};
-			}
-
-			if (onUpdate) {
-				onUpdate({
-					content: [{ type: "text", text: `Dispatching ${agents.length} agent(s) in ${phase.def.mode} mode...` }],
-					details: { agents: agents.map(a => a.role), mode: phase.def.mode, status: "dispatching" },
-				});
-			}
-
-			// Resolve template variables in task strings
-			const requested = agents.length > 0 ? agents : phase.def.agents.map(a => ({ role: a.role, task: a.task_template }));
-			const resolved = requested.map(a => ({
-				role: a.role,
-				task: resolveTemplate(a.task || "", {
-					task: taskSummary,
-					context: accContext,
-					plan: planOutput,
-					input: boundedHandoff(accContext || taskSummary),
-					review: reviewOutput,
-				}) + (phase.def.name.toLowerCase() === "plan"
-					? "\n\nPIPELINE contract requirement: return a complete task contract with Objective, Scope, Acceptance Criteria, Evidence Requirements, Constraints, and a ## Verification Commands section containing at least one executable [cmd] assertion. End with the normal ## RESULT block."
-					: ""),
-				...((a as any).resources ? { resources: (a as any).resources } : {}),
-			}));
-
-			const mode = phase.def.mode === "interactive" ? "sequential" : phase.def.mode;
-			const orchestrationRun = createOrchestrationRun({
-				context: ctx,
-				signal,
-				actor: `pipeline:${activeConfig!.name}:phase:${phase.def.name}`,
-				mode: "PIPELINE",
-				budget: { maxSteps: Math.max(1, resolved.length) },
-				workspaceCwd: ctx?.cwd,
-			});
-			orchestrationRun.record("pipeline.started", { phase: phase.def.name, mode, agents: resolved.map(a => ({ role: a.role, ...((a as any).resources ? { resources: (a as any).resources } : {}) })) });
-			orchestrationRun.consumeStep();
-			let result: Awaited<ReturnType<typeof dispatchPhaseAgents>>;
-			try {
-				result = await dispatchPhaseAgents(resolved, mode as "parallel" | "sequential", ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-				orchestrationRun.record("pipeline.completed", { phase: phase.def.name, success: result.success, agents: resolved.length });
-				orchestrationRun.finish(result.success ? "succeeded" : "failed", { phase: phase.def.name });
-				if (!result.success) {
-					const phaseAdvice = workflowDirection({ status: "FAIL", failure: "implementation" });
-					orchestrationRun.record("pipeline.next_action", { phase: phase.def.name, next: phaseAdvice.next, reason: phaseAdvice.reason });
-				}
-			} catch (error) {
-				orchestrationRun.record("pipeline.failed", { phase: phase.def.name, error: error instanceof Error ? error.message : String(error) });
-				const environmentAdvice = workflowDirection({ status: "BLOCKED", failure: "environment" });
-				orchestrationRun.record("pipeline.next_action", { phase: phase.def.name, next: environmentAdvice.next, reason: environmentAdvice.reason });
-				orchestrationRun.finish("failed", { phase: phase.def.name });
-				return { content: [{ type: "text", text: `Pipeline dispatch failed: ${error instanceof Error ? error.message : String(error)}\nNext step suggestion: ${environmentAdvice.next} — ${environmentAdvice.reason}` }], details: { error: true, phase: phase.def.name, runId: orchestrationRun.runId } };
-			}
-
-			// Merge outputs into accumulated context. Each output is already a
-			// compact precision-preserving index (## RESULT + full-output path),
-			// so the accumulated context stays small without losing access.
-			const mergedOutput = result.outputs.join("\n\n---\n\n");
-			const mergedFull = result.fullOutputs.join("\n\n---\n\n");
-			const mergedPaths = result.fullOutputPaths.filter(Boolean).join("\n");
-			const outputSummary = mergedOutput.length > 3000
-				? mergedOutput.slice(0, 3000) + "\n\n... [output truncated, full output was " + mergedOutput.length + " chars]"
-				: mergedOutput;
-			accContext = boundedHandoff(`## Phase ${currentPhaseIndex + 1} Agent Handoff\n${outputSummary}`);
-
-			// Store plan output if this is the plan phase
-			if (phase.def.name.toLowerCase() === "plan") {
-				planOutput = mergedOutput;
-				bindPipelinePlan(mergedOutput);
-			}
-
-			// Store review output if this is the review phase
-			if (phase.def.name.toLowerCase() === "review") {
-				reviewOutput = mergedOutput;
-				reviewLoopCount++;
-			}
-
-			// mergedOutput is already composed (compact index + pointers); keep a
-			// safety cap that never silently drops the pointer lines.
-			const truncated = mergedOutput.length > 12000
-				? mergedOutput.slice(0, 12000) + "\n\n... [output truncated at 12000 chars — full transcripts preserved on disk]"
-				: mergedOutput;
-
-			const status = result.success ? "done" : "error";
-			phase.lastDispatchSuccess = result.success;
-			// Persist the completed dispatch and accumulated handoff before
-			// returning to the parent. If the parent restarts before advance_phase,
-			// recovery can ask it to advance instead of repeating side effects.
-			persistPipelineState();
-			const blockedNotice = result.blockedReason ? `\n\n${result.blockedReason}` : "";
-
-			return {
-				content: [{ type: "text", text: `[${phase.def.name}] ${status} — ${agents.length} agent(s)${blockedNotice}\n\n${truncated}` }],
-					details: {
-						 runId: orchestrationRun.runId,
-						phase: phase.def.name,
-					agents: agents.map(a => a.role),
-					status,
-					outputPreview: boundedOutputPreview(mergedFull),
-					fullOutputPath: mergedPaths,
-					reviewLoop: reviewLoopCount,
-				},
-			};
-		}) as any,
-
-
-		renderCall(args: Record<string, unknown>, theme: Theme) {
-			const agents = (args as any).agents || [];
-			const roles = agents.map((a: any) => a.role).join(", ");
-			const text =
-			theme.fg("toolTitle", theme.bold("retired_dispatch ")) +
-				theme.fg("accent", `${agents.length} agent(s)`) +
-				theme.fg("dim", " — ") +
-				theme.fg("muted", roles);
-			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
-		},
-
-		renderResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme) {
-			const details = result.details as any;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
-
-			const normalizedStatus = normalizeRunStatus(details.status || "done");
-			if (options.isPartial || normalizedStatus === "running" || normalizedStatus === "queued") {
-				const runningBtn = statusButton("active", details.phase || "?", theme as unknown as RenderTheme);
-				const content = runningBtn +
-					theme.fg("dim", ` dispatching ${(details.agents || []).length} agents...`);
-				return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", content), 0, 0);
-			}
-
-			const status = normalizedStatus === "succeeded" ? "done" : "error";
-			const bar = status === "done" ? "success" : "error";
-			const statusBtn = statusButton(status, details.phase, theme as unknown as RenderTheme);
-			const header = statusBtn +
-				theme.fg("dim", ` ${(details.agents || []).length} agents`);
-
-			if (options.expanded && details.outputPreview) {
-				const output = details.outputPreview;
-				const mdTheme = getPiMdTheme();
-				const container = new Container();
-				container.addChild(new Text(outputLine(theme as unknown as OutputBoxTheme, bar, header), 0, 0));
-				container.addChild(new Markdown(output, 2, 0, mdTheme));
-				return container;
-			}
-
-			return new Text(outputLine(theme as unknown as OutputBoxTheme, bar, header), 0, 0);
 		},
 	});
 

@@ -24,8 +24,8 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
-import { Text, type AutocompleteItem, visibleWidth, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
-import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
+import { Text, type AutocompleteItem, truncateToWidth, Container, Spacer, Box, Markdown, matchesKey, Key, type Component } from "@mariozechner/pi-tui";
+import { getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, rmSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -42,6 +42,8 @@ import { loadAgentModelsConfig, loadToolkitModelsConfig, resolveAgentModelString
 import { appendBoundedOutput, resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolkitRuntimeName, runToolkitDispatch } from "./lib/toolkit-cli.ts";
 import { buildMailboxPreamble, listSteer, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { padRight, wordWrap, sideBySide } from "./lib/ui-helpers.ts";
+import { beginPanel, formatRow, sectionHeader } from "./lib/tui/panel.ts";
+import { toolResultText } from "./lib/tui/tool-render.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
 import { boundedOutputPreview, buildWorkerInitialPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
@@ -995,8 +997,7 @@ export default function (pi: ExtensionAPI) {
 		renderResult(result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme) {
 			const details = result.details as any;
 			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
+				return toolResultText(result, theme);
 			}
 
 			const agent = (details.agent || "AGENT").toUpperCase();
@@ -1288,7 +1289,7 @@ export default function (pi: ExtensionAPI) {
 			const innerWidth = panelW - 2; // Account for border
 
 			// Header with agent name pill and status
-			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			beginPanel(theme, container);
 			const name = displayName(this.agent.def.name);
 			const statusBtn = statusButton(this.agent.status, name, theme, false);
 			const timeStr = this.agent.status !== "idle" ? ` ${Math.round(this.agent.elapsed / 1000)}s` : "";
@@ -1298,20 +1299,8 @@ export default function (pi: ExtensionAPI) {
 			));
 			container.addChild(new Spacer(1));
 
-			// Section header helper - fills width with line characters
-			const sectionHeader = (title: string) => {
-				const label = ` ─── ${title} `;
-				const remaining = Math.max(0, innerWidth - visibleWidth(label));
-				return theme.fg("accent", theme.bold(label + "─".repeat(remaining)));
-			};
-
 			// Metadata section (full width, vertical list)
-			container.addChild(new Text(sectionHeader("METADATA"), 1, 0));
-			const formatRow = (label: string, value: string, valueColor: string = "muted") => {
-				const labelStr = theme.fg("accent", theme.bold(padRight(label + ":", 14)));
-				const valueStr = theme.fg(valueColor, value);
-				return labelStr + " " + valueStr;
-			};
+			container.addChild(sectionHeader(theme, "METADATA", innerWidth));
 
 			// Helper to add wrapped metadata rows
 			const addWrappedRow = (label: string, value: string, valueColor: string = "muted") => {
@@ -1320,14 +1309,14 @@ export default function (pi: ExtensionAPI) {
 				const wrapped = wordWrap(value, valueWidth);
 				for (let i = 0; i < wrapped.length; i++) {
 					const displayLabel = i === 0 ? label : "";
-					container.addChild(new Text(formatRow(displayLabel, wrapped[i], valueColor), 1, 0));
+					container.addChild(formatRow(theme, displayLabel, wrapped[i], valueColor, 14));
 				}
 			};
 
 			// STATUS - color based on state
 			const statusColorMap: Record<string, string> = { running: "accent", done: "success", error: "error", idle: "dim" };
 			const statusColor = statusColorMap[this.agent.status] || "muted";
-			container.addChild(new Text(formatRow("STATUS", this.agent.status.toUpperCase(), statusColor), 1, 0));
+			container.addChild(formatRow(theme, "STATUS", this.agent.status.toUpperCase(), statusColor, 14));
 
 			// DESCRIPTION - if present
 			if (this.agent.def.description) {
@@ -1343,13 +1332,13 @@ export default function (pi: ExtensionAPI) {
 			// CONTEXT - conditional color based on percentage
 			const pct = Math.ceil(this.agent.contextPct);
 			const ctxColor = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
-			container.addChild(new Text(formatRow("CONTEXT", `${pct}%`, ctxColor), 1, 0));
+			container.addChild(formatRow(theme, "CONTEXT", `${pct}%`, ctxColor, 14));
 
 			// RUNS - accent color
-			container.addChild(new Text(formatRow("RUNS", this.agent.runCount.toString(), "accent"), 1, 0));
+			container.addChild(formatRow(theme, "RUNS", this.agent.runCount.toString(), "accent", 14));
 
 			// TOOLS USED - accent color
-			container.addChild(new Text(formatRow("TOOLS USED", this.agent.toolCount.toString(), "accent"), 1, 0));
+			container.addChild(formatRow(theme, "TOOLS USED", this.agent.toolCount.toString(), "accent", 14));
 
 			// FILE - dim color (path)
 			addWrappedRow("FILE", this.agent.def.file, "dim");
@@ -1361,7 +1350,7 @@ export default function (pi: ExtensionAPI) {
 			container.addChild(new Spacer(1));
 
 			// System prompt section (full width)
-			container.addChild(new Text(sectionHeader("SYSTEM PROMPT"), 1, 0));
+			container.addChild(sectionHeader(theme, "SYSTEM PROMPT", innerWidth));
 			container.addChild(new Spacer(1));
 			// Render system prompt as markdown - it will handle its own wrapping
 			const sysPromptMd = new Markdown(this.agent.def.systemPrompt, 1, 0, mdTheme);
@@ -1370,7 +1359,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Task section (if present) - render as markdown
 			if (this.agent.task) {
-				container.addChild(new Text(sectionHeader("CURRENT TASK"), 1, 0));
+				container.addChild(sectionHeader(theme, "CURRENT TASK", innerWidth));
 				container.addChild(new Spacer(1));
 				const taskMd = new Markdown(this.agent.task, 1, 0, mdTheme);
 				container.addChild(taskMd);
@@ -1379,7 +1368,7 @@ export default function (pi: ExtensionAPI) {
 
 			// Last work section (if present) - render as markdown
 			if (this.agent.lastWork) {
-				container.addChild(new Text(sectionHeader("LAST WORK"), 1, 0));
+				container.addChild(sectionHeader(theme, "LAST WORK", innerWidth));
 				container.addChild(new Spacer(1));
 				const workMd = new Markdown(this.agent.lastWork, 1, 0, mdTheme);
 				container.addChild(workMd);

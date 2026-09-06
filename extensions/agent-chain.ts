@@ -28,7 +28,10 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRender
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, visibleWidth, truncateToWidth, Container, Spacer, Markdown, matchesKey, Key, type AutocompleteItem } from "@mariozechner/pi-tui";
-import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
+import { getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
+import { hideWidget, safeSetWidget } from "./lib/tui/widget.ts";
+import { beginPanel, formatRow, sectionHeader } from "./lib/tui/panel.ts";
+import { truncatePreview } from "./lib/tui/text.ts";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
@@ -286,25 +289,20 @@ export default function (pi: ExtensionAPI) {
 		if (state.lastWork && state.status !== "pending") {
 			const prefix = " \u2502  ";
 			const maxWork = width - prefix.length - 1;
-			const work = state.lastWork.length > maxWork
-				? state.lastWork.slice(0, maxWork - 3) + "..."
-				: state.lastWork;
+			const work = truncatePreview(state.lastWork, maxWork);
 			lines.push(theme.fg("dim", " \u2502") + "  " + theme.fg("muted", work));
 		}
 		if (state.status === "pending" && state.description) {
 			const prefix = "    ";
 			const maxDesc = width - prefix.length - 1;
-			const desc = state.description.length > maxDesc
-				? state.description.slice(0, maxDesc - 3) + "..."
-				: state.description;
+			const desc = truncatePreview(state.description, maxDesc);
 			lines.push("    " + theme.fg("dim", desc));
 		}
 		return lines;
 	}
 
 	function hideChainWidget(ctx?: ExtensionContext | { ui?: { setWidget: (key: string, renderer: unknown) => void } }) {
-		const ui = ctx?.ui || widgetCtx?.ui;
-		try { ui?.setWidget("agent-chain", undefined); } catch {}
+		hideWidget(ctx ?? widgetCtx, "agent-chain");
 	}
 
 	function updateWidget() {
@@ -316,7 +314,7 @@ export default function (pi: ExtensionAPI) {
 		// Only show widget when pipeline is actually running (at least one non-pending step)
 		const hasActiveStep = stepStates.some(s => s.status !== "pending");
 		if (!hasActiveStep) return;
-		widgetCtx.ui.setWidget("agent-chain", (_tui: any, theme: any) => {
+		safeSetWidget(widgetCtx, "agent-chain", (_tui: any, theme: any) => {
 			const text = new Text("", 0, 1);
 
 			return {
@@ -939,7 +937,7 @@ ${agentCatalog}
 			const innerWidth = panelW - 2;
 
 			// Header with step name pill and status
-			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			beginPanel(theme, container);
 			const name = displayName(this.step.agent);
 			const statusForButton = this.step.status === "pending" ? "idle" : this.step.status;
 			const statusBtn = statusButton(statusForButton, name, theme);
@@ -948,34 +946,22 @@ ${agentCatalog}
 			container.addChild(new Text(`${statusBtn}${timeStr}`, 1, 0));
 			container.addChild(new Spacer(1));
 
-			// Section header helper
-			const sectionHeader = (title: string) => {
-				const label = ` ─── ${title} `;
-				const remaining = Math.max(0, innerWidth - visibleWidth(label));
-				return theme.fg("accent", theme.bold(label + "─".repeat(remaining)));
-			};
-
 			// Metadata section
-			container.addChild(new Text(sectionHeader("METADATA"), 1, 0));
-			const formatRow = (label: string, value: string, valueColor: string = "muted") => {
-				const labelStr = theme.fg("accent", theme.bold(padRight(label + ":", 14)));
-				const valueStr = theme.fg(valueColor, value);
-				return labelStr + " " + valueStr;
-			};
+			container.addChild(sectionHeader(theme, "METADATA", innerWidth));
 
-			const addWrappedRow = (label: string, value: string, valueColor: string = "muted") => {
+			const addWrappedRow = (label: string, value: string, valueColor: string) => {
 				const labelWidth = 14;
 				const valueWidth = innerWidth - labelWidth - 1;
 				const wrapped = wordWrap(value, valueWidth);
 				for (let i = 0; i < wrapped.length; i++) {
 					const displayLabel = i === 0 ? label : "";
-					container.addChild(new Text(formatRow(displayLabel, wrapped[i], valueColor), 1, 0));
+					container.addChild(formatRow(theme, displayLabel, wrapped[i], valueColor, 14));
 				}
 			};
 
 			const statusColorMap: Record<string, string> = { running: "accent", done: "success", error: "error", pending: "dim" };
 			const statusColor = statusColorMap[this.step.status] || "muted";
-			container.addChild(new Text(formatRow("STATUS", this.step.status.toUpperCase(), statusColor), 1, 0));
+			container.addChild(formatRow(theme, "STATUS", this.step.status.toUpperCase(), statusColor, 14));
 
 			if (this.step.description) {
 				addWrappedRow("DESCRIPTION", this.step.description, "muted");
@@ -989,7 +975,7 @@ ${agentCatalog}
 
 			// System prompt section
 			if (this.agentDef?.systemPrompt) {
-				container.addChild(new Text(sectionHeader("SYSTEM PROMPT"), 1, 0));
+				container.addChild(sectionHeader(theme, "SYSTEM PROMPT", innerWidth));
 				container.addChild(new Spacer(1));
 				const sysPromptMd = new Markdown(this.agentDef.systemPrompt, 1, 0, mdTheme);
 				container.addChild(sysPromptMd);
@@ -998,7 +984,7 @@ ${agentCatalog}
 
 			// Last work section
 			if (this.step.lastWork) {
-				container.addChild(new Text(sectionHeader("LAST WORK"), 1, 0));
+				container.addChild(sectionHeader(theme, "LAST WORK", innerWidth));
 				container.addChild(new Spacer(1));
 				const workMd = new Markdown(this.step.lastWork, 1, 0, mdTheme);
 				container.addChild(workMd);

@@ -5,7 +5,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRender
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
-import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
+import { outputLine } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { installPinnedToolSurface } from "./lib/pinned-tools.ts";
 import { MODES, nextMode, modeLabel, type Mode } from "./lib/mode-cycler-logic.ts";
@@ -17,6 +17,9 @@ import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
 import { createNormalEscalationState, reconEscalationReason, recordNormalToolCall, resetNormalEscalation, RECON_ESCALATION_LIMIT } from "./lib/normal-escalation.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
+import { asUiTheme } from "./lib/tui/theme.ts";
+import { toolCallText } from "./lib/tui/tool-render.ts";
+import { hideWidget, safeSetWidget } from "./lib/tui/widget.ts";
 
 const MODE_FILE = "/tmp/pi-current-mode.txt";
 
@@ -36,7 +39,7 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 
 		if (mode === "NORMAL") {
-			ctx.ui.setWidget("mode-block", undefined);
+			hideWidget(ctx, "mode-block");
 			// Re-set agent-banner after clearing mode-block to ensure correct rendering order
 			// Only re-set if banner was previously visible (not hidden by user input)
 			if (isBannerVisible()) {
@@ -46,9 +49,10 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Mode block — restrained Terminal Paper rule with a readable mode badge.
-		ctx.ui.setWidget(
+		safeSetWidget(
+			ctx,
 			"mode-block",
-			(_tui, theme) => ({
+			(_tui: any, theme: any) => ({
 				invalidate() {},
 				render(width: number): string[] {
 					const label = theme.fg("accent", theme.bold(`[ ${mode} ]`));
@@ -197,18 +201,18 @@ export default function (pi: ExtensionAPI) {
 		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const target = (args as any).mode || "?";
 			const reason = (args as any).reason || "";
-			const preview = reason.length > 50 ? reason.slice(0, 47) + "..." : reason;
-			const text =
-				theme.fg("toolTitle", theme.bold("set_mode ")) +
-				theme.fg("accent", target.toUpperCase()) +
-				(preview ? theme.fg("dim", " — ") + theme.fg("muted", preview) : "");
-			return new Text(outputLine(theme as unknown as OutputBoxTheme, "accent", text), 0, 0);
+			const text = toolCallText(theme, "set_mode ", reason, {
+				accentPrefix: target.toUpperCase(),
+				dimSeparator: " — ",
+				maxPreview: 50,
+			});
+			return new Text(outputLine(asUiTheme(theme), "accent", text), 0, 0);
 		},
 
 		renderResult(result: AgentToolResult<unknown>, _options: ToolRenderResultOptions, theme: Theme) {
 			const text = result.content[0];
 			const msg = text?.type === "text" ? text.text : "";
-			return new Text(outputLine(theme as unknown as OutputBoxTheme, "success", msg), 0, 0);
+			return new Text(outputLine(asUiTheme(theme), "success", msg), 0, 0);
 		},
 	});
 
