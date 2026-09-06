@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { workflowDirection } from "./lib/workflow-direction.ts";
-import { inspectProjectContext, contextDrift } from "./lib/workflow-context.ts";
+import { inspectProjectContext, contextDrift, type ContextSnapshot } from "./lib/workflow-context.ts";
 import { inspectLog, deploymentGate } from "./lib/workflow-monitor.ts";
 import { searchRetrospectives, listRetrospectives, clearRetrospectives, markInsight } from "./lib/workflow-memory.ts";
 import { readBounded, saveArtifact, redactEvidence } from "./lib/workflow-artifacts.ts";
@@ -38,7 +38,14 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({ snapshot: Type.Optional(text()) }),
 		execute: async (_id, params, _signal, _update, ctx) => {
 			const inspected = inspectProjectContext(ctx.cwd);
-			return result({ ...inspected, ...(params.snapshot ? { drift: contextDrift(JSON.parse(readBounded(ctx.cwd, params.snapshot)).snapshot, inspected.snapshot) } : {}) });
+			if (!params.snapshot) return result(inspected);
+			try {
+				const saved = JSON.parse(readBounded(ctx.cwd, params.snapshot)) as { snapshot?: ContextSnapshot };
+				if (!saved.snapshot) throw new Error("Missing snapshot");
+				return result({ ...inspected, drift: contextDrift(saved.snapshot, inspected.snapshot) });
+			} catch {
+				return result({ ...inspected, driftError: "Saved snapshot could not be parsed or compared; drift was not computed." });
+			}
 		},
 	});
 	if (config.monitoring) registerToolWithExecutor(pi, {

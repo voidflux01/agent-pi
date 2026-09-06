@@ -12,8 +12,6 @@ import { isReadOnlyBash } from "./tool-invocation.ts";
 
 export { isReadOnlyBash } from "./tool-invocation.ts";
 
-export const APPROVAL_REQUIRED_MODES = ["PLAN", "SPEC"] as const;
-
 /** Tools that may run in PLAN/SPEC before the viewer is approved. */
 export const APPROVAL_BYPASS_TOOLS = [
 	"tasks", "set_mode", "subagent_wait", "ask_user", "show_plan", "show_spec", "show_file", "show_report",
@@ -39,7 +37,8 @@ export function fingerprintFile(filePath: string): { fileFingerprint: string; co
 	const absolute = resolve(filePath);
 	try {
 		const content = readFileSync(absolute);
-		return { contentFingerprint: fingerprintContent(content.toString("utf8")), fileFingerprint: fingerprintContent(`${absolute}\0${content.toString("base64")}`) };
+		const text = content.toString("utf8");
+		return { contentFingerprint: fingerprintContent(text), fileFingerprint: fingerprintContent(`${absolute}\0${Buffer.from(text, "utf8").toString("base64")}`) };
 	} catch {
 		return { contentFingerprint: fingerprintContent("<missing>"), fileFingerprint: fingerprintContent(`${absolute}\0<missing>`) };
 	}

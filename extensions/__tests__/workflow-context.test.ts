@@ -13,6 +13,13 @@ function project(scripts: Record<string, string>, withRules = false): string {
 }
 
 describe("workflow context", () => {
+	test("degrades gracefully on a malformed package.json", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-contextbad-"));
+		writeFileSync(join(cwd, "package.json"), "{not json");
+		const inspected = inspectProjectContext(cwd);
+		expect(inspected.snapshot.scripts).toEqual({});
+		expect(inspected.draft).toContain("not executed or verified");
+	});
 	test("draft lists declared commands without executing them and marks human confirmation", () => {
 		const first = inspectProjectContext(project({ test: "npm test", build: "tsc", "bad name!": "x" }));
 		expect(first.draft).toContain("- npm run test");

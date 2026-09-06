@@ -80,7 +80,10 @@ function receiptDir(cwd: string): string {
 	return join(cwd, ".pi", "agent-sessions", "dispatch-receipts");
 }
 
+const RECEIPT_ID_PATTERN = /^[a-zA-Z0-9-]{1,120}$/;
+
 function receiptPath(cwd: string, id: string): string {
+	if (!RECEIPT_ID_PATTERN.test(id)) throw new Error("Invalid receipt id");
 	return join(receiptDir(cwd), `${id}.json`);
 }
 
@@ -120,7 +123,8 @@ export function finishDispatchReceipt(
 	id: string,
 	result: Pick<WorkflowDispatchResult, "status" | "exitCode" | "fullOutputPath" | "elapsedMs" | "evidenceRefs"> & { context?: DispatchContext; error?: string },
 	): DispatchReceipt | undefined {
-	const path = receiptPath(cwd, id);
+	let path: string;
+	try { path = receiptPath(cwd, id); } catch { return undefined; }
 	if (!existsSync(path)) return undefined;
 	let receipt: DispatchReceipt;
 	try { receipt = JSON.parse(readFileSync(path, "utf8")) as DispatchReceipt; } catch { return undefined; }

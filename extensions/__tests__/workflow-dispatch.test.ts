@@ -1,7 +1,7 @@
 // ABOUTME: Durable dispatch receipt contract tests for all workflow modes.
 
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,19 @@ describe("workflow dispatch receipts", () => {
 			const parsed = JSON.parse(readFileSync(path, "utf8"));
 			expect(parsed.task.length).toBe(4_000);
 			expect(parsed.version).toBe(1);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects invalid receipt ids instead of interpolating paths", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-receipt-"));
+		try {
+			expect(() => createDispatchReceipt(cwd, { mode: "NORMAL" }, "scout", "task", false)).not.toThrow();
+			expect(readDispatchReceipt(cwd, "../escape")).toBeUndefined();
+			expect(finishDispatchReceipt(cwd, "../escape", { status: "done", exitCode: 0, fullOutputPath: "out.txt" })).toBeUndefined();
+			expect(readDispatchReceipt(cwd, "x".repeat(200))).toBeUndefined();
+			expect(existsSync(join(cwd, ".pi", "agent-sessions", "dispatch-receipts", "escape.json"))).toBe(false);
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}

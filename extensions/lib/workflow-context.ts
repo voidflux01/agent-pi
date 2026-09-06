@@ -12,8 +12,10 @@ export function inspectProjectContext(cwd: string): { snapshot: ContextSnapshot;
 	}
 	let scripts: Record<string, string> = {};
 	if (contents["package.json"]) {
-		const manifest = JSON.parse(contents["package.json"]);
-		scripts = Object.fromEntries(Object.entries(manifest.scripts || {}).filter(([k,v]) => /^[a-zA-Z0-9:_-]+$/.test(k) && typeof v === "string").slice(0, 40)) as Record<string, string>;
+		try {
+			const manifest = JSON.parse(contents["package.json"]) as { scripts?: unknown };
+			scripts = Object.fromEntries(Object.entries(manifest.scripts || {}).filter(([k,v]) => /^[a-zA-Z0-9:_-]+$/.test(k) && typeof v === "string").slice(0, 40)) as Record<string, string>;
+		} catch { scripts = {}; }
 	}
 	const directories = readdirSync(cwd, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith(".") && !["node_modules", "dist", "vendor"].includes(e.name)).map(e => e.name).sort().slice(0, 50);
 	const conflicts = contents["AGENTS.md"] && contents["CLAUDE.md"] ? ["AGENTS.md and CLAUDE.md both exist: use Pi's active context/loader order; resolve contradictions with the user, never invent a new precedence."] : [];
