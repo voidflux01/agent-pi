@@ -54,14 +54,15 @@ export function buildWorkerInitialPrompt(opts: {
 	return [
 		role,
 		stripEmbeddedResultProtocol(opts.rolePrompt),
-		"Complete the task below using only the tools and scope provided. Do not ask the coordinator to repeat work you can finish yourself.",
+		"Execute only the supplied task and scope. Treat its objective, acceptance criteria, evidence requirements, and constraints as the contract; do not ask the coordinator to repeat work you can finish.",
+		"Inspect the baseline before edits, use real commands, preserve tests/checks, and never fake green with skips, weaker assertions, deleted checks, changed thresholds, a fake subject, or `|| true`. Keep active plan/spec state current and report blockers in RESULT; do not invent tracking files, and stop after repeated failure, worse results, or satisfied scope.",
 		"",
 		"Task:",
 		stripTaskResultWrapper(opts.task),
 		"",
 		opts.additionalInstructions?.trim(),
 		"",
-		"Return one result block at the end. Put detailed investigation results, file:line references, and code snippets under findings; summary is only a short index. Do not emit any other result block.",
+		"Return one English RESULT block at the end; put evidence and file:line references under findings. Do not emit another result block or prose after END.",
 		"## RESULT",
 		`role: ${resultRole}`,
 		"done: true|false",
@@ -91,6 +92,10 @@ function stripEmbeddedResultProtocol(prompt?: string): string | undefined {
 	value = value.replace(/^\s*- If external information is required[\s\S]*?(?=^\s*- The final assistant message MUST end)/im, "");
 	value = value.replace(/^\s*- The final assistant message MUST end[\s\S]*$/im, "");
 	value = value.replace(/^\s*## Output Format\s*$[\s\S]*$/im, "");
+	// Runtime owns generic safety and reporting protocol; keep role prompts focused
+	// on role-specific judgment instead of repeating shared boilerplate.
+	value = value.replace(/^\s*## Security Redlines\s*$[\s\S]*?(?=^##\s|\s*$)/gim, "");
+	value = value.replace(/^\s*## Result Contract\s*$[\s\S]*?(?=^##\s|\s*$)/gim, "");
 	value = value.replace(/```(?:text|markdown)?\s*\n## RESULT[\s\S]*?## END\s*\n```/gi, "");
 	value = value.replace(/^\s*- \*\*Do NOT include any emojis\. Emojis are banned\.\*\*\s*$/im, "");
 	return value.replace(/\n{3,}/g, "\n\n").trim();
@@ -260,18 +265,22 @@ export function composeAgentResult(
 
 	let body: string;
 	let usedResult = false;
-	if (found) {
+	const compliance = opts.skipContract ? { ok: true, problems: [] as string[] } : checkResultCompliance(contractText);
+	if (found && compliance.ok) {
 		usedResult = true;
 		body = `\n\n## RESULT\n${result}`;
 	} else if (opts.skipContract) {
 		usedResult = true;
 		body = `\n\n${fullText || "(empty output)"}`;
+	} else if (!compliance.ok) {
+		// Fail closed at the parent boundary. Never forward a malformed result
+		// block that could be partially parsed as a valid handoff.
+		body = `\n\n[RESULT contract rejected]\n${compliance.problems.join("; ")}`;
 	} else {
 		body = `\n\n[no ## RESULT block found]\n${fullText || "(empty output)"}`;
 	}
 
 	const fullChars = fullText.length;
-	const compliance = opts.skipContract ? { ok: true, problems: [] as string[] } : checkResultCompliance(contractText);
 	const pointer = transcriptPointer({
 		fullChars,
 		path: opts.fullOutputPath,

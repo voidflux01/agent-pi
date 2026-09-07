@@ -110,7 +110,7 @@ describe("set_mode turn boundary", () => {
 			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "rg -n TODO ." } }, {})));
 			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}
-		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "find . -type f" } }, {})));
+		const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "rg -n TODO ." } }, {})));
 		expect(blocked.some((r) => r?.block === true)).toBe(true);
 
 		const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", input: { name: "scout", task: "map" } }, {})));
@@ -138,7 +138,7 @@ describe("set_mode turn boundary", () => {
 				const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 				expect(result.every((r) => !r || r.block !== true)).toBe(true);
 			}
-			const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", input: { pattern: "TODO" } }, {})));
+			const blocked = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 			expect(blocked.some((r) => r?.block === true)).toBe(true);
 
 			const scout = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "subagent_create", input: { name: "scout", task: "re-check the unresolved question" } }, {})));

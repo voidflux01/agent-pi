@@ -44,6 +44,12 @@ describe("worker first-turn prompt", () => {
 		expect(prompt).toContain("Task:\ninspect the repository");
 		expect(prompt).toContain("## RESULT");
 		expect(prompt).toContain("findings:");
+		expect(prompt).toContain("Return one English RESULT block");
+		expect(prompt).toContain("Treat its objective, acceptance criteria");
+		expect(prompt).toContain("never fake green");
+		expect(prompt).toContain("do not invent tracking files");
+		expect(prompt).toContain("Keep active plan/spec state");
+		expect(prompt).toContain("report blockers in RESULT");
 	});
 });
 
@@ -92,7 +98,7 @@ describe("defaultTeamName", () => {
 
 describe("orchestrator RESULT trust", () => {
 	it("treats child output as untrusted and requires independent verification", () => {
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted report");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted evidence");
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("deterministic assertions");
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("PASS");
 		expect(buildAgentResultContractPrompt()).toContain("untrusted worker claim");
@@ -238,7 +244,7 @@ describe("source wiring", () => {
 
 	it("requires TEAM scout-first recon for unfamiliar or multi-file work", () => {
 		const src = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
-		expect(src).toContain("When the task involves unfamiliar code, multiple files, a call chain, or existing patterns, dispatch the scout first");
-		expect(src).toContain("For a small task with known files and symbols, you may dispatch the appropriate specialist directly");
+		expect(src).toContain("When material context is unfamiliar — multiple files, a call chain, or missing patterns — dispatch one scout");
+		expect(src).toContain("For a small task with known files and symbols, or a verified terminal result, dispatch the appropriate specialist directly");
 	});
 });

@@ -209,7 +209,7 @@ describe("PLAN prompt complexity guidance", () => {
 		const { PLAN_PROMPT } = await import("../lib/mode-prompts.ts");
 		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
 		expect(PLAN_PROMPT).toContain("two or more files");
-		expect(PLAN_PROMPT).toContain("dispatch the scout before writing the plan");
+		expect(PLAN_PROMPT).toContain("dispatch one scout before writing the plan");
 		expect(PLAN_PROMPT).not.toContain("do not spawn scouts");
 	});
 

@@ -15,23 +15,41 @@ describe("NORMAL progressive escalation", () => {
 	it("allows ordinary reconnaissance below the limit", () => {
 		const state = createNormalEscalationState();
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
-			expect(recordNormalToolCall(state, "grep")).toEqual({ block: false, count: i + 1 });
+			expect(recordNormalToolCall(state, "grep", { query: `term-${i}` })).toMatchObject({ block: false, count: i + 1 });
 		}
 	});
 
-	it("blocks the recon loop at the limit", () => {
+	it("allows a new target after the soft threshold and advises once", () => {
 		const state = createNormalEscalationState();
-		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "read");
-		expect(recordNormalToolCall(state, "find")).toEqual({ block: true, count: NORMAL_RECON_LIMIT });
-		expect(normalEscalationReason(NORMAL_RECON_LIMIT)).toContain('name: "scout"');
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "read", { path: `file-${i}.ts` });
+		const result = recordNormalToolCall(state, "find", { path: "new-area" });
+		expect(result).toMatchObject({ block: false, count: NORMAL_RECON_LIMIT, advisory: true });
+		expect(recordNormalToolCall(state, "find", { path: "another-area" }).advisory).toBe(false);
+	});
+
+	it("blocks a repeated target after the soft threshold", () => {
+		const state = createNormalEscalationState();
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "read", { path: `file-${i}.ts` });
+		recordNormalToolCall(state, "find", { path: "same-area" });
+		const result = recordNormalToolCall(state, "find", { path: "same-area" });
+		expect(result).toMatchObject({ block: true, count: NORMAL_RECON_LIMIT + 1 });
+		expect(normalEscalationReason(result.count)).toContain("same reconnaissance target");
+	});
+
+	it("normalizes equivalent targets for fingerprinting", () => {
+		const state = createNormalEscalationState();
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "bash", { command: `rg   -n   TODO   src/${i}` });
+		recordNormalToolCall(state, "bash", { command: "rg -n TODO src/shared" });
+		const result = recordNormalToolCall(state, "bash", { command: "  rg   -n TODO   src/shared  " });
+		expect(result.block).toBe(true);
 	});
 
 	it("resets after a non-recon action so simple work stays frictionless", () => {
 		const state = createNormalEscalationState();
 		recordNormalToolCall(state, "read");
 		recordNormalToolCall(state, "read");
-		expect(recordNormalToolCall(state, "bash")).toEqual({ block: false, count: 0 });
-		expect(recordNormalToolCall(state, "read")).toEqual({ block: false, count: 1 });
+		expect(recordNormalToolCall(state, "bash")).toMatchObject({ block: false, count: 0 });
+		expect(recordNormalToolCall(state, "read")).toMatchObject({ block: false, count: 1 });
 	});
 
 	it("counts read-only bash exploration but resets for tests and writes", () => {
@@ -43,12 +61,12 @@ describe("NORMAL progressive escalation", () => {
 
 		const state = createNormalEscalationState();
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "bash", { command: "rg -n TODO ." });
-		expect(recordNormalToolCall(state, "bash", { command: "bun test" })).toEqual({ block: false, count: 0 });
+		expect(recordNormalToolCall(state, "bash", { command: "bun test" })).toMatchObject({ block: false, count: 0 });
 	});
 
 	it("counts direct ffgrep exploration", () => {
 		const state = createNormalEscalationState();
-		expect(recordNormalToolCall(state, "ffgrep")).toEqual({ block: false, count: 1 });
+		expect(recordNormalToolCall(state, "ffgrep")).toMatchObject({ block: false, count: 1 });
 	});
 
 	it("uses the shared classification for tool intent", () => {
@@ -61,6 +79,6 @@ describe("NORMAL progressive escalation", () => {
 		const state = createNormalEscalationState();
 		recordNormalToolCall(state, "read");
 		resetNormalEscalation(state);
-		expect(recordNormalToolCall(state, "read")).toEqual({ block: false, count: 1 });
+		expect(recordNormalToolCall(state, "read")).toMatchObject({ block: false, count: 1 });
 	});
 });

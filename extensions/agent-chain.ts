@@ -38,7 +38,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_COMPACT_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, setActiveChain, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -436,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 					});
 					composed = compactHandoff({ agent: agentDef.name, status: code === 0 ? "done" : "error", elapsedMs: elapsed, model, composed: composedResult, fullOutputPath });
 				} catch {
-					composed = output; // persistence failure must never lose the result itself
+					composed = "[RESULT contract rejected: delivery gate could not persist or inspect the worker transcript]";
 					fullOutputPath = "";
 				}
 
@@ -791,7 +791,9 @@ export default function (pi: ExtensionAPI) {
 
 ${ORCHESTRATED_TASK_PROMPT}
 
-${RESEARCH_ROUTING_PROMPT}
+${RESEARCH_ROUTING_COMPACT_PROMPT}
+
+Dispatch SCOUT only when the current chain step lacks local context needed for its handoff. Reuse an existing scoped SCOUT result; do not dispatch merely because the chain has entered a new step or because a path has already been verified absent.
 
 			You orchestrate via \`subagent_create\`. Do not implement, test, or re-verify the chain's work yourself (no bash, python, write, or edit for that work). After the workers return, quote the step summaries from ## RESULT.
 

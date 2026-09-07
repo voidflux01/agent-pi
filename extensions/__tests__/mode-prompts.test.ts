@@ -2,7 +2,7 @@
 // ABOUTME: Validates that prompts contain expected keywords for their workflows.
 
 import { describe, it, expect } from "vitest";
-import { GRILL_ME_SECTION, PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, GOAL_DISCIPLINE_PROMPT, PLAN_PROMPT, SPEC_PROMPT, buildPlanPrompt } from "../lib/mode-prompts.ts";
 
 describe("GRILL_ME_SECTION", () => {
 	it("uses ask_user once, not a separate interview", () => {
@@ -12,6 +12,20 @@ describe("GRILL_ME_SECTION", () => {
 		expect(GRILL_ME_SECTION).toContain("Phase 2's planning/questions.md");
 		expect(GRILL_ME_SECTION).not.toContain("Look up facts yourself");
 		expect(GRILL_ME_SECTION).not.toMatch(/[❓➡️🔥]/u);
+	});
+});
+
+describe("GOAL_DISCIPLINE_PROMPT", () => {
+	it("requires an executable, bounded, evidence-backed contract", () => {
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Objective");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Scope");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Acceptance Criteria");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Evidence");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Constraints");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Do not invent tracking files");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Keep active plan/spec state");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("final RESULT");
+		expect(GOAL_DISCIPLINE_PROMPT).toContain("Never fake green");
 	});
 });
 
@@ -41,7 +55,7 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain("Never emit `done: true`");
 		expect(PLAN_PROMPT).toContain("completionBlocked: true");
 		expect(PLAN_PROMPT).toContain("done: false");
-		expect(PLAN_PROMPT).toContain("receive `verify_execution` PASS before calling it");
+		expect(PLAN_PROMPT).toContain("pass the same contract to `verify_execution`");
 		expect(PLAN_PROMPT.indexOf("call `verify_execution` and require PASS")).toBeLessThan(PLAN_PROMPT.indexOf("After verifier PASS, call `show_report`"));
 	});
 
@@ -75,7 +89,7 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 		expect(PLAN_PROMPT).toContain("SCOUT + researcher");
 		expect(PLAN_PROMPT).toContain("join: true");
 		expect(SPEC_PROMPT).toContain("subagent_create_batch");
-		expect(SPEC_PROMPT).toContain("dependent calls sequential");
+		expect(SPEC_PROMPT).toContain("independent local and external discovery");
 	});
 
 	it("uses subagent_create for scout findings", () => {
@@ -87,17 +101,17 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 	});
 
 	it("does not allow a worker report to replace verify_execution", () => {
-		expect(PLAN_PROMPT).toContain("Never substitute a manually spawned reviewer");
-		expect(SPEC_PROMPT).toContain("locally normalizes harmless RESULT formatting drift");
+		expect(PLAN_PROMPT).toContain("Manually spawned workers cannot replace");
+		expect(SPEC_PROMPT).toContain("Manually spawned workers cannot replace");
 	});
 
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {
 		expect(PLAN_PROMPT).toContain("Use one read-only scout by default");
 		expect(PLAN_PROMPT).toContain("two or more files");
-		expect(PLAN_PROMPT).toContain("dispatch the scout before writing the plan");
+		expect(PLAN_PROMPT).toContain("dispatch one scout before writing the plan");
 		expect(PLAN_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
 		expect(PLAN_PROMPT).toContain("Do not spawn a scout just because PLAN is active");
-		expect(PLAN_PROMPT).toContain("may run before the task list exists");
+		expect(PLAN_PROMPT).toContain("Narrow work: at most one scout");
 	});
 
 	it("does not tell PLAN to skip scouts the way NORMAL does", () => {
@@ -111,7 +125,7 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 
 	it("makes each scout call block until RESULT", () => {
 		expect(PLAN_PROMPT).toContain("blocks until the scout RESULT returns");
-		expect(PLAN_PROMPT).toContain("Do not scan the same areas yourself");
+		expect(PLAN_PROMPT).toContain("do not duplicate its reads");
 		expect(PLAN_PROMPT).not.toContain("Do not wait for a fixed scout count");
 	});
 
@@ -192,11 +206,11 @@ describe("SPEC_PROMPT", () => {
 
 	it("requires focused recon for non-trivial SPEC tasks while allowing small known-scope tasks to self-inspect", () => {
 		expect(SPEC_PROMPT).toContain("one read-only scout by default");
-		expect(SPEC_PROMPT).toContain("existing capabilities, reusable components, constraints, and integration points");
-		expect(SPEC_PROMPT).toContain("spans multiple files");
+		expect(SPEC_PROMPT).toContain("reusable capabilities, constraints, or integration points remain unknown");
+		expect(SPEC_PROMPT).toContain("non-trivial SPEC work");
 		expect(SPEC_PROMPT).toContain("small, single-file task where the target paths and symbols are already known");
-		expect(SPEC_PROMPT).toContain("Do not spawn a scout just because SPEC is active");
-		expect(SPEC_PROMPT).toContain("Never spawn more than one by default");
+		expect(SPEC_PROMPT).toContain("Do not dispatch either for a known single-file scope");
+		expect(SPEC_PROMPT).toContain("one read-only scout by default");
 		expect(SPEC_PROMPT).toContain("After show_spec approval, repository reads are unrestricted");
 		expect(SPEC_PROMPT).toContain("Approval does not remove the option to scout");
 	});

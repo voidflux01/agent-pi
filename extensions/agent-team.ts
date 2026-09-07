@@ -31,7 +31,7 @@ import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_COMPACT_PROMPT } from "./lib/mode-prompts.ts";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
 import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
@@ -706,7 +706,7 @@ export default function (pi: ExtensionAPI) {
 						skipContract: isToolkitCliAgent(canonicalName),
 					}).content;
 				} catch (err: any) {
-					composed = full; // persistence failure must never lose the result itself
+					composed = "[RESULT contract rejected: delivery gate could not persist or inspect the worker transcript]";
 					fullOutputPath = "";
 				}
 
@@ -1456,7 +1456,7 @@ export default function (pi: ExtensionAPI) {
 		const scoutSection = agentStates.has("scout") ? `
 
 ## Context gathering
-When the task involves unfamiliar code, multiple files, a call chain, or existing patterns, dispatch the scout first for bounded, read-only reconnaissance before sending work to builders or reviewers. For a small task with known files and symbols, you may dispatch the appropriate specialist directly. Do not inspect the codebase yourself.
+When material context is unfamiliar — multiple files, a call chain, or missing patterns — dispatch one scout for bounded, read-only reconnaissance before sending work to builders or reviewers. For a small task with known files and symbols, or a verified terminal result, dispatch the appropriate specialist directly. Do not inspect the codebase yourself.
 Example: \`subagent_create { name: "scout", task: "Map the relevant files and report paths, symbols, and risks." }\`` : `
 
 ## Context gathering
@@ -1467,7 +1467,7 @@ No scout is active. Use subagent_create with the listed specialist whose tools f
 
 ${ORCHESTRATED_TASK_PROMPT}
 
-${RESEARCH_ROUTING_PROMPT}
+${RESEARCH_ROUTING_COMPACT_PROMPT}
 
 ## Tool boundary
 You do not use read, grep, find, ls, write, edit, or bash in TEAM mode. Delegate all codebase inspection, changes, and tests through subagent_create. You may synthesize results, answer the user, ask questions, plan work, and manage tasks.

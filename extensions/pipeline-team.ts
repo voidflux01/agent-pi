@@ -33,7 +33,7 @@ import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { modePromptMatches } from "./lib/mode-cycler-logic.ts";
-import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_PROMPT } from "./lib/mode-prompts.ts";
+import { GRILL_ME_SECTION, ORCHESTRATED_TASK_PROMPT, RESEARCH_ROUTING_COMPACT_PROMPT } from "./lib/mode-prompts.ts";
 import {
 	coordinationState,
 	setActivePipeline,
@@ -621,7 +621,7 @@ export default function (pi: ExtensionAPI) {
 					});
 					composed = compactHandoff({ agent: agentDef.name, status: agentState.status, elapsedMs: agentState.elapsed, model, composed: composedResult, fullOutputPath });
 				} catch {
-					composed = output; // persistence failure must never lose the result itself
+					composed = "[RESULT contract rejected: delivery gate could not persist or inspect the worker transcript]";
 					fullOutputPath = "";
 				}
 
@@ -1349,9 +1349,9 @@ Call \`advance_phase\` with a comprehensive task summary when ready to proceed.`
 
 		} else if (phase.def.name === "gather") {
 			phaseInstructions = `## Phase Instructions: GATHER
-				You are in the GATHER phase. Dispatch scout agents to explore the codebase in parallel. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
+				You are in the GATHER phase. Dispatch scout agents in parallel only when local context is unfamiliar or independently scoped work requires it; reuse existing scoped findings and report verified terminal results directly. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
 				Use \`subagent_create_batch\` for independent workers, or \`subagent_create\` with \`join: true\` for one worker, and wait for bounded results.
-				${RESEARCH_ROUTING_PROMPT}
+				${RESEARCH_ROUTING_COMPACT_PROMPT}
 				Review their findings, then call \`advance_phase\` with a summary.
 
 Default agents from config:
@@ -1382,8 +1382,6 @@ After reviewing the output:
 				systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
 
 ${ORCHESTRATED_TASK_PROMPT}
-
-${RESEARCH_ROUTING_PROMPT}
 
 				You have full codebase tools AND pipeline tools (advance_phase, subagent_create, subagent_create_batch, pipeline_status).
 
