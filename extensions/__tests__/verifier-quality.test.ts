@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { inspectContractQuality } from "../lib/verifier-quality.ts";
 import { buildVerifierPrompt, parseVerifierOutput, parseVerifierReport, parseVerifierReportDetailed } from "../lib/verifier-subagent.ts";
-import { runAcceptanceVerifier } from "../lib/isolated-verifier.ts";
+import { formatVerifierDiagnostics, runAcceptanceVerifier } from "../lib/isolated-verifier.ts";
 import { emptyContract } from "../lib/execution-contract.ts";
 import { readFileSync } from "node:fs";
 
@@ -68,6 +68,27 @@ findings:
 ## Warnings
 - none
 ## END`;
+
+describe("verifier diagnostics", () => {
+	it("preserves blocker and review details instead of generic text", () => {
+		const diagnostics = formatVerifierDiagnostics({
+			status: "BLOCKED",
+			summary: "独立验收未返回完整结果",
+			requirements: [],
+			contract: { status: "BLOCKED", findings: ["缺少行为证据"] },
+			review: { status: "BLOCKED", findings: [{ severity: "HIGH", title: "未发现最终 RESULT", location: "verifier session" }] },
+			behavior: { status: "BLOCKED", findings: ["子代理在 toolUse 后退出"] },
+			quality: { status: "PASS", findings: [] },
+			security: { status: "PASS", findings: [] },
+			hard_blockers: ["verifier timeout"],
+			warnings: [],
+		});
+		expect(diagnostics).toContain("独立验收未返回完整结果");
+		expect(diagnostics).toContain("verifier timeout");
+		expect(diagnostics).toContain("未发现最终 RESULT");
+		expect(diagnostics).toContain("子代理在 toolUse 后退出");
+	});
+});
 
 describe("acceptance contract quality", () => {
 	it("blocks structural-only contracts", () => {

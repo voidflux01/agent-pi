@@ -38,6 +38,20 @@ export async function runIsolatedVerifier(input: {
 	};
 }
 
+export function formatVerifierDiagnostics(report: VerifierSubagentReport): string {
+	const review = report.review.findings
+		.filter((finding) => finding.severity === "CRITICAL" || finding.severity === "HIGH")
+		.map((finding) => `${finding.severity}: ${finding.title || finding.evidence || "review finding"}${finding.location ? ` @ ${finding.location}` : ""}`);
+	const details = [
+		report.summary,
+		...report.hard_blockers,
+		...report.contract.findings,
+		...report.behavior.findings,
+		...review,
+	].filter((item) => item && !/^none$/i.test(item.trim()));
+	return details.length > 0 ? details.join("; ") : "verifier returned non-PASS without diagnostic details";
+}
+
 export async function runAcceptanceVerifier(input: {
 	cwd: string;
 	contract: AcceptanceContract;
@@ -83,7 +97,15 @@ export async function runAcceptanceVerifier(input: {
 	if (after.hash !== before.hash) {
 		verification = { status: "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[workspace] verifier command mutation", status: "blocked", note: "verification commands changed the workspace" }] };
 	}
-	if (report.status !== "PASS" || quality.status !== "PASS" || blockingReviewFindings.length > 0) verification = { status: report.status === "FAIL" || blockingReviewFindings.some((finding) => finding.severity === "CRITICAL") ? "FAIL" : "BLOCKED", results: [...verification.results, { kind: "advisory", raw: "[subagent] independent acceptance and code review", status: "blocked", note: report.summary }] };
+	if (report.status !== "PASS" || quality.status !== "PASS" || blockingReviewFindings.length > 0) verification = {
+		status: report.status === "FAIL" || blockingReviewFindings.some((finding) => finding.severity === "CRITICAL") ? "FAIL" : "BLOCKED",
+		results: [...verification.results, {
+			kind: "advisory",
+			raw: "[subagent] independent acceptance and code review",
+			status: "blocked",
+			note: formatVerifierDiagnostics(report),
+		}],
+	};
 	return { receipt: createVerifierReceipt({
 		contract: input.contract,
 		workspaceManifestHash: after.hash,

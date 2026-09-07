@@ -91,10 +91,21 @@ export default function (pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: `Verification blocked: ${gate.reason} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false, reason: "required eval gate not satisfied" } };
 				}
 			} else setEvalGate(undefined);
+			// A PASS receipt is already bound to both this contract and the exact
+			// workspace manifest. Reuse it instead of launching another verifier
+			// session/Herdr pane when the parent repeats the same tool call.
+			const previousReceipt = getVerifierReceipt();
+			const currentManifest = buildWorkspaceManifest(cwd, contract.fingerprint);
+			if (canComplete(previousReceipt, contract, currentManifest.hash, contract.requiredEval ? { ok: true } : undefined)) {
+				const summary = previousReceipt?.verifier?.summary || "existing PASS receipt is still current";
+				return {
+					content: [{ type: "text", text: `Verifier: PASS — reused current receipt; ${summary}` }],
+					details: { status: "PASS", completionAllowed: true, receipt: previousReceipt, reused: true, reason: "same contract and unchanged workspace" },
+				};
+			}
 			const attempt = bumpVerifierAttempt();
 			// Re-verification rounds against the same contract get a narrowed delta
 			// prompt built from the prior receipt — fresh session, focused audit.
-			const previousReceipt = getVerifierReceipt();
 			const previousReport = previousReceipt?.verifier?.report
 				&& previousReceipt.contractFingerprint === contract.fingerprint
 				? previousReceipt.verifier.report

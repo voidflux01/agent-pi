@@ -111,6 +111,15 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content.includes("⚠️ RESULT contract violated")).toBe(true);
 	});
 
+	test("rejects malformed result blocks before they reach the parent", () => {
+		const malformed = "## RESULT\n角色: tester\n完成: 是\n## END";
+		const out = composeAgentResult({ ...base, outputText: malformed });
+		expect(out.usedResult).toBe(false);
+		expect(out.content).toContain("[RESULT contract rejected]");
+		expect(out.content).toContain("Use the read tool on that path");
+		expect(out.content).not.toContain("角色: tester");
+	});
+
 	test("keeps parent-visible results compact while preserving a transcript pointer", () => {
 		const verbose = `${GOOD}\n${"x".repeat(20_000)}`;
 		const out = composeAgentResult({ ...base, outputText: verbose });

@@ -157,6 +157,8 @@ describe("shipped wiring", () => {
 		expect(src).toContain('verification.started');
 		expect(src).toContain('verification.completed');
 		expect(src).toContain("verificationStatus");
+		expect(src).toContain("reused: true");
+		expect(src).toContain("same contract and unchanged workspace");
 	});
 
 	it("passes the bound contract file path to the verifier prompt", () => {
