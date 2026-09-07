@@ -19,9 +19,7 @@ const NETWORK_READ_TOOLS = new Set(["fetch_content", "get_search_content", "secu
 const NETWORK_EXECUTE_TOOLS = new Set(["agent_browser", "mcp", "mcpscript"]);
 const MEMORY_READ_TOOLS = new Set(["memory_search", "recall", "retrospective_search", "context_draft", "log_watch", "deployment_checklist", "workflow_advice"]);
 const MEMORY_WRITE_TOOLS = new Set(["memory_correct", "memory_feedback", "memory_store_result", "save_research"]);
-const DATABASE_READ_TOOLS = new Set(["dbx_dbx_describe_table", "dbx_dbx_get_schema_context", "dbx_dbx_list_connections", "dbx_dbx_list_tables"]);
-const DATABASE_WRITE_TOOLS = new Set(["dbx_dbx_add_connection", "dbx_dbx_close_session", "dbx_dbx_duplicate_connection", "dbx_dbx_execute_and_show", "dbx_dbx_execute_query", "dbx_dbx_execute_redis_command", "dbx_dbx_open_session", "dbx_dbx_open_table", "dbx_dbx_remove_connection"]);
-const READ_WORKFLOW_TOOLS = new Set(["orchestration_recover", "orchestration_status", "pipeline_status", "subagent_batch_recover", "team_batch_recover", "resume_handoff"]);
+const READ_WORKFLOW_TOOLS = new Set(["orchestration_recover", "orchestration_status", "pipeline_status", "subagent_batch_recover", "team_batch_recover"]);
 const UI_TOOLS_EXTENDED = new Set(["ask_user_question", "close_viewer", "preview_export", "show_board", "show_cleanup", "show_reports", "show_research", "show_security_report", "show_sounds"]);
 
 const LABELS: Record<ToolIntent, string> = {
@@ -42,8 +40,6 @@ export function classifyTool(name: string, description = ""): ToolClassification
 	if (WRITE_TOOLS.has(normalized)) return { intent: "write", readOnly: false, label: LABELS.write };
 	if (normalized === "bash") return { intent: "execute", readOnly: false, label: LABELS.execute };
 	if (normalized.startsWith("mcp__")) return { intent: "network", readOnly: false, label: LABELS.network };
-	if (DATABASE_READ_TOOLS.has(normalized)) return { intent: "network", readOnly: true, label: LABELS.network };
-	if (DATABASE_WRITE_TOOLS.has(normalized) || normalized.startsWith("dbx_")) return { intent: "network", readOnly: false, label: LABELS.network };
 	if (NETWORK_READ_TOOLS.has(normalized)) return { intent: "network", readOnly: true, label: LABELS.network };
 	if (NETWORK_EXECUTE_TOOLS.has(normalized)) return { intent: "network", readOnly: false, label: LABELS.network };
 	if (MEMORY_READ_TOOLS.has(normalized)) return { intent: "read", readOnly: true, label: LABELS.read };

@@ -14,7 +14,7 @@ export interface ToolEntry {
 	category: string;
 	classification: ToolClassification;
 	tags: string[];
-	source: "builtin" | "extension" | "skill";
+	source: "builtin" | "extension" | "skill" | "mcp";
 	parameterSummary: string;
 }
 
@@ -47,11 +47,6 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 		keywords: ["memory", "recall", "research session"],
 	},
 	{
-		category: "database",
-		names: ["dbx_dbx_add_connection", "dbx_dbx_close_session", "dbx_dbx_describe_table", "dbx_dbx_duplicate_connection", "dbx_dbx_execute_and_show", "dbx_dbx_execute_query", "dbx_dbx_execute_redis_command", "dbx_dbx_get_schema_context", "dbx_dbx_list_connections", "dbx_dbx_list_tables", "dbx_dbx_open_session", "dbx_dbx_open_table", "dbx_dbx_remove_connection"],
-		keywords: ["database", "dbx", "sql", "redis", "table", "connection"],
-	},
-	{
 		category: "ui",
 		names: ["ask_user", "show_plan", "show_file", "show_report", "show_spec"],
 		keywords: ["viewer", "interactive", "user", "display", "plan", "report"],
@@ -63,7 +58,7 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "workflow",
-		names: ["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover", "resume_handoff"],
+		names: ["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover"],
 		keywords: ["task", "mode", "pipeline", "phase", "workflow", "chain"],
 	},
 	{
@@ -131,6 +126,7 @@ const BUILTIN_TOOLS = ["read", "write", "edit", "bash", "ls", "find", "grep", "f
 
 function detectSource(name: string): ToolEntry["source"] {
 	if (BUILTIN_TOOLS.includes(name)) return "builtin";
+	if (name.startsWith("mcp__")) return "mcp";
 	return "extension";
 }
 
@@ -173,7 +169,7 @@ export class ToolRegistry {
 				name: tool.name,
 				label: tool.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
 				description: desc,
-				category: detectCategory(tool.name, desc),
+				category: detectSource(tool.name) === "mcp" ? "network" : detectCategory(tool.name, desc),
 				classification: classifyTool(tool.name, desc),
 				tags: extractTags(tool.name, desc),
 				source: detectSource(tool.name),

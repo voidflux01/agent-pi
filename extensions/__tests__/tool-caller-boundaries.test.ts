@@ -12,6 +12,8 @@ describe("call_tool security boundaries", () => {
 		tools.push({ name: "mcp__docs__search", description: "Search current docs" });
 		expect(refreshToolRegistry(pi)).toBe(getToolRegistry());
 		expect(getToolRegistry().getByName("mcp__docs__search")?.name).toBe("mcp__docs__search");
+		expect(getToolRegistry().getByName("mcp__docs__search")).toMatchObject({ source: "mcp", category: "network" });
+		expect(getToolRegistry().getByName("initial_tool")?.classification).toMatchObject({ intent: "unknown", readOnly: false });
 	});
 
 	it("re-checks nested shell and file operations", () => {
