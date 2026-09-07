@@ -83,6 +83,19 @@ describe("checkResultCompliance", () => {
 		expect(resultContractFailure(localized)).toBeUndefined();
 	});
 
+	test("rejects localized result and end markers", () => {
+		const localized = [
+			"## 结果",
+			"角色: SCOUT",
+			"完成: 是",
+			"状态: PASS",
+			"总结: 已完成只读侦察",
+			"## 结束",
+		].join("\n");
+		expect(normalizeResultContract(localized)).toBeUndefined();
+		expect(resultContractFailure(localized)).toContain("no ## RESULT block");
+	});
+
 	test("flags an unclosed block", () => {
 		const bad = GOOD.split("\n").filter((l) => l !== "## END").join("\n");
 		expect(checkResultCompliance(bad).problems).toContain("block not closed with ## END");

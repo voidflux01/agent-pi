@@ -186,6 +186,7 @@ Your audit is NARROWED accordingly:
 }
 
 const VERIFICATION_STATUSES = new Set(["PASS", "FAIL", "BLOCKED"]);
+const MAX_VERIFIER_FORMAT_REPAIRS = 2;
 const QUALITY_STATUSES = new Set(["PASS", "WARN", "FAIL"]);
 const REVIEW_SEVERITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
 
@@ -437,10 +438,19 @@ export async function runVerifierSubagent(input: {
 		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
 		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
 	].filter(Boolean).join("\n\n");
-	const result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
+	let result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
 	let outputText = result.outputText || "";
-	const parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
-	const report = parsed.report;
+	let parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
+	let report = parsed.report;
+	let repairAttempt = 0;
+	while (!report && result.exitCode === 0 && repairAttempt < MAX_VERIFIER_FORMAT_REPAIRS) {
+		repairAttempt++;
+		const repairPrompt = `The previous verifier response failed the Markdown format gate: ${parsed.error || "invalid verifier RESULT"}. Do not perform more audit work. Return exactly one complete English ## RESULT block in the required verifier schema, including all required sections and fields, and close it with ## END. The parent agent will receive nothing until this format gate passes.`;
+		result = await launch(repairPrompt, "read,bash,grep,find,ls", `format-repair-${repairAttempt}`);
+		outputText = result.outputText || outputText;
+		parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
+		report = parsed.report;
+	}
 	const runId = result.runId;
 	if (result.exitCode !== 0) {
 		const processError = result.stderr || result.failure || `exit code ${result.exitCode}`;

@@ -73,6 +73,7 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
+import { reviewerDecision } from "./lib/reviewer-decision.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
@@ -252,6 +253,7 @@ export default function (pi: ExtensionAPI) {
 
 	/** Reconcile the phase gate with worker state after a joined dispatch. */
 	function phaseDispatchReady(phase: PhaseState): boolean {
+		if (phase.def.name.toLowerCase() === "review" && reviewerDecision(reviewOutput) !== "APPROVED") return false;
 		if ((phase.dispatchCount || 0) > 0 && phase.lastDispatchSuccess) return true;
 		const phaseIndex = phaseStates.indexOf(phase);
 		const workspaceRoot = dirname(dirname(sessionDir));

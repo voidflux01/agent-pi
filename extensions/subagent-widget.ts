@@ -50,6 +50,9 @@ import { AGENT_PI_CONFIG, configuredModelForAgent } from "./lib/agent-pi-config.
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
 import { listOrchestrationRuns, readOrchestrationEvents } from "./lib/orchestration-query.ts";
+import { reviewerDecision } from "./lib/reviewer-decision.ts";
+
+const MAX_RESULT_FORMAT_REPAIRS = 2;
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -481,8 +484,20 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let finished = false;
+			let formatRepairAttempts = 0;
+			let formatRepair: (() => Promise<void>) | undefined;
 			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
 				if (finished) return;
+				const result = externalFull ?? state.textChunks.join("");
+				const toolkitRun = isToolkitCliAgent(state.name);
+				const contractFailure = resultContractFailure(result, toolkitRun);
+				const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(result) : "APPROVED";
+				const reviewerFailure = reviewerOutcome !== "APPROVED" ? `reviewer decision gate: ${reviewerOutcome}; explicit APPROVED is required` : "";
+				if (code === 0 && !failure && !toolkitRun && contractFailure && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
+					formatRepairAttempts++;
+					void formatRepair().catch(() => finish(1, undefined, undefined, "process_error"));
+					return;
+				}
 				finished = true;
 				lifecycle.clearTimer(timer);
 				if (state.elapsedTimer === timer) state.elapsedTimer = undefined;
@@ -509,10 +524,7 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 				state.elapsed = Date.now() - startTime;
-				const result = externalFull ?? state.textChunks.join("");
-				const toolkitRun = isToolkitCliAgent(state.name);
-				const contractFailure = resultContractFailure(result, toolkitRun);
-				state.status = code === 0 && !failure && !contractFailure ? "done" : "error";
+				state.status = code === 0 && !failure && !contractFailure && !reviewerFailure ? "done" : "error";
 				// Capture the terminal RESULT status (PASS/FAIL/BLOCKED) so same-scope
 				// dispatches can dedup successes and allow retries after failures.
 				if (state.status === "done") {
@@ -605,6 +617,12 @@ export default function (pi: ExtensionAPI) {
 					skipContract: toolkitRun,
 				});
 				state.result = compactResult.content;
+				// The format gate is a hard parent-boundary: malformed worker output
+				// may be archived for inspection, but must never be handed off as a
+				// usable result to workflow/team/chain/pipeline consumers.
+				const parentOutput = compactResult.usedResult && !reviewerFailure
+					? compactResult.content
+					: `[${state.name}] result blocked before parent handoff: ${reviewerFailure || compactResult.contractProblems.join("; ") || "missing ## RESULT contract"}. Read the archived transcript only for recovery.`;
 				if (state.dispatchReceiptId) {
 					finishDispatchReceipt(spawnCwd, state.dispatchReceiptId, {
 						status: state.status as WorkflowDispatchResult["status"],
@@ -621,7 +639,7 @@ export default function (pi: ExtensionAPI) {
 					name: state.name,
 					task: state.task,
 					status: state.status as WorkflowDispatchResult["status"],
-					output: compactResult.content,
+					output: parentOutput,
 					fullOutput: result,
 					fullOutputPath,
 					exitCode: code ?? 1,
@@ -635,7 +653,7 @@ export default function (pi: ExtensionAPI) {
 					try {
 						void pi.sendMessage({
 							customType: "subagent-result",
-							content: `${compactResult.content}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
+							content: `${parentOutput}\n\nTask: ${prompt.slice(0, 1200)}${prompt.length > 1200 ? "… [task truncated]" : ""}`,
 							display: true,
 						}, { deliverAs: "steer", triggerTurn: true });
 					} catch {}
@@ -711,6 +729,25 @@ export default function (pi: ExtensionAPI) {
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// Keep watchdog, epoch, and follow-up policies local to this widget.
 			const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
+			formatRepair = async () => {
+				const repairPrompt = `Your previous response did not pass the result format gate: ${resultContractFailure(state.textChunks.join("")) || "missing required result contract"}. Do not continue the task or add prose. Return exactly one final English Markdown result block with the required role, done, status, summary, findings, files, key_errors, verification, remaining fields, closed by ## END. The format gate must pass before this worker can return to its parent.`;
+				const repairResult = await createSubagentRuntime({
+					authorization: currentDispatchAuthorization(),
+					command: withSessionResume(["pi", "--mode", "json", "-p", "--session", state.sessionFile, "--model", model, "--tools", tools, repairPrompt], state.sessionFile),
+					cwd: spawnCwd,
+					env: spawnEnv,
+					launchDir: path.dirname(state.sessionFile),
+					launchId: `sa${state.id}-format-repair-${formatRepairAttempts}`,
+					sessionFile: state.sessionFile,
+					herdrDoneExtPath,
+					herdrLabel: paneTitle,
+					herdrPaneKey: `sa-${state.id}-format-repair-${formatRepairAttempts}`,
+					parentRunId: orchestrationRun.runId,
+					mode: coordinationState().mode,
+					isAborted: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
+				});
+				finish(repairResult.exitCode, repairResult.outputText, undefined, repairResult.failure);
+			};
 			createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: launch.command,
