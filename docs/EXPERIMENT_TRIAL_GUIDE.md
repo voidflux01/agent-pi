@@ -25,7 +25,6 @@ only on the final model message:
 - `/orchestration-dashboard` — live runs, mode metrics, budget, and stale work.
 - `/orchestration-status` — bounded event timeline for a specific run.
 - `orchestration_recover` tool — read-only recovery candidates and next actions.
-- `/handoff` — the compact objective, task state, children, and next action.
 - `/agents-status` — journal rows, elapsed time, token/cost data, and RunContext links.
 
 For real-provider Herdr runs, set a conservative shared budget first, for

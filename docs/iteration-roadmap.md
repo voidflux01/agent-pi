@@ -147,7 +147,6 @@ failure_policy: fail | inconclusive
 
 不要把外部 `agent-memory` CLI 作为 agent-pi 的必需依赖。先定义 agent-pi 自己的接口和边界：
 
-- `handoff`：未完成任务、当前目标、下一步和可恢复 worker。
 - `memory-cycle`：上下文压缩前后的短期续接信息。
 - `retrospective`：运行结束后沉淀的长期经验。
 - `workspace context`：项目级事实、约束和经人工确认的规则。
@@ -191,7 +190,7 @@ failure_policy: fail | inconclusive
 
 ### B4. B 层验收标准
 
-- [ ] handoff、memory-cycle、retrospective、workspace context 的职责边界有文档和测试。
+- [ ] memory-cycle、retrospective、workspace context 的职责边界有文档和测试。
 - [ ] 一次典型 CHAIN 或 PIPELINE 运行后能生成带 evidence refs 的复盘记录。
 - [ ] 复盘写入具备脱敏、workspace scope、并发安全和清理策略。
 - [ ] 外部 memory adapter 缺失时不影响核心 Pi 工作流。
@@ -290,7 +289,7 @@ agent-pi 应能根据任务风险、复杂度、成本和反馈选择：
 | P0 | 插件兼容性基线、evidence 模型、foundations 文档骨架 | 安装/禁用/缺依赖可降级；建立统一证据和状态语义 |
 | P1 | A1+A2 eval-set、judge 护栏、Review 闭环 | Pi 能对真实任务做可复现的功能/行为验证 |
 | P2 | Directing the workflow、失败回退和自治策略 | Pi 能根据反馈选择继续、修复、重规划或请求人工 |
-| P3 | B1+B2 memory contract、retrospective、handoff 统一 | 跨 session 和跨阶段沉淀信息，不引入第二套不可控记忆 |
+| P3 | B1+B2 memory contract、retrospective 统一 | 跨 session 和跨阶段沉淀信息，不引入第二套不可控记忆 |
 | P4 | B3 standing context、C1/C2/C3 部署辅助 | 项目上下文可维护，日志到修复提案形成安全闭环 |
 
 顺序理由：先建立证据、兼容性和原理基础，再实现评估；评估稳定后才能判断 memory 和 monitoring 是否真的改善了 Pi 的工作流。部署辅助最后做，以避免把 agent-pi 过早扩展成监控或 CI 平台。
