@@ -298,6 +298,11 @@ export default function (pi: ExtensionAPI) {
 
 	function invalidateWidget(id: number) {
 		widgetBoxes.get(id)?.invalidate();
+		// State changes arrive from child-process callbacks and timers, outside
+		// the normal input/render loop. Invalidating the component alone only
+		// clears its cache; without scheduling a frame, the main TUI can keep
+		// showing stale rows until the next keypress happens to redraw it.
+		try { widgetCtx?.ui?.requestRender?.(); } catch {}
 	}
 
 	// ── Streaming helpers ─────────────────────────────────────────────────────
@@ -874,18 +879,6 @@ export default function (pi: ExtensionAPI) {
 				evidenceRefs: [],
 			});
 			const resultText = priorNote ? `${result || `SA${id} (${state.name}) finished with no output.`}\n\n${priorNote}` : result;
-			if (state.contractProblems && state.contractProblems.length > 0 && state.turnCount < 2) {
-				const problems = state.contractProblems.join("; ");
-				state.turnCount++;
-				state.contractProblems = undefined;
-				const repairPrompt = `Your previous turn completed the requested work but violated the output protocol: ${problems}. Do not redo the investigation, call tools, or modify anything. Return only the required final ## RESULT block now with role, done, status, and summary. done says whether the run reached a result; status must be PASS, FAIL, or BLOCKED. End with exactly ## END.`;
-				const repaired = explicitDispatchHandler("subagent-tool", () => spawnAgent(state, repairPrompt, ctx, { signal: awaitResult ? signal : undefined }))();
-				state.completion = repaired;
-				return {
-					content: [{ type: "text", text: await repaired }],
-					details: { id, name: state.name, status: state.status as WorkflowDispatchResult["status"], runId: state.orchestrationRunId, repaired: true },
-				};
-			}
 			return {
 				content: [{ type: "text", text: resultText }],
 					details: { id, name: state.name, status: state.status as WorkflowDispatchResult["status"], runId: state.orchestrationRunId, receiptId: state.dispatchReceiptId },

@@ -567,6 +567,7 @@ export function closeLingeringHerdrPanes(): void {
 	}
 }
 
+
 /** `ms <= 0` closes immediately; otherwise close after the glance delay. */
 export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number, onClosed?: () => void): void {
 	const key = lingerKey(tab);
@@ -737,6 +738,7 @@ export function closeHerdrTab(tab: HerdrTabRef): void {
 export async function sendCommandToPaneAsync(paneId: string, command: string[]): Promise<boolean> {
 	return (await herdrCliAsync(["pane", "run", paneId, ...command], { timeoutMs: 15_000 })).code === 0;
 }
+
 
 /** Non-blocking best-effort worker close (pane or tab, never the caller). */
 export async function closeHerdrTabAsync(tab: HerdrTabRef): Promise<void> {

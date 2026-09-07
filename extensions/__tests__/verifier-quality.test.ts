@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { inspectContractQuality } from "../lib/verifier-quality.ts";
-import { buildVerifierPrompt, parseVerifierReport } from "../lib/verifier-subagent.ts";
+import { buildVerifierPrompt, parseVerifierOutput, parseVerifierReport, parseVerifierReportDetailed } from "../lib/verifier-subagent.ts";
 import { runAcceptanceVerifier } from "../lib/isolated-verifier.ts";
 import { emptyContract } from "../lib/execution-contract.ts";
 import { readFileSync } from "node:fs";
@@ -111,11 +111,11 @@ describe("acceptance contract quality", () => {
 		const source = readFileSync(new URL("../lib/verifier-subagent.ts", import.meta.url), "utf8");
 		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
 		expect(source).toContain('launch(initialPrompt, "read,bash,grep,find,ls", "audit")');
-		expect(source).toContain('launch(repairPrompt, "read", "repair")');
+		expect(source).toContain("normalizeResultContract");
+		expect(source).toContain("no extra worker was started for formatting repair");
 		expect(source).toContain('herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts")');
 		expect(source).toContain('herdrLabel: "VERIFIER"');
 		expect(source).toContain("withSessionResume");
-		expect(source).toContain("Do not redo the audit");
 	});
 
 	it("passes deterministic evidence to the verifier and forbids stranded statuses", () => {
@@ -136,9 +136,38 @@ describe("acceptance contract quality", () => {
 		expect(parseVerifierReport(withoutEnd)).toMatchObject({ status: "PASS", summary: "clean" });
 	});
 
-	it("rejects an incomplete Markdown report when the END marker is missing", () => {
+	it("rejects an incomplete Markdown report and explains the missing section", () => {
 		const truncated = validVerifierResult.slice(0, validVerifierResult.indexOf("## Security"));
 		expect(parseVerifierReport(truncated)).toBeUndefined();
+		expect(parseVerifierReportDetailed(truncated).error).toContain("Security");
+	});
+
+	it("accepts wrapped evidence and annotated test counters", () => {
+		const drifted = validVerifierResult
+			.replace("evidence: src/example.ts:1 and npm test passed", "evidence: src/example.ts:1\nThe focused test passed.")
+			.replace("tests_discovered: 1", "tests_discovered: 1 (one test)")
+			.replace("tests_executed: 1", "tests_executed: 1 test")
+			.replace("tests_failed: 0", "tests_failed: 0 (none)")
+			.replace("tests_skipped: 0", "tests_skipped: 0 skipped");
+		const report = parseVerifierReportDetailed(drifted);
+		expect(report.report).toMatchObject({
+			status: "PASS",
+			behavior: { tests: { discovered: 1, executed: 1, failed: 0, skipped: 0 } },
+		});
+		expect(report.error).toBeUndefined();
+	});
+
+	it("distinguishes a missing result from an invalid result", () => {
+		expect(parseVerifierReportDetailed("verifier stopped before reporting").error)
+			.toContain("missing or empty ## RESULT block");
+		expect(parseVerifierReportDetailed("## RESULT\nrole: verifier\ndone: true\nstatus: PASS\nsummary: incomplete\n## END").error)
+			.toContain("missing section(s)");
+	});
+
+	it("parses persisted transcript output before process exit is considered", () => {
+		const parsed = parseVerifierOutput("assistant preamble", validVerifierResult);
+		expect(parsed.report).toMatchObject({ status: "PASS", summary: "clean" });
+		expect(parsed.error).toBeUndefined();
 	});
 
 	it("uses the last valid result when an earlier block is malformed", () => {

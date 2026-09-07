@@ -124,24 +124,36 @@ export function normalizeResultContract(text: string): { text: string; changed: 
 	const extracted = extractResultBlock(text);
 	if (!extracted.found) return undefined;
 	const lines = extracted.result.split(/\r?\n/);
+	// Workers may translate protocol field labels to match the task language.
+	// Canonicalize common localized labels before applying the strict validator.
+	const fieldAliases: Record<string, string> = {
+		"role": "role", "角色": "role",
+		"done": "done", "完成": "done",
+		"status": "status", "状态": "status",
+		"summary": "summary", "总结": "summary", "摘要": "summary",
+	};
 	let done: string | undefined;
 	let summary = "";
 	let doneIndex = -1;
+	const normalized = [...lines];
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i].trim();
-		const doneMatch = line.match(/^done:\s*(true|false)(?:\s*[—–-]\s*(.+))?$/i);
+		const fieldMatch = line.match(/^([^:：]+)\s*[:：]\s*(.*)$/);
+		const field = fieldMatch ? fieldAliases[fieldMatch[1].trim().toLowerCase()] : undefined;
+		if (field && fieldMatch) normalized[i] = `${field}: ${fieldMatch[2].trim()}`;
+		const canonicalLine = normalized[i].trim();
+		const doneMatch = canonicalLine.match(/^done:\s*(true|false|是|否)(?:\s*[—–-]\s*(.+))?$/i);
 		if (doneMatch) {
-			done = doneMatch[1].toLowerCase();
+			done = /^(true|是)$/i.test(doneMatch[1]) ? "true" : "false";
 			doneIndex = i;
 			if (!summary && doneMatch[2]) summary = doneMatch[2].trim();
 		}
-		const summaryMatch = line.match(/^summary:\s*(.*)$/i);
+		const summaryMatch = canonicalLine.match(/^summary:\s*(.*)$/i);
 		if (summaryMatch?.[1]?.trim()) summary = summaryMatch[1].trim();
 	}
 	if (!done) return undefined;
-	const normalized = [...lines];
 	if (doneIndex >= 0) normalized[doneIndex] = `done: ${done}`;
-	if (!lines.some((line) => /^\s*summary:\s*\S/i.test(line))) {
+	if (!normalized.some((line) => /^\s*summary:\s*\S/i.test(line))) {
 		normalized.splice(doneIndex + 1, 0, `summary: ${summary || "Result returned; see findings."}`);
 	}
 	const body = normalized.join("\n").trim();

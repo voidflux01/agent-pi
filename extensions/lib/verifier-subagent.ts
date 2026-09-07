@@ -9,7 +9,7 @@ import { childEnvironment } from "./child-runtime.ts";
 import { currentDispatchAuthorization, createSubagentRuntime } from "./dispatch-runtime.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
-import { extractResultBlock } from "./agent-result-contract.ts";
+import { extractResultBlock, normalizeResultContract } from "./agent-result-contract.ts";
 import { withSessionResume } from "./subagent-recovery.ts";
 
 export interface VerifierSubagentReport {
@@ -240,79 +240,134 @@ function repeatedBlocks(text: string, prefix: "REQ" | "REV"): Array<{ id: string
 
 function integerField(text: string, name: string): number | undefined {
 	const value = field(text, name);
-	if (!/^\d+$/.test(value)) return undefined;
-	return Number(value);
+	const match = value.match(/^(\d+)(?:\s|$)/);
+	return match ? Number(match[1]) : undefined;
 }
 
-export function parseVerifierReport(output: string): VerifierSubagentReport | undefined {
+/** Read a required text field and allow wrapped continuation lines. */
+function textField(text: string, name: string): string {
+	const lines = text.split(/\r?\n/);
+	const pattern = new RegExp(`^${name}:\\s*`, "i");
+	const start = lines.findIndex(line => pattern.test(line.trim()));
+	if (start < 0) return "";
+	const first = lines[start].trim().replace(pattern, "").trim();
+	const values = first ? [first] : [];
+	for (let index = start + 1; index < lines.length; index++) {
+		const line = lines[index].trim();
+		if (/^#{2,3}\s+/.test(line) || /^[A-Za-z_][A-Za-z0-9_-]*\s*:\s*/.test(line)) break;
+		if (line) values.push(line);
+	}
+	return values.join(" ").trim();
+}
+
+export interface VerifierReportParseResult {
+	report?: VerifierSubagentReport;
+	error?: string;
+}
+
+function invalidReport(error: string): VerifierReportParseResult {
+	return { error: `invalid verifier RESULT: ${error}` };
+}
+
+/** Parse report and preserve a concrete reason when the shared block is malformed. */
+export function parseVerifierReportDetailed(output: string): VerifierReportParseResult {
 	const extracted = extractResultBlock(output);
-	if (!extracted.found) return undefined;
+	if (!extracted.found) return invalidReport("missing or empty ## RESULT block");
 	const body = extracted.result;
 	const common = body.split(/^##\s+/m, 1)[0];
 	const role = field(common, "role").toLowerCase();
 	const done = field(common, "done").toLowerCase();
 	const status = field(common, "status").toUpperCase();
 	const summary = field(common, "summary");
-	if (role !== "verifier" || done !== "true" || !VERIFICATION_STATUSES.has(status) || !summary) return undefined;
+	if (role !== "verifier") return invalidReport(`role must be verifier, got ${role || "missing"}`);
+	if (done !== "true") return invalidReport(`done must be true, got ${done || "missing"}`);
+	if (!VERIFICATION_STATUSES.has(status)) return invalidReport(`invalid overall status: ${status || "missing"}`);
+	if (!summary) return invalidReport("summary is missing");
 
-	const requirementsSection = section(body, "Requirements");
-	const contractSection = section(body, "Contract");
-	const reviewSection = section(body, "Review");
-	const behaviorSection = section(body, "Behavior");
-	const qualitySection = section(body, "Quality");
-	const securitySection = section(body, "Security");
-	if ([requirementsSection, contractSection, reviewSection, behaviorSection, qualitySection, securitySection].some(value => value === undefined)) return undefined;
+	const sections = {
+		Requirements: section(body, "Requirements"),
+		Contract: section(body, "Contract"),
+		Review: section(body, "Review"),
+		Behavior: section(body, "Behavior"),
+		Quality: section(body, "Quality"),
+		Security: section(body, "Security"),
+	};
+	const missingSections = Object.entries(sections).filter(([, value]) => value === undefined).map(([name]) => name);
+	if (missingSections.length > 0) return invalidReport(`missing section(s): ${missingSections.join(", ")}`);
 
-	const requirements = repeatedBlocks(requirementsSection!, "REQ").map(block => ({
-		requirement: field(block.body, "requirement"),
+	const requirements = repeatedBlocks(sections.Requirements!, "REQ").map(block => ({
+		requirement: textField(block.body, "requirement"),
 		status: field(block.body, "status").toUpperCase(),
-		evidence: field(block.body, "evidence"),
+		evidence: textField(block.body, "evidence"),
 		files: listAfterField(block.body, "files"),
 	}));
-	if (requirements.length === 0 || requirements.some(item => !item.requirement || !item.evidence || !VERIFICATION_STATUSES.has(item.status))) return undefined;
+	if (requirements.length === 0) return invalidReport("Requirements has no REQ block");
+	const invalidRequirement = requirements.find(item => !item.requirement || !item.evidence || !VERIFICATION_STATUSES.has(item.status));
+	if (invalidRequirement) return invalidReport("REQ block requires non-empty requirement/evidence and PASS, FAIL, or BLOCKED status");
 
-	const contractStatus = field(contractSection!, "status").toUpperCase();
-	const reviewStatus = field(reviewSection!, "status").toUpperCase();
-	const behaviorStatus = field(behaviorSection!, "status").toUpperCase();
-	const qualityStatus = field(qualitySection!, "status").toUpperCase();
-	const securityStatus = field(securitySection!, "status").toUpperCase();
-	if (![contractStatus, reviewStatus, behaviorStatus].every(value => VERIFICATION_STATUSES.has(value))) return undefined;
-	if (![qualityStatus, securityStatus].every(value => QUALITY_STATUSES.has(value))) return undefined;
+	const contractStatus = field(sections.Contract!, "status").toUpperCase();
+	const reviewStatus = field(sections.Review!, "status").toUpperCase();
+	const behaviorStatus = field(sections.Behavior!, "status").toUpperCase();
+	const qualityStatus = field(sections.Quality!, "status").toUpperCase();
+	const securityStatus = field(sections.Security!, "status").toUpperCase();
+	if (![contractStatus, reviewStatus, behaviorStatus].every(value => VERIFICATION_STATUSES.has(value))) {
+		return invalidReport("Contract, Review, and Behavior status must be PASS, FAIL, or BLOCKED");
+	}
+	if (![qualityStatus, securityStatus].every(value => QUALITY_STATUSES.has(value))) {
+		return invalidReport("Quality and Security status must be PASS, WARN, or FAIL");
+	}
 
-	const reviewFindings = repeatedBlocks(reviewSection!, "REV").map(block => ({
+	const reviewFindings = repeatedBlocks(sections.Review!, "REV").map(block => ({
 		id: block.id,
 		severity: field(block.body, "severity").toUpperCase(),
 		category: field(block.body, "category").toLowerCase(),
-		title: field(block.body, "title"),
+		title: textField(block.body, "title"),
 		location: field(block.body, "location"),
-		evidence: field(block.body, "evidence"),
-		recommendation: field(block.body, "recommendation"),
+		evidence: textField(block.body, "evidence"),
+		recommendation: textField(block.body, "recommendation"),
 	}));
-	if (reviewFindings.some(item => !REVIEW_SEVERITIES.has(item.severity) || !item.title || !item.location || !item.evidence || !item.recommendation)) return undefined;
+	if (reviewFindings.some(item => !REVIEW_SEVERITIES.has(item.severity) || !item.title || !item.location || !item.evidence || !item.recommendation)) {
+		return invalidReport("REV block requires severity, title, location, evidence, and recommendation");
+	}
 
 	const tests = {
-		discovered: integerField(behaviorSection!, "tests_discovered"),
-		executed: integerField(behaviorSection!, "tests_executed"),
-		failed: integerField(behaviorSection!, "tests_failed"),
-		skipped: integerField(behaviorSection!, "tests_skipped"),
+		discovered: integerField(sections.Behavior!, "tests_discovered"),
+		executed: integerField(sections.Behavior!, "tests_executed"),
+		failed: integerField(sections.Behavior!, "tests_failed"),
+		skipped: integerField(sections.Behavior!, "tests_skipped"),
 	};
-	if (Object.values(tests).some(value => value === undefined)) return undefined;
+	const missingTests = Object.entries(tests).filter(([, value]) => value === undefined).map(([name]) => name);
+	if (missingTests.length > 0) return invalidReport(`Behavior test counters must start with integers: ${missingTests.join(", ")}`);
 	const hardBlockers = sectionList(section(body, "Hard Blockers"));
 	const warnings = sectionList(section(body, "Warnings"));
-	if (status === "PASS" && (requirements.some(item => item.status !== "PASS") || hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) return undefined;
+	if (status === "PASS" && (requirements.some(item => item.status !== "PASS") || hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) {
+		return invalidReport("overall PASS contradicts a failed requirement, blocker, section, quality, or security status");
+	}
 
 	return {
-		status: status as VerifierSubagentReport["status"],
-		summary,
-		requirements,
-		contract: { status: contractStatus, findings: listAfterField(contractSection!, "findings") },
-		review: { status: reviewStatus, findings: reviewFindings },
-		behavior: { status: behaviorStatus, findings: listAfterField(behaviorSection!, "findings"), tests },
-		quality: { status: qualityStatus, findings: listAfterField(qualitySection!, "findings") },
-		security: { status: securityStatus, findings: listAfterField(securitySection!, "findings") },
-		hard_blockers: hardBlockers,
-		warnings,
+		report: {
+			status: status as VerifierSubagentReport["status"],
+			summary,
+			requirements,
+			contract: { status: contractStatus, findings: listAfterField(sections.Contract!, "findings") },
+			review: { status: reviewStatus, findings: reviewFindings },
+			behavior: { status: behaviorStatus, findings: listAfterField(sections.Behavior!, "findings"), tests: tests as Required<typeof tests> },
+			quality: { status: qualityStatus, findings: listAfterField(sections.Quality!, "findings") },
+			security: { status: securityStatus, findings: listAfterField(sections.Security!, "findings") },
+			hard_blockers: hardBlockers,
+			warnings,
+		},
 	};
+}
+
+export function parseVerifierReport(output: string): VerifierSubagentReport | undefined {
+	return parseVerifierReportDetailed(output).report;
+}
+
+/** Combine persisted assistant text and process output before exit handling. */
+export function parseVerifierOutput(transcript: string, outputText = ""): VerifierReportParseResult {
+	const combined = `${transcript}\n${outputText}`;
+	return parseVerifierReportDetailed(normalizeResultContract(combined)?.text || combined);
 }
 
 function readAssistantTranscript(sessionFile: string): string {
@@ -384,17 +439,26 @@ export async function runVerifierSubagent(input: {
 	].filter(Boolean).join("\n\n");
 	const result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
 	let outputText = result.outputText || "";
-	let report = result.exitCode === 0 ? parseVerifierReport(`${readAssistantTranscript(sessionFile)}\n${outputText}`) : undefined;
-	if (result.exitCode !== 0) return { outputText, runId: result.runId, error: result.stderr || result.failure || "verifier subagent failed" };
-	let runId = result.runId;
-	if (!report && !input.signal?.aborted) {
-		const repairPrompt = `Your audit is complete, but your previous final response violated the shared Markdown RESULT protocol. Do not redo the audit, inspect files, call tools, or modify anything. Reformat the conclusions already in this conversation into exactly one complete ## RESULT block using the required verifier sections and fields. Use status PASS, FAIL, or BLOCKED; never use JSON or code fences. End with exactly ## END.`;
-		const repaired = await launch(repairPrompt, "read", "repair");
-		outputText = [outputText, repaired.outputText || ""].filter(Boolean).join("\n");
-		runId = repaired.runId || runId;
-		if (repaired.exitCode === 0) report = parseVerifierReport(`${readAssistantTranscript(sessionFile)}\n${outputText}`);
-		else return { outputText, runId, error: repaired.stderr || repaired.failure || "verifier protocol repair failed" };
+	const parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
+	const report = parsed.report;
+	const runId = result.runId;
+	if (result.exitCode !== 0) {
+		const processError = result.stderr || result.failure || `exit code ${result.exitCode}`;
+		const reportState = report
+			? `parsed RESULT status=${report.status}`
+			: parsed.error || "report unavailable";
+		return {
+			outputText,
+			runId,
+			error: `verifier subagent failed: ${processError}; ${reportState}`,
+		};
 	}
-	if (!report) return { outputText, runId, error: "verifier subagent returned no valid Markdown ## RESULT after one protocol-only repair" };
+	if (!report) {
+		return {
+			outputText,
+			runId,
+			error: `verifier subagent returned no valid Markdown ## RESULT: ${parsed.error || "unknown parse error"}; no extra worker was started for formatting repair`,
+		};
+	}
 	return { report, outputText, runId };
 }

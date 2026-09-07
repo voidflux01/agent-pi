@@ -88,7 +88,7 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 
 	it("does not allow a worker report to replace verify_execution", () => {
 		expect(PLAN_PROMPT).toContain("Never substitute a manually spawned reviewer");
-		expect(SPEC_PROMPT).toContain("instead of dispatching a replacement verifier just for formatting");
+		expect(SPEC_PROMPT).toContain("locally normalizes harmless RESULT formatting drift");
 	});
 
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {

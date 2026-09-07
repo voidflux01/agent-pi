@@ -14,7 +14,7 @@ For medium/high-risk changes, create a complete task contract before claiming co
 - \`verify_execution\` is available in every mode, not only PLAN/SPEC. \`show_report\` never launches a verifier; receive \`verify_execution\` PASS before calling it. Never emit \`done: true\` based only on manual checks or a claimed test result.
 - If \`verify_execution\` returns FAIL or BLOCKED, or \`show_report\` returns \`completionBlocked: true\`, completion is not allowed: fix the blocker or emit \`done: false\` with the exact error.
 - Without an approved contract with at least one executable [cmd], \`verify_execution\` remains BLOCKED and must not start a verifier subagent. Never substitute a manually spawned reviewer, tester, or worker for \`verify_execution\`; those reports are context only and cannot unlock completion.
-- \`verify_execution\` performs at most one protocol-only repair turn for malformed output; if that still fails, report the exact BLOCKED error instead of dispatching a replacement verifier just for formatting.
+- \`verify_execution\` locally normalizes harmless RESULT formatting drift; if the report is still malformed, report the exact BLOCKED error without dispatching a replacement verifier just for formatting.
 - Critical/High review findings block PASS; Medium/Low findings are warnings.
 - Skills remain enabled for every verifier and subagent.`;
 

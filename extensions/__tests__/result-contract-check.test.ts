@@ -6,6 +6,7 @@ import {
 	compactHandoff,
 	composeAgentResult,
 	contractGateEnabled,
+	normalizeResultContract,
 	resultContractFailure,
 } from "../lib/agent-result-contract.ts";
 
@@ -60,6 +61,26 @@ describe("checkResultCompliance", () => {
 		const bad = "## RESULT\ndone: true\nsummary: looks fine\n## END";
 		expect(checkResultCompliance(bad).problems).toContain('missing "role:" line');
 		expect(checkResultCompliance(bad).problems).toContain('missing or invalid "status:" line');
+	});
+
+	test("accepts common localized result field labels", () => {
+		const localized = [
+			"## RESULT",
+			"角色: SCOUT",
+			"完成: 是",
+			"状态: PASS",
+			"总结: 已完成只读侦察",
+			"发现:",
+			"- no changes",
+			"## END",
+		].join("\n");
+		const normalized = normalizeResultContract(localized);
+		expect(normalized?.text).toContain("role: SCOUT");
+		expect(normalized?.text).toContain("done: true");
+		expect(normalized?.text).toContain("status: PASS");
+		expect(normalized?.text).toContain("summary: 已完成只读侦察");
+		expect(checkResultCompliance(normalized?.text || localized).ok).toBe(true);
+		expect(resultContractFailure(localized)).toBeUndefined();
 	});
 
 	test("flags an unclosed block", () => {
