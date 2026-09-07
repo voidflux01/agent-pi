@@ -1,5 +1,5 @@
-// ABOUTME: Acceptance contract = executable commands plus explainable task criteria.
-// ABOUTME: Only [cmd] assertions enter the deterministic PASS decision.
+// ABOUTME: Acceptance contract carries an objective plus optional historical evidence markers.
+// ABOUTME: Completion is decided by the independent verifier's explainable Objective review.
 
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
@@ -28,7 +28,7 @@ export interface AcceptanceContract {
 	/** Exact approved Markdown file used as the contract source, when file-backed. */
 	contractPath?: string;
 	assertions: ContractAssertion[];
-	/** [cmd] only — the assertions that decide deterministic PASS. */
+	/** Legacy compatibility field; no assertion type is a global completion gate. */
 	mandatory: ContractAssertion[];
 	/** Present when the confirmed contract binds a mandatory eval set via [eval]. */
 	requiredEval?: RequiredEvalBinding;
@@ -126,8 +126,10 @@ export function parseAssertion(raw: string): ContractAssertion {
 	return command ? { kind: "cmd", raw, command, args } : advisory;
 }
 
-export function isMandatory(assertion: ContractAssertion): boolean {
-	return assertion.kind === "cmd";
+export function isMandatory(_assertion: ContractAssertion): boolean {
+	// Historical [cmd] markers remain parseable for old contracts, but never
+	// become a global completion gate. Objective review owns PASS/FAIL/BLOCKED.
+	return false;
 }
 
 export function extractContractAssertions(markdown: string, headings: string[]): ContractAssertion[] {

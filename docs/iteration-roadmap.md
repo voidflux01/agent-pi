@@ -114,7 +114,7 @@ failure_policy: fail | inconclusive
 ### A2. Runner 与现有设施对接
 
 - Runner 调度 Pi/agent-pi 工作流，收集测试输出、diff、截图、报告和 RunContext 事件。
-- `verify_execution` 保留确定性 `[cmd]` 断言；eval-set 作为任务级和定性验证的补充，不能绕过 acceptance contract。
+- `verify_execution` 以独立 verifier 对 Objective 的可解释审查为主；显式 eval-set 仍作为任务级验证绑定，不能绕过 acceptance contract。命令不再是全局强制门禁。
 - reports-viewer 展示评估结果，`docs/validation-log.md` 记录代表性运行，不把每次运行的完整 transcript 注入父上下文。
 - `plan-build-review`、`test-fix`、PIPELINE 的 REVIEW 阶段可选择运行相关 eval-set。
 - 评估本身不能自动修改用户项目或工作流规则。

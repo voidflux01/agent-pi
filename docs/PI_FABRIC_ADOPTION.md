@@ -72,15 +72,10 @@ provider smoke 和用户试用数据验证，不以“代码已写完”替代�
   `/budget` status, are released when journal usage is recorded, and expire
   after a bounded TTL when a worker dies before settlement; the reservation is
   deliberately a concurrency slice, while actual usage remains authoritative.
-- The live orchestration Activity dashboard now shows bounded per-run
-  token/cost usage alongside status, duration, verification, and recovery
-  information, making mode-level efficiency differences visible during work.
 - The shared orchestration query now supports case-insensitive mode filters;
-  `orchestration_status` accepts `mode`, `/orchestration-status mode PLAN`
-  supports list/tree inspection, and `/orchestration-dashboard mode PLAN`
-  narrows the live Activity view. NORMAL, PLAN, SPEC, TEAM, CHAIN, and
-  PIPELINE therefore use the same observability path rather than separate
-  mode-specific dashboards.
+  `orchestration_status` accepts `mode`, and `/orchestration-status mode PLAN`
+  supports list/tree inspection. NORMAL, PLAN, SPEC, TEAM, CHAIN, and PIPELINE
+  therefore use the same read-only observability path.
 - `compose_exec` persists a bounded composition plan and supports explicit
   `resume_run_id` recovery for stale runs: completed steps and their compact
   results are reused, while only unfinished steps are executed in a new linked
@@ -313,10 +308,6 @@ provider smoke 和用户试用数据验证，不以“代码已写完”替代�
   subagent from its persisted journal dispatch id via `subagent_resume` or
   `/subresume`; the existing session is explicitly reopened with `-c` and the
   same worker/runtime audit path is reused.
-- `orchestration-dashboard.ts` adds an opt-in/live TUI Activity widget with
-  recent run status and shared budget consumption; it refreshes in place and
-  stops its timer on session lifecycle changes.
-
 ## Deliberately deferred
 
 - QuickJS guest execution: the first composition surface is host-side and only

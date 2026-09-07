@@ -2,8 +2,7 @@
 // ABOUTME: SPEC report, pipeline final advance, TEAM completion via show_report)
 // ABOUTME: flows through completeDecision. User /report is a report, not a claim,
 // ABOUTME: and is never gated.
-// ABOUTME: A contract must contain at least one executable [cmd]
-// ABOUTME: assertion; natural-language items are advisory and can never PASS.
+// ABOUTME: Completion requires an explainable Objective review, not a command marker.
 
 import { bindAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
@@ -13,9 +12,7 @@ import { getEvalGate } from "./coordination-state.ts";
 export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "agent-show-report" | "user-report";
 
 export const INCOMPLETE_CONTRACT_REASON =
-	"合同不可验证：需要至少一条 [cmd] 可执行验收命令。自然语言条目由 verifier 审查，不能替代命令执行。\n" +
-	"请补充 ## Contract 清单，例如：\n" +
-	"- [cmd] npm test";
+	"合同不可验证：需要非空 Objective，且由独立 verifier 提供可解释的满足性判断。";
 export const MISSING_RECEIPT_REASON = "This execution requires a deterministic verifier PASS before completion.";
 export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or bound to a different plan/workspace.";
 export const REQUIRED_EVAL_REASON =
@@ -41,7 +38,7 @@ export function completeDecision(input: {
 	workspaceManifestHash?: string;
 }): { allowed: boolean; reason?: string } {
 	if (!verificationRequired({ surface: input.surface, contract: input.contract })) return { allowed: true };
-	if (!input.contract || input.contract.mandatory.length === 0) {
+	if (!input.contract || !input.contract.objective.trim()) {
 		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	}
 	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };

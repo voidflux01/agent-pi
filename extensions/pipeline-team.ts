@@ -1362,7 +1362,7 @@ ${phase.def.agents.map((a, i) => `${i + 1}. ${a.role}: ${a.task_template.slice(0
 		} else if (phase.def.name === "plan") {
 			phaseInstructions = `## Phase Instructions: PLAN
 				You are in the PLAN phase. Dispatch the configured planner with \`subagent_create\` and \`join: true\` — do not write the plan yourself. Never call advance_phase until that call has returned the planner's result.
-The planner's output must include a complete task contract with Objective, Scope, Acceptance Criteria, Evidence Requirements, and a ## Verification Commands section containing at least one [cmd] <command>. Pipeline complete is refused without at least one executable command.
+The planner's output must include a complete task contract with a concrete Objective plus any relevant Scope, Acceptance Criteria, Evidence Requirements, and explainable evidence. Pipeline completion is decided by the independent verifier's Objective review, not by a required command.
 Wait for the planner's ## RESULT, then call \`advance_phase\` with that summary. The plan is stored as $PLAN.`;
 
 		} else if (phase.def.name === "execute" || phase.def.name === "build") {
@@ -1375,7 +1375,7 @@ Wait for ## RESULT, then call \`advance_phase\`.`;
 				You are in the REVIEW phase (loop ${reviewLoopCount + 1}/${activeConfig.review_max_loops}).
 				Dispatch a reviewer agent with \`join: true\` to audit the implementation.
 After reviewing the output:
-- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the complete task contract, its [cmd] assertions to PASS deterministically, and \`verify_execution\` to report no Critical/High findings, including plan-build pipelines whose last phase is build.
+- If the reviewer says APPROVED → call \`advance_phase\`. Completing still requires the complete task contract, an explainable Objective decision, and \`verify_execution\` to report no Critical/High findings, including plan-build pipelines whose last phase is build.
 				- If issues found and loops remaining → use \`subagent_create\` with \`join: true\` to fix issues, then review again
 - Max review loops: ${activeConfig.review_max_loops}`;
 		}

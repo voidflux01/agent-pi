@@ -22,7 +22,6 @@ workspace when the task can write files.
 During or after a run, inspect the shared runtime records rather than relying
 only on the final model message:
 
-- `/orchestration-dashboard` — live runs, mode metrics, budget, and stale work.
 - `/orchestration-status` — bounded event timeline for a specific run.
 - `orchestration_recover` tool — read-only recovery candidates and next actions.
 - `/agents-status` — journal rows, elapsed time, token/cost data, and RunContext links.

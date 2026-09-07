@@ -1,6 +1,6 @@
-// ABOUTME: Legacy deterministic evidence runner plus the independent acceptance verifier.
-// ABOUTME: Completion paths must use runAcceptanceVerifier; the legacy entry point is kept
-// ABOUTME: for low-level tests and callers that explicitly need assertion execution only.
+// ABOUTME: Independent Objective verifier with optional legacy deterministic evidence support.
+// ABOUTME: Completion paths use runAcceptanceVerifier; old command execution remains isolated
+// ABOUTME: for low-level callers and does not form a global completion gate.
 
 import type { AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
@@ -17,7 +17,10 @@ export async function runIsolatedVerifier(input: {
 	config?: VerifierConfig;
 }): Promise<{ receipt?: VerifierReceipt; error?: string }> {
 	const manifest = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
-	let verification = await runDeterministicVerification(input.contract, input.cwd, input.config);
+	// Legacy low-level API may still be used to exercise explicitly supplied
+	// command assertions; completion paths never call this API as a command gate.
+	const legacyCommands = input.contract.assertions.filter((assertion) => assertion.kind === "cmd");
+	let verification = await runDeterministicVerification({ mandatory: legacyCommands }, input.cwd, input.config);
 	const afterManifest = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	if (afterManifest.hash !== manifest.hash) {
 		verification = {
@@ -64,9 +67,6 @@ export async function runAcceptanceVerifier(input: {
 	contractText?: string;
 	previousReport?: VerifierSubagentReport;
 	}): Promise<{ receipt?: VerifierReceipt; error?: string }> {
-	if (input.contract.mandatory.length === 0) {
-		return { error: "Verifier requires an approved acceptance contract with executable assertions." };
-	}
 	const before = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	const quality = inspectContractQuality(input.contract);
 	const deterministic = await runDeterministicVerification(input.contract, input.cwd, input.config);

@@ -87,7 +87,7 @@ Reference actual code.>
 - **Scope:** cover only the requested change and explicitly list out-of-scope work.
 - **Acceptance Criteria:** every criterion is observable, testable, and mapped to a phase or file.
 - **Evidence Requirements:** cite concrete files, symbols, and commands used to validate assumptions.
-- **Verification Commands:** include at least one executable `[cmd]` command and expected result.
+- **Verification Evidence:** describe concrete implementation, behavior, or observation evidence that lets verifier judge whether Objective is satisfied; no executable command is mandatory.
 - **Baseline and stop conditions:** state the measured starting point, how it is checked, and when the executor must stop and report instead of continuing.
 - **Handoff state:** for multi-step work, state what belongs in the project's task list, active plan/spec, and RESULT.
 ```

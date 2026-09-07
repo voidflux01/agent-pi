@@ -45,17 +45,20 @@ describe("assertion parsing", () => {
 		expect(parseAssertion("[cmd]")).toMatchObject({ kind: "advisory" });
 	});
 
-	it("exposes mandatory separately from advisory", () => {
+	it("keeps historical assertions separate without making them mandatory", () => {
 		const bound = bindAcceptanceContract(PLAN, "plan");
 		if ("error" in bound) throw new Error("expected contract");
-		expect(bound.mandatory).toHaveLength(1);
+		expect(bound.mandatory).toHaveLength(0);
 		expect(bound.assertions).toHaveLength(2);
+		expect(bound.assertions[0]).toMatchObject({ kind: "cmd" });
 		expect(bound.assertions[1]).toMatchObject({ kind: "advisory" });
 	});
 
-	it("requires at least one executable assertion to bind", () => {
-		expect(bindAcceptanceContract("# Plan: x\n\n## Verification Commands\n- login page renders\n", "plan").mandatory).toHaveLength(0);
-		expect(bindAcceptanceContract("# Plan: x\n\nNo checklist.\n", "plan").mandatory).toHaveLength(0);
+	it("binds an Objective-only contract without executable assertions", () => {
+		const bound = bindAcceptanceContract("# Plan: x\n\n## Objective\nLogin page renders.\n", "plan");
+		if ("error" in bound) throw new Error("expected contract");
+		expect(bound.objective).toBe("Login page renders.");
+		expect(bound.mandatory).toHaveLength(0);
 	});
 
 	it("binds spec contract from Requirements with executable assertions", () => {
@@ -63,7 +66,7 @@ describe("assertion parsing", () => {
 		const bound = bindSpecContract(spec);
 		if ("error" in bound) throw new Error("expected contract");
 		expect(bound.source).toBe("spec");
-		expect(bound.mandatory).toHaveLength(1);
+		expect(bound.mandatory).toHaveLength(0);
 	});
 
 	it("prefers an executable Contract section over natural-language Requirements", () => {
@@ -88,8 +91,8 @@ Tests cover search.
 		const bound = bindSpecContract(spec);
 		if ("error" in bound) throw new Error("expected contract");
 		expect(bound.source).toBe("spec");
-		expect(bound.mandatory).toHaveLength(1);
-		expect(bound.mandatory[0]).toMatchObject({ kind: "cmd", command: "node", args: ["--test"] });
+		expect(bound.assertions).toHaveLength(1);
+		expect(bound.assertions[0]).toMatchObject({ kind: "cmd", command: "node", args: ["--test"] });
 	});
 
 	it("changes fingerprint when the approved text changes", () => {
@@ -134,6 +137,6 @@ Do not modify main.rs.
 			constraints: "Do not modify main.rs.",
 		});
 		expect(bound.assertions).toHaveLength(2);
-		expect(bound.mandatory).toHaveLength(2);
+		expect(bound.mandatory).toHaveLength(0);
 	});
 });

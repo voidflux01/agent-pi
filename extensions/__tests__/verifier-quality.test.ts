@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { inspectContractQuality } from "../lib/verifier-quality.ts";
 import { buildVerifierPrompt, parseVerifierOutput, parseVerifierReport, parseVerifierReportDetailed } from "../lib/verifier-subagent.ts";
-import { formatVerifierDiagnostics, runAcceptanceVerifier } from "../lib/isolated-verifier.ts";
+import { formatVerifierDiagnostics } from "../lib/isolated-verifier.ts";
 import { emptyContract } from "../lib/execution-contract.ts";
 import { readFileSync } from "node:fs";
 
@@ -91,22 +91,22 @@ describe("verifier diagnostics", () => {
 });
 
 describe("acceptance contract quality", () => {
-	it("blocks structural-only contracts", () => {
-		const result = inspectContractQuality(contract(`# Plan: x\n\n## Contract\n- [file] src/x.ts\n- [match] class X :: src/x.ts\n`));
+	it("requires a non-empty Objective", () => {
+		const missing = emptyContract("# Plan: x\n", "plan");
+		missing.objective = "";
+		const result = inspectContractQuality(missing);
 		expect(result.status).toBe("BLOCKED");
-		expect(result.findings.join(" ")).toMatch(/行为验证|结构门禁/);
+		expect(result.findings.join(" ")).toContain("Objective");
 	});
 
-	it("requires explainable contract fields", () => {
-		const result = inspectContractQuality(bindAcceptanceContract("# Plan: x\n\n## Verification Commands\n- [cmd] npm test\n", "plan"));
-		expect(result.status).toBe("BLOCKED");
-		expect(result.findings.join(" ")).toContain("Scope");
+	it("does not require Scope or command evidence", () => {
+		const result = inspectContractQuality(bindAcceptanceContract("# Plan: x\n\n## Objective\nShip it.\n", "plan"));
+		expect(result.status).toBe("PASS");
 	});
 
-	it("blocks commands that succeed when no tests are discovered", () => {
+	it("does not block historical commands that would previously fail quality checks", () => {
 		const result = inspectContractQuality(contract(`# Plan: x\n\n## Contract\n- [cmd] mvn -q test -Dtest=X -Dsurefire.failIfNoSpecifiedTests=false\n`));
-		expect(result.status).toBe("BLOCKED");
-		expect(result.findings.join(" ")).toContain("无测试成功");
+		expect(result.status).toBe("PASS");
 	});
 
 	it("accepts a representative test command", () => {
@@ -114,14 +114,10 @@ describe("acceptance contract quality", () => {
 		expect(result.status).toBe("PASS");
 	});
 
-	it("does not start a verifier without executable assertions", async () => {
-		const result = await runAcceptanceVerifier({
-			cwd: process.cwd(),
-			contract: emptyContract("# Plan: missing contract\n", "plan"),
-			attempt: 1,
-		});
-		expect(result.receipt).toBeUndefined();
-		expect(result.error).toContain("approved acceptance contract");
+	it("keeps verifier entry quality focused on Objective", () => {
+		const missing = emptyContract("# Plan: missing contract\n", "plan");
+		missing.objective = "";
+		expect(inspectContractQuality(missing).status).toBe("BLOCKED");
 	});
 
 	it("keeps verifier skills enabled and its audit prompt read-only", () => {
@@ -141,7 +137,7 @@ describe("acceptance contract quality", () => {
 
 	it("passes deterministic evidence to the verifier and forbids stranded statuses", () => {
 		const prompt = buildVerifierPrompt(contract(`# Plan: x\n\n## Contract\n- [cmd] mvnd -q test\n`), "1. [cmd] mvnd -q test => pass");
-		expect(prompt).toContain("deterministic evidence runner has already executed");
+		expect(prompt).toContain("Optional deterministic evidence is available below");
 		expect(prompt).toContain("never invent UNVERIFIED");
 		expect(prompt).toContain("## RESULT");
 		expect(prompt).not.toContain("## VERIFIER RESULT");

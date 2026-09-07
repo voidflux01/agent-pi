@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bindAcceptanceContract, bindSpecContract, emptyContract, type AcceptanceContract } from "../lib/execution-contract.ts";
-import { completeDecision, pipelineCompleteDecision, verificationRequired } from "../lib/execution-gate.ts";
+import { completeDecision, pipelineCompleteDecision, verificationRequired, MISSING_RECEIPT_REASON } from "../lib/execution-gate.ts";
 import { createVerifierReceipt, type VerifierReceipt } from "../lib/verifier-runtime.ts";
 import type { DeterministicVerification } from "../lib/deterministic-verifier.ts";
 
@@ -98,17 +98,21 @@ describe("completion gate (contract-bound)", () => {
 		expect(completeDecision({ surface: "plan-show-report", contract: bound, receipt: receipt(bound, "m1"), workspaceManifestHash: "m2" }).allowed).toBe(false);
 	});
 
-	it("refuses completion when the bound contract has no executable assertions", () => {
-		const unverifiable = emptyContract("# Plan: x\n\n## Contract\n- login page renders\n", "plan");
-		// A bound but unverifiable contract must block completion, never skip it.
-		expect(verificationRequired({ surface: "plan-show-report", contract: unverifiable })).toBe(true);
-		const decision = completeDecision({ surface: "plan-show-report", contract: unverifiable });
-		expect(decision.allowed).toBe(false);
-		expect(decision.reason).toMatch(/合同不可验证/);
-		expect(decision.reason).toContain("[cmd]");
-		const pipeline = pipelineCompleteDecision("# Plan: x\n\n## Verification\n1. npm test passes\n", undefined, "m1");
+	it("allows completion with an Objective-only verifier receipt", () => {
+		const objectiveOnly = emptyContract("# Plan: x\n\n## Objective\nLogin page renders\n", "plan");
+		expect(verificationRequired({ surface: "plan-show-report", contract: objectiveOnly })).toBe(true);
+		const verifierReceipt = createVerifierReceipt({
+			contract: objectiveOnly,
+			workspaceManifestHash: "m1",
+			verification: { status: "PASS", results: [] },
+			attempt: 1,
+			verifierRequired: true,
+			verifier: { runId: "verifier-1", status: "PASS", summary: "Objective satisfied" },
+		});
+		expect(completeDecision({ surface: "plan-show-report", contract: objectiveOnly, receipt: verifierReceipt, workspaceManifestHash: "m1" }).allowed).toBe(true);
+		const pipeline = pipelineCompleteDecision("# Plan: x\n\n## Objective\nLogin page renders\n", undefined, "m1");
 		expect(pipeline.allowed).toBe(false);
-		expect(pipeline.reason).toMatch(/合同不可验证/);
+		expect(pipeline.reason).toBe(MISSING_RECEIPT_REASON);
 	});
 });
 

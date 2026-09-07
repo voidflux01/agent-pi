@@ -1,6 +1,6 @@
 // ABOUTME: Independent verifier subagent for semantic acceptance review.
-// ABOUTME: It audits requirement coverage and code quality; deterministic
-// ABOUTME: assertion execution remains a separate evidence check.
+// ABOUTME: It audits whether the approved Objective is satisfied with concrete,
+// ABOUTME: explainable evidence; legacy command execution is not a completion gate.
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -35,7 +35,6 @@ export interface VerifierSubagentResult {
 const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required shared Markdown RESULT contract supplied in the task prompt.`;
 
 function verifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
-	const assertions = contract.assertions.map((a) => `- ${a.raw}`).join("\n");
 	return `You are an independent verifier subagent and read-only code reviewer. You are the final acceptance auditor for a software change.
 
 Skills are enabled and must remain available. Use relevant skills progressively when they improve the audit. Never disable or bypass skills.
@@ -59,29 +58,26 @@ ${contract.evidenceRequirements || "(missing)"}
 Constraints:
 ${contract.constraints || "(none stated)"}
 
-Approved acceptance assertions:
-${assertions || "(none)"}
-
 Approved contract file path:
 ${contract.contractPath || "(not file-backed; use the structured contract above)"}
 
 ${contractText ? `Exact user-confirmed contract text (preserve its scope and conditions during review):\n${contractText}` : ""}
 
-${deterministicEvidence ? `A deterministic evidence runner has already executed the mandatory assertions. Treat this evidence as authoritative for command/file/match execution; do not downgrade the report merely because your read-only toolset cannot run the command itself:\n${deterministicEvidence}` : ""}
+${deterministicEvidence ? `Optional deterministic evidence is available below. Treat it as authoritative for the listed checks, but do not treat command execution as required for Objective acceptance:\n${deterministicEvidence}` : ""}
 
 Perform all of these checks:
-1. Contract quality: decide whether Objective, Scope, Acceptance Criteria, Evidence Requirements, and Constraints are concrete enough to audit. Missing or ambiguous material fields are BLOCKED. When BLOCKED, name the exact missing or un-auditable fields (objective, scope, acceptanceCriteria, evidenceRequirements, constraints, assertions).
-2. Requirement coverage: map every acceptance criterion to implementation evidence and behavioral evidence. Missing evidence is BLOCKED, not PASS.
-3. Behavior: inspect the narrowest relevant tests/commands and evaluate deterministic execution evidence. Confirm tests were discovered and executed; an exit code of 0 alone is insufficient.
+1. Contract quality: decide whether Objective is concrete enough to audit. Objective is the only required contract field; Scope, Acceptance Criteria, Evidence Requirements, Constraints, and assertions are optional context. If Objective is missing or ambiguous, use BLOCKED and name the exact problem.
+2. Requirement coverage: map Objective to implementation and behavioral evidence. Missing or contradictory evidence is BLOCKED or FAIL, not PASS.
+3. Behavior: inspect the narrowest relevant code paths, tests, and observable behavior. Do not require command execution or a non-zero test count; explain what evidence supports or fails the Objective.
 4. Code review: inspect the changed code and call paths for correctness, edge cases, error handling, transactions, idempotency, concurrency, compatibility, and integration gaps.
 5. Quality and security review: inspect duplication, dead code, debug artifacts, maintainability, project conventions, secrets, unsafe input handling, permission problems, unrelated changes, generated artifacts, and risky workarounds. Specifically check hardcoded credentials and .env exposure, shell/command injection, path traversal, insecure file permissions, dependency advisories visible in lockfiles, and secrets in logs or generated artifacts.
 6. Scope discipline: review changed files against Scope. Do not scan .git, .pi, node_modules, session files, jsonl logs, or unrelated areas.
 
-Severity guidance: CRITICAL = exposed secrets, destructive or irreversible operations, or exploitable security vulnerabilities; HIGH = clear correctness or regression defects, or missing mandatory evidence; MEDIUM = edge cases, error-handling gaps, missing tests for new behavior, maintainability hazards; LOW = style, dead code, minor duplication. Assign the highest defensible severity.
+Severity guidance: CRITICAL = exposed secrets, destructive or irreversible operations, or exploitable security vulnerabilities; HIGH = clear correctness or regression defects, or insufficient evidence for the Objective; MEDIUM = edge cases, error-handling gaps, missing tests for new behavior, maintainability hazards; LOW = style, dead code, minor duplication. Assign the highest defensible severity.
 
 Report caps: exactly one REQ block per acceptance criterion from the contract (do not invent extra requirements), and at most 15 REV findings ordered by severity (highest first) — trim longer lists to the most material items.
 
-Use PASS only when every material requirement has representative evidence and no hard blocker remains. Use FAIL for a demonstrated implementation/test failure. Use BLOCKED when the contract or evidence is insufficient to support a delivery decision. Every finding must include a concrete file, line, command, test name, or search result where possible.
+Use PASS only when the Objective has representative, concrete evidence and no hard blocker remains. Use FAIL for a demonstrated Objective or implementation failure. Use BLOCKED when the Objective or its evidence is insufficient to support a delivery decision. Every finding must include a concrete file, line, command, test name, or search result where possible.
 
 Your final response MUST be exactly one shared Markdown result block. Do not use JSON, YAML, tables, code fences, or prose outside the block. Write summary and findings in the same language as the contract objective (match the user's language for non-English contracts). Keep every named field on one line; put longer material in list items. Use one ### REQ-nnn block per acceptance requirement and one ### REV-nnn block per review finding. Omit REV blocks when there are no review findings. The only overall, requirement, contract, review, and behavior status values are PASS, FAIL, and BLOCKED. Quality and security additionally allow WARN. If evidence is insufficient, use BLOCKED (never invent UNVERIFIED):
 ## RESULT

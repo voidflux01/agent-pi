@@ -25,7 +25,7 @@ import { workflowDirection } from "./lib/workflow-direction.ts";
 import { checkRequiredEvalBinding } from "./lib/eval-sets.ts";
 
 const Params = Type.Object({
-	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including Objective, Scope, Acceptance Criteria, Evidence Requirements, and Verification Commands with [cmd] assertions" })),
+	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including an Objective and any optional context or explicit eval binding" })),
 	objective: Type.Optional(Type.String({ description: "Optional short objective when contract is supplied separately" })),
 	});
 
@@ -38,7 +38,7 @@ export default function (pi: ExtensionAPI) {
 			const cwd = ctx.cwd || process.cwd();
 			if (!contract) { ctx.ui.notify("No acceptance contract is bound", "info"); return; }
 			if (!receipt) {
-				ctx.ui.notify(`UNVERIFIED · ${contract.objective} · ${contract.mandatory.length} assertions · ${contract.assertions.length} assertions/advisory`, "warning");
+				ctx.ui.notify(`UNVERIFIED · ${contract.objective} · Objective review pending · ${contract.assertions.length} context items`, "warning");
 				return;
 			}
 			const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
@@ -62,7 +62,7 @@ export default function (pi: ExtensionAPI) {
 				const bound = bindAcceptanceContract(suppliedContract, "plan");
 				if ("error" in bound) {
 					return {
-						content: [{ type: "text", text: "Verification blocked: the supplied acceptance contract is incomplete. It must state Objective, Scope, Acceptance Criteria, and Verification Commands with at least one executable [cmd]. Ask the user to confirm the corrected contract before retrying." }],
+						content: [{ type: "text", text: "Verification blocked: the supplied acceptance contract is incomplete. It must state a non-empty Objective. Ask the user to confirm the corrected contract before retrying." }],
 						details: { status: "BLOCKED", completionAllowed: false, reason: "incomplete supplied acceptance contract" },
 					};
 				}
@@ -73,12 +73,6 @@ export default function (pi: ExtensionAPI) {
 				return {
 					content: [{ type: "text", text: "Verification blocked: no user-confirmed acceptance contract was supplied or bound. The parent agent must create the contract covering scope and acceptance conditions, get user confirmation, and pass that exact contract to verify_execution. show_plan/show_spec are optional; do not output done:true." }],
 					details: { status: "BLOCKED", completionAllowed: false, reason: "no approved acceptance contract" },
-				};
-			}
-			if (contract.mandatory.length === 0) {
-				return {
-					content: [{ type: "text", text: "Verification blocked: the acceptance contract has no executable [cmd] assertions. The parent agent must revise it, get user confirmation, and pass the confirmed contract before starting the verifier. Do not output done:true." }],
-					details: { status: "BLOCKED", completionAllowed: false, reason: "contract has no executable assertions" },
 				};
 			}
 			const cwd = ctx.cwd || process.cwd();
@@ -119,7 +113,7 @@ export default function (pi: ExtensionAPI) {
 				workspaceCwd: cwd,
 			});
 			orchestrationRun.consumeStep();
-			orchestrationRun.record("verification.started", { attempt, assertions: contract.mandatory.length });
+			orchestrationRun.record("verification.started", { attempt, objective: contract.objective });
 			if (attempt > DEFAULT_VERIFIER_ATTEMPTS) {
 				orchestrationRun.record("verification.completed", { status: "BLOCKED", attempt });
 				orchestrationRun.finish("failed", { verificationStatus: "BLOCKED", attempt });

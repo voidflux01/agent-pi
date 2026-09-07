@@ -1,5 +1,5 @@
 // ABOUTME: Verifier receipt construction and completion predicate.
-// ABOUTME: Final status combines deterministic commands with independent review.
+// ABOUTME: Final status is based on explainable Objective review plus explicit eval bindings.
 
 import type { AcceptanceContract, VerificationStatus } from "./execution-contract.ts";
 import type { AssertionResult, DeterministicVerification } from "./deterministic-verifier.ts";
@@ -41,7 +41,7 @@ export function createVerifierReceipt(input: {
 	};
 }
 
-/** Completion predicate: PASS + correct contract + current workspace manifest + all assertions green + satisfied mandatory eval. */
+/** Completion predicate: PASS + correct contract + current workspace manifest + Objective review + satisfied explicit eval. */
 export function canComplete(
 	receipt: VerifierReceipt | undefined,
 	contract: AcceptanceContract,
@@ -53,7 +53,8 @@ export function canComplete(
 	if (receipt.verifierRequired && (receipt.version < 3 || receipt.verifier?.status !== "PASS" || !receipt.verifier.runId)) return false;
 	if (receipt.contractFingerprint !== contract.fingerprint) return false;
 	if (!receipt.workspaceManifestHash || !currentManifestHash || receipt.workspaceManifestHash !== currentManifestHash) return false;
-	if (receipt.results.length === 0 || !receipt.results.every(r => r.status === "pass")) return false;
+	if (!receipt.verifierRequired && receipt.results.length === 0) return false;
+	if (!receipt.results.every(r => r.status === "pass")) return false;
 	// A contract-bound eval set is mandatory: missing, stale or failed reports block completion.
 	if (contract.requiredEval && !evalGate?.ok) return false;
 	return true;

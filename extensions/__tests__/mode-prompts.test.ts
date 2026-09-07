@@ -59,9 +59,10 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT.indexOf("call `verify_execution` and require PASS")).toBeLessThan(PLAN_PROMPT.indexOf("After verifier PASS, call `show_report`"));
 	});
 
-	it("documents command-only deterministic assertions", () => {
-		expect(PLAN_PROMPT).toContain("[cmd] <exact test/check/build command>");
-		expect(PLAN_PROMPT).not.toContain("[match]");
+	it("documents Objective-only explainable acceptance", () => {
+		expect(PLAN_PROMPT).toContain("concrete Objective");
+		expect(PLAN_PROMPT).toContain("Objective review");
+		expect(PLAN_PROMPT).not.toContain("at least one executable [cmd]");
 	});
 
 	it("keeps scout-then-plan steps, with grill as enhancement only", () => {
@@ -197,10 +198,10 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("requirements.md");
 	});
 
-	it("requires an executable Contract section", () => {
+	it("requires an Objective-based Contract section", () => {
 		expect(SPEC_PROMPT).toContain("mandatory ## Contract section");
-		expect(SPEC_PROMPT).toContain("executable [cmd]");
-		expect(SPEC_PROMPT).toContain("not replace executable commands");
+		expect(SPEC_PROMPT).toContain("concrete Objective");
+		expect(SPEC_PROMPT).toContain("no executable command is mandatory");
 	});
 
 
