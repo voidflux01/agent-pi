@@ -66,5 +66,6 @@
 ## 8. 模式语义 → 演进含意
 
 1. TEAM/CHAIN/PIPELINE 已不是独立引擎；**它们的维护负担应集中在：hook 顺序门正确性 + 提示词质量 + 死代码清理**，而非并行调度（那是 dispatcher 的事）。
-2. **父进程残留的自建 spawn**（agent-team dispatchAgent、agent-chain runAgent/runChain、pipeline spawnAgent/dispatchPhaseAgents）是 S4 第二项的清理目标——全部收敛/删除，只留 canonical dispatcher 一条 spawn 路径。
+2. **父进程残留的自建 spawn**（agent-team dispatchAgent、agent-chain runAgent/runChain、pipeline spawnAgent/dispatchPhaseAgents）是 S4 的清理目标——全部收敛/删除，只留 canonical dispatcher 一条 spawn 路径。
+   - **拆除决策（2026-09-08，风险门控）**：这些死函数嵌在 46–82KB monolith 中段，与活 helper 交错，且源文本守卫测试（workflow-walk-fixes 等）钉着 agent-team 内部符号。盲删整段会误删共享 helper。**惰性死代码清理收益低、风险高 → 延到下次功能性触碰该文件时顺带删**（tsc 会兜底捕获悬空引用；届时同步删钉死已删实现的守卫断言）。不单独为美容开膛 load-bearing monolith。
 3. 源文本守卫测试（workflow-walk-fixes 等）钉着上述内部符号，清理时必须同步（删钉死已删实现的断言，保留真正 wire/transport 不变量断言，如 herdr-visible-tui）。
