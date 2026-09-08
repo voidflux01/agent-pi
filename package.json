@@ -31,9 +31,6 @@
     ],
     "themes": [
       "./themes"
-    ],
-    "prompts": [
-      "./prompts/templates"
     ]
   },
   "peerDependencies": {
