@@ -370,3 +370,11 @@ advice, direct unit tests for previously indirectly-covered libs.
   `augmentRetrospective` integration point, never automatically. The
   `pi-workflow` eval executor reports BLOCKED until the live harness is
   wired; it never fabricates a PASS.
+
+## 2026-09-08 · 治理重构后整车点火验证（charter branch）
+
+- **Live NORMAL smoke**: `pi -p --mode json --no-session` on opencode-go/deepseek-v4-flash returned `REAL-SMOKE-PASS` in 6.3s; extension layer booted clean (registered, 51 extensions).
+- **Live single delegation, end-to-end**: parent model called `subagent_create` (agent=builder, join=true) in isolated /tmp workspace. Dispatcher resolved per-agent model zai-coding-cn/glm-5.3-flash, spawned a real child pi, which appended `// delegated-ok` to a.ts, self-verified via `cat`, and returned the full `## RESULT` contract (role BUILDER / done:true / status:PASS / findings / files / key_errors). Parent reported `RESULT-SUMMARY: PASS`.
+- **Persisted trail verified on disk**: `.pi/agent-sessions/` held orchestration-run events.jsonl (run.started/subagent.started with runId+budget), workflow dispatch-receipt, task-journal.jsonl row (agent/mode/model/status/timestamps), and archived worker full output.
+- **Wiring audit (code-level)**: TEAM/CHAIN/PIPELINE `registerWorkflowDispatchHook` (agent-team L194 / agent-chain L145 / pipeline-team L190) ↔ `workflow-dispatch` registry ↔ `subagent_create` before/after calls (subagent-widget L853/L646) confirmed; `verify_execution`, security-guard tool_call, mode-cycler gate, tasks gate all registered. Full test suite green (bun 284 + vitest 997, 13 skipped) after S2/S3 deletions.
+- **Not live-driven this round (honest boundary)**: PLAN approval→verify_execution receipt closure, TEAM batch waves, full PIPELINE phase flow — wiring + gate tests + lib integration tests cover them, but a scripted multi-worker live drive is the next validation when wanted (tools/e2e or evals).
