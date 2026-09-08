@@ -3,7 +3,7 @@
 
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
+import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -361,61 +361,6 @@ export default function (pi: ExtensionAPI) {
 			cleanupServer();
 		}
 	}
-
-	// ── /sounds command ──────────────────────────────────────────────
-
-	pi.registerCommand("sounds", {
-		description: "Open the sound browser, or use: /sounds toggle | /sounds status",
-		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const items = ["toggle", "status"].map((value) => ({ value, label: value }));
-			const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
-			return filtered.length > 0 ? filtered : null;
-		},
-		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("/sounds requires interactive mode", "error");
-				return;
-			}
-
-			const arg = args.trim().toLowerCase();
-
-			// /sounds toggle
-			if (arg === "toggle") {
-				currentConfig = { ...currentConfig, enabled: !currentConfig.enabled };
-				saveConfig(currentConfig);
-				updateStatus(ctx);
-				ctx.ui.notify(
-					currentConfig.enabled ? "🔊 Sounds enabled" : "🔇 Sounds disabled",
-					"info",
-				);
-				return;
-			}
-
-			// /sounds status
-			if (arg === "status") {
-				const count = getActiveAssignmentCount(currentConfig);
-				const lines: string[] = [
-					`Sounds: ${currentConfig.enabled ? "Enabled" : "Disabled"}`,
-					`Volume: ${Math.round(currentConfig.volume * 100)}%`,
-					`Hooks: ${count}/${ALL_HOOKS.length} assigned`,
-				];
-				for (const hook of ALL_HOOKS) {
-					const sound = currentConfig.assignments[hook];
-					const label = HOOK_DISPLAY_NAMES[hook];
-					lines.push(`  ${label}: ${sound || "(none)"}`);
-				}
-				ctx.ui.notify(lines.join("\n"), "info");
-				return;
-			}
-
-			// /sounds — open browser
-			const result = await runSoundsViewer(ctx);
-			if (result.action === "applied") {
-				const count = getActiveAssignmentCount(currentConfig);
-				ctx.ui.notify(`✓ Sound config applied — ${count} hook${count !== 1 ? "s" : ""} assigned`, "info");
-			}
-		},
-	});
 
 	// ── show_sounds tool ─────────────────────────────────────────────
 
