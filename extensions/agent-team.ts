@@ -1144,58 +1144,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("agents-grid", {
-		description: "Set grid columns: /agents-grid <1-6>",
-		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const items = ["1", "2", "3", "4", "5", "6"].map(n => ({
-				value: n,
-				label: `${n} columns`,
-			}));
-			const filtered = items.filter(i => i.value.startsWith(prefix));
-			return filtered.length > 0 ? filtered : items;
-		},
-		handler: async (args, _ctx) => {
-			widgetCtx = _ctx;
-			const n = parseInt(args?.trim() || "", 10);
-			if (n >= 1 && n <= 6) {
-				gridCols = n;
-				safeNotify(_ctx, `Grid set to ${gridCols} columns`, "info");
-				updateWidget();
-			} else {
-				safeNotify(_ctx, "Usage: /agents-grid <1-6>", "error");
-			}
-		},
-	});
-
-	pi.registerCommand("agents-clear", {
-		description: "Clear agent team widget from screen",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			safeSetWidget(ctx, "agent-team", undefined);
-
-			// Remove all individual agent widgets
-			removeAllAgentWidgets();
-
-			// Reset all agent states to idle so the widget can reappear on next dispatch
-			for (const state of agentStates.values()) {
-				if (state.status === "done" || state.status === "error") {
-					state.status = "idle";
-					state.task = "";
-					state.toolCount = 0;
-					state.elapsed = 0;
-					state.lastWork = "";
-					state.contextPct = 0;
-					state.resolvedModel = "";
-					state.textChunks = [];
-					state.summary = undefined;
-				}
-			}
-			selectedAgentIndex = -1;
-
-			safeNotify(ctx, "Agent team widget cleared.", "info");
-		},
-	});
-
 	// ── Agent Detail Overlay ──────────────────────
 
 	class AgentDetailOverlay {

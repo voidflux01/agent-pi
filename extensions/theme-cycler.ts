@@ -20,7 +20,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type AutocompleteItem } from "@mariozechner/pi-tui";
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { persistTheme } from "./lib/persist-theme.ts";
 
@@ -120,58 +120,6 @@ export default function (pi: ExtensionAPI) {
 		handler: async (ctx) => {
 			currentCtx = ctx;
 			cycleTheme(ctx, -1);
-		},
-	});
-
-	// --- Command: /theme ---
-
-	pi.registerCommand("theme", {
-		description: "Select a theme: /theme or /theme <name>",
-		getArgumentCompletions: (_prefix: string): AutocompleteItem[] | null => {
-			const ctx = currentCtx;
-			if (!ctx) return null;
-			const prefix = _prefix.trim();
-			const items = getThemeList(ctx).map((theme) => ({ value: theme.name, label: theme.name }));
-			const filtered = items.filter((item) => item.value.startsWith(prefix));
-			return filtered.length > 0 ? filtered : null;
-		},
-		handler: async (args, ctx) => {
-			currentCtx = ctx;
-			if (!ctx.hasUI) return;
-
-			const themes = getThemeList(ctx);
-			const arg = args.trim();
-
-			if (arg) {
-				const result = ctx.ui.setTheme(arg);
-				if (result.success) {
-					persistTheme(arg);
-					updateStatus(ctx);
-					showSwatch(ctx);
-					ctx.ui.notify(`Theme: ${arg}`, "info");
-				} else {
-					ctx.ui.notify(`Theme not found: ${arg}. Use /theme to see available themes.`, "error");
-				}
-				return;
-			}
-
-			const items = themes.map((t) => {
-				const desc = t.path ? t.path : "built-in";
-				const active = t.name === ctx.ui.theme.name ? " (active)" : "";
-				return `${t.name}${active} — ${desc}`;
-			});
-
-			const selected = await ctx.ui.select("Select Theme", items);
-			if (!selected) return;
-
-			const selectedName = selected.split(/\s/)[0];
-			const result = ctx.ui.setTheme(selectedName);
-			if (result.success) {
-				persistTheme(selectedName);
-				updateStatus(ctx);
-				showSwatch(ctx);
-				ctx.ui.notify(`Theme: ${selectedName}`, "info");
-			}
 		},
 	});
 

@@ -1174,29 +1174,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify("Pipeline deactivated. Use /pipeline to select one.", "info");
 		},
 	});
-
-	pi.registerCommand("pipeline-clear", {
-		description: "Clear pipeline widget from screen (keeps pipeline active)",
-		handler: async (_args, ctx) => {
-			widgetCtx = ctx;
-			clearPipelineUI();
-
-			// Reset agent states within each phase so the widget can reappear on next dispatch
-			for (const ps of phaseStates) {
-				for (const agent of ps.agents) {
-					if (agent.status === "done" || agent.status === "error") {
-						agent.status = "idle";
-						agent.lastWork = "";
-						agent.output = "";
-						agent.elapsed = 0;
-					}
-				}
-			}
-
-			ctx.ui.notify("Pipeline widget cleared. Pipeline remains active.", "info");
-		},
-	});
-
 		// ── Alt+P Shortcut ──────────────────────────
 
 	pi.registerShortcut("alt+p", {
