@@ -189,9 +189,13 @@ export default function (pi: ExtensionAPI) {
 				options: Array.isArray(args.options) ? args.options.map(String) : undefined,
 			});
 			if (res.answered) {
-				return { output: `PARENT ANSWERED:\n${res.answer}`, isError: false };
+				const text = `PARENT ANSWERED:\n${res.answer}`;
+				// content array required: a bare {output} result crashes the host TUI
+				// (ToolExecutionComponent.getTextOutput reads result.content.filter) — D22.
+				return { content: [{ type: "text", text }], output: text };
 			}
-			return { output: "No answer in time — proceed autonomously with your stated reversible default and note the open question in your ## RESULT under remaining.", isError: false };
+			const text = "No answer in time — proceed autonomously with your stated reversible default and note the open question in your ## RESULT under remaining.";
+			return { content: [{ type: "text", text }], output: text };
 		},
 	});
 
