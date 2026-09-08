@@ -15,7 +15,7 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateSpecViewerHTML, type SpecDocument } from "./lib/spec-viewer-html.ts";
 import { createSpecStandaloneExport, loadVisualAsExportAsset, saveStandaloneExport, type SpecExportDocument } from "./lib/viewer-standalone-export.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
-import { registerActiveViewer, clearActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
+import { registerActiveViewer, clearActiveViewer, notifyViewerOpen, type ActiveViewerSession } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
 import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
@@ -111,7 +111,7 @@ export function discoverSpecDocuments(folderPath: string): SpecDocument[] {
 				addMarkdown("tasks", "Tasks", file, join(folderPath, file));
 				if (docs.some((doc) => doc.key === "tasks")) break;
 			}
-		} catch {}
+		} catch { }
 	}
 
 	const visualsDir = join(folderPath, "planning", "visuals");
@@ -123,7 +123,7 @@ export function discoverSpecDocuments(folderPath: string): SpecDocument[] {
 				.filter((file) => [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".html", ".htm"].includes(extname(file).toLowerCase()))
 				.map((file) => join("planning", "visuals", file));
 			if (discoveredVisualFiles.length > 0) docs.push({ key: "visuals", label: "Visuals", markdown: "", filePath: "planning/visuals/", isVisuals: true, visualFiles: discoveredVisualFiles });
-		} catch {}
+		} catch { }
 	}
 
 	const planningDir = join(folderPath, "planning");
@@ -134,7 +134,7 @@ export function discoverSpecDocuments(folderPath: string): SpecDocument[] {
 			for (const file of readdirSync(safePlanningDir).filter((name) => name.endsWith(".md") && !knownFiles.has(name)).sort()) {
 				addMarkdown("other-" + file.replace(".md", ""), basename(file, ".md").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), join("planning", file), join(safePlanningDir, file));
 			}
-		} catch {}
+		} catch { }
 	}
 
 	return docs;
@@ -324,7 +324,7 @@ function openBrowser(url: string): void {
 		} catch {
 			try {
 				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
-			} catch {}
+			} catch { }
 		}
 	}
 }
@@ -353,7 +353,7 @@ const ShowSpecParams = Type.Object({
 
 // ── Extension ────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	let piRef = pi;
 	let activeServer: Server | null = null;
 	let activeSession: ActiveViewerSession | null = null;
@@ -375,7 +375,7 @@ export default function (pi: ExtensionAPI) {
 		const server = activeServer;
 		activeServer = null;
 		if (server) {
-			try { server.close(); } catch {}
+			try { server.close(); } catch { }
 		}
 		if (activeSession) {
 			clearActiveViewer(activeSession);
@@ -405,7 +405,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const data = JSON.parse(readFileSync(commentsPath, "utf-8"));
 				existingComments = data.comments || [];
-			} catch {}
+			} catch { }
 		}
 
 		// Start server
@@ -435,7 +435,15 @@ export default function (pi: ExtensionAPI) {
 		notifyViewerOpen(ctx, activeSession);
 
 		try {
-			const result = await waitForResult();
+			const VIEWER_WAIT_MS = Number(process.env.PI_VIEWER_WAIT_MS) || 300_000;
+			const timeoutError = new Error(`Viewer timed out after ${VIEWER_WAIT_MS / 1000}s without a decision`);
+			const result = await Promise.race([
+				waitForResult(),
+				new Promise<SpecViewerResult>((_, reject) => {
+					const t = setTimeout(() => reject(timeoutError), VIEWER_WAIT_MS);
+					t.unref?.();
+				}),
+			]);
 
 			// Save any markdown changes back to files
 			if (result.modified && result.markdownChanges) {
@@ -449,7 +457,7 @@ export default function (pi: ExtensionAPI) {
 							if (!isWithinDirectory(folderPath, realPath)) throw new Error("Refusing to write outside spec folder");
 							writeFileSync(realPath, content, "utf-8");
 						}
-					} catch {}
+					} catch { }
 				}
 			}
 
@@ -457,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 			if (result.comments && result.comments.length > 0) {
 				try {
 					writeFileSync(commentsPath, JSON.stringify({ comments: result.comments }, null, 2), "utf-8");
-				} catch {}
+				} catch { }
 			}
 
 			try {
@@ -478,7 +486,7 @@ export default function (pi: ExtensionAPI) {
 						documentCount: documents.length,
 					},
 				});
-			} catch {}
+			} catch { }
 
 			return result;
 		} finally {

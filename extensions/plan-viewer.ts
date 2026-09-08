@@ -235,7 +235,7 @@ const ShowPlanParams = Type.Object({
 
 // ── Extension ────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	let piRef = pi;
 
 	// Track active servers so we can clean them up
@@ -246,7 +246,7 @@ export default function (pi: ExtensionAPI) {
 		const server = activeServer;
 		activeServer = null;
 		if (server) {
-			try { server.close(); } catch {}
+			try { server.close(); } catch { }
 		}
 		if (activeSession) {
 			clearActiveViewer(activeSession);
@@ -274,7 +274,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const data = JSON.parse(readFileSync(commentsPath, "utf-8"));
 				existingComments = Array.isArray(data.comments) ? data.comments : [];
-			} catch {}
+			} catch { }
 		}
 		const { port, server, waitForResult, auth } = await startViewerServer(markdown, title, purpose, filePath, existingComments);
 		activeServer = server;
@@ -303,9 +303,10 @@ export default function (pi: ExtensionAPI) {
 				content: `${activeSession.title} opened at ${launchUrl}`,
 				display: true,
 			});
-		} catch {}
+		} catch { }
 
-		// Wait for user action in the browser (or abort)
+		// Wait for user action in the browser (or abort, or bounded timeout —
+		// an unattended approval viewer must not wedge the turn; dogfood D12-family)
 		try {
 			const abortPromise = signal
 				? new Promise<ViewerResult>((_, reject) => {
@@ -313,10 +314,15 @@ export default function (pi: ExtensionAPI) {
 					signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
 				})
 				: null;
+			const VIEWER_WAIT_MS = Number(process.env.PI_VIEWER_WAIT_MS) || 300_000;
+			const timeoutPromise = new Promise<ViewerResult>((_, reject) => {
+				const t = setTimeout(() => reject(new Error(`Viewer timed out after ${VIEWER_WAIT_MS / 1000}s without a decision`)), VIEWER_WAIT_MS);
+				t.unref?.();
+			});
 
 			const result = await (abortPromise
-				? Promise.race([waitForResult(), abortPromise])
-				: waitForResult());
+				? Promise.race([waitForResult(), abortPromise, timeoutPromise])
+				: Promise.race([waitForResult(), timeoutPromise]));
 
 			// Auto-save the modified markdown back to the source file
 			if (result.modified && result.markdown) {
@@ -329,7 +335,7 @@ export default function (pi: ExtensionAPI) {
 			if (purpose === "plan") {
 				try {
 					writeFileSync(commentsPath, JSON.stringify({ comments: result.comments }, null, 2), "utf-8");
-				} catch {}
+				} catch { }
 			}
 
 			try {
@@ -352,7 +358,7 @@ export default function (pi: ExtensionAPI) {
 
 			return result;
 		} catch (err: any) {
-			if (String(err?.message || err).includes("Aborted")) {
+			if (String(err?.message || err).includes("Aborted") || String(err?.message || err).includes("timed out")) {
 				return { action: "declined", markdown, modified: false, comments: existingComments };
 			}
 			throw err;
@@ -447,7 +453,7 @@ export default function (pi: ExtensionAPI) {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
 				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
 				markPlanApproved(file_path, approvedMarkdown);
-					bindApprovedPlanContract(approvedMarkdown, file_path);
+				bindApprovedPlanContract(approvedMarkdown, file_path);
 				const modifiedNote = result.modified
 					? " (plan was edited by user — use the updated version)"
 					: "";
@@ -481,15 +487,15 @@ export default function (pi: ExtensionAPI) {
 					type: "text" as const,
 					text: "User closed the plan viewer without approving. Ask if they want changes or have feedback.",
 				}],
-					details: {
-						action: "declined" as const,
-						comments: result.comments,
+				details: {
+					action: "declined" as const,
+					comments: result.comments,
 					purpose: "plan",
 					modified: result.modified,
 					filePath: file_path,
 				},
 			};
-			}) as any,
+		}) as any,
 
 		renderCall(args: Record<string, unknown>, theme: Theme) {
 			const filePath = (args as any).file_path || "?";
@@ -568,7 +574,7 @@ export default function (pi: ExtensionAPI) {
 				// markPlanApproved() compatibility spelling; this approval is fingerprint-bound.
 				const approvedMarkdown = result.markdown?.trim() ? result.markdown : markdown;
 				markPlanApproved(filePath, approvedMarkdown);
-					bindApprovedPlanContract(approvedMarkdown, filePath);
+				bindApprovedPlanContract(approvedMarkdown, filePath);
 				piRef.sendMessage(
 					{
 						customType: "plan-approved",
