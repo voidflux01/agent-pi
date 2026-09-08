@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, explicitDispatchHandler, run } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, explicitDispatchHandler, createSubagentRuntime } from "../lib/dispatch-runtime.ts";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
@@ -43,7 +43,7 @@ describe("standalone subagent recovery integration", () => {
 			const child = fakeChild();
 			let captured: string[] = [];
 			const command = withSessionResume(["pi", "--session", sessionFile, "continue task"], sessionFile);
-			const resultPromise = explicitDispatchHandler("subagent-resume", () => run({
+			const resultPromise = explicitDispatchHandler("subagent-resume", () => createSubagentRuntime({
 				authorization: currentDispatchAuthorization(), command, cwd,
 				launchDir: sessionDir, launchId: dispatchId, sessionFile,
 				parentRunId: parent.runId, transport: "headless",

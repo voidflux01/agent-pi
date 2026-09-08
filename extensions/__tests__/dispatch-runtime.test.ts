@@ -7,7 +7,7 @@ import { PassThrough } from "node:stream";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, run, type DispatchOrigin, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
+import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, createSubagentRuntime, type DispatchOrigin, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
 import { listRunEvents } from "../lib/evidence-store.ts";
 import { activeOrchestrationBudget, clearOrchestrationBudget, initOrchestrationBudget, recordBudgetUsage } from "../lib/orchestration-budget.ts";
@@ -48,7 +48,7 @@ describe("shared dispatch runtime", () => {
 		const lines: string[] = [];
 		const errors: string[] = [];
 		let captured: DispatchProcess | undefined;
-		const promise = runExplicit("agent-team", () => run({
+		const promise = runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "--mode", "json", "task"],
 			cwd: dir,
@@ -92,7 +92,7 @@ describe("shared dispatch runtime", () => {
 			const id = "reservation-dispatch-1";
 			journalAppend(dir, { version: 1, id, kind: "team", agent: "builder", task: "task", status: "dispatched", startedAt: Date.now(), updatedAt: Date.now() });
 			const child = fakeChild();
-			const resultPromise = runExplicit("agent-team", () => run({
+			const resultPromise = runExplicit("agent-team", () => createSubagentRuntime({
 				authorization: currentDispatchAuthorization(), command: ["pi", "task"], cwd: dir, launchDir: dir, launchId: id,
 				transport: "headless", journal: { dir, id }, spawnProcess: (() => {
 					queueMicrotask(() => { child.stdout.end(); child.stderr.end(); child.emit("close", 0); });
@@ -119,7 +119,7 @@ describe("shared dispatch runtime", () => {
 				version: 1, id, kind: origin === "agent-chain" ? "chain" : origin === "pipeline-team" ? "pipeline" : origin === "agent-team" ? "team" : "sa", agent: "tester", task: origin,
 				status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
 			});
-			const resultPromise = runExplicit(origin, () => run({
+			const resultPromise = runExplicit(origin, () => createSubagentRuntime({
 				authorization: currentDispatchAuthorization(), command: ["pi", "--mode", "json", origin],
 				cwd: dir, launchDir: dir, launchId: id, transport: "headless",
 				journal: { dir, id }, spawnProcess: (() => {
@@ -133,7 +133,7 @@ describe("shared dispatch runtime", () => {
 
 	it("bounds captured headless stderr while retaining both ends", async () => {
 		const child = fakeChild();
-		const resultPromise = runExplicit("agent-team", () => run({
+		const resultPromise = runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
@@ -166,7 +166,7 @@ describe("shared dispatch runtime", () => {
 			version: 1, id: "timeout-1", kind: "team", agent: "builder", task: "task",
 			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
 		});
-		const result = await runExplicit("agent-team", () => run({
+		const result = await runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "--mode", "json", "task"],
 			cwd: dir,
@@ -197,7 +197,7 @@ describe("shared dispatch runtime", () => {
 			version: 1, id: "abort-1", kind: "team", agent: "builder", task: "task",
 			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
 		});
-		const resultPromise = runExplicit("agent-team", () => run({
+		const resultPromise = runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
@@ -225,7 +225,7 @@ describe("shared dispatch runtime", () => {
 			version: 1, id: "abort-before-start", kind: "team", agent: "builder", task: "task",
 			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
 		});
-		const result = await runExplicit("agent-team", () => run({
+		const result = await runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
@@ -248,7 +248,7 @@ describe("shared dispatch runtime", () => {
 			version: 1, id: "spawn-error-1", kind: "team", agent: "builder", task: "task",
 			status: "dispatched", startedAt: Date.now(), updatedAt: Date.now(),
 		});
-		const result = await runExplicit("agent-team", () => run({
+		const result = await runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
@@ -265,7 +265,7 @@ describe("shared dispatch runtime", () => {
 
 	it("classifies asynchronous child errors as process failures", async () => {
 		const child = fakeChild();
-		const resultPromise = runExplicit("agent-team", () => run({
+		const resultPromise = runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",
@@ -281,7 +281,7 @@ describe("shared dispatch runtime", () => {
 	it("refuses a dispatch without explicit authorization before spawning anything", async () => {
 		let starts = 0;
 		const errors: string[] = [];
-		const result = await run({
+		const result = await createSubagentRuntime({
 			command: ["pi", "unexpected"],
 			cwd: "/tmp",
 			launchDir: "/tmp",
@@ -300,7 +300,7 @@ describe("shared dispatch runtime", () => {
 	it("refuses a timer callback even when it inherits an explicit context", async () => {
 		const result = await runExplicit("agent-team", () => new Promise<any>((resolve) => {
 			setTimeout(async () => {
-				resolve(await run({
+				resolve(await createSubagentRuntime({
 					command: ["pi", "deferred"],
 					cwd: "/tmp",
 					launchDir: "/tmp",
@@ -319,7 +319,7 @@ describe("shared dispatch runtime", () => {
 	it("cannot reopen dispatch from a timer callback", async () => {
 		let starts = 0;
 		const result = await runExplicit("agent-team", () => new Promise<any>((resolve) => {
-			setTimeout(() => resolve(runExplicit("agent-team", () => run({
+			setTimeout(() => resolve(runExplicit("agent-team", () => createSubagentRuntime({
 				command: ["pi", "nested-timer"],
 				cwd: "/tmp",
 				launchDir: "/tmp",
@@ -340,7 +340,7 @@ describe("shared dispatch runtime", () => {
 		const result = await new Promise<any>((resolve) => {
 			withSessionLifecycle(() => {
 				runExplicit("agent-team", () => {
-					queueMicrotask(() => resolve(run({
+					queueMicrotask(() => resolve(createSubagentRuntime({
 						command: ["pi", "lifecycle-deferred"],
 						cwd: "/tmp",
 						launchDir: "/tmp",
@@ -362,7 +362,7 @@ describe("shared dispatch runtime", () => {
 		const child = fakeChild();
 		const promise = runExplicit("agent-team", async () => {
 			await Promise.resolve();
-			const running = run({
+			const running = createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", "task"],
 				cwd: "/tmp",
@@ -380,7 +380,7 @@ describe("shared dispatch runtime", () => {
 	it("refuses dispatch during session lifecycle even with an explicit context", async () => {
 		let starts = 0;
 		const result = await withSessionLifecycle(() =>
-			runExplicit("agent-team", () => run({
+			runExplicit("agent-team", () => createSubagentRuntime({
 				authorization: currentDispatchAuthorization(),
 				command: ["pi", "lifecycle"],
 				cwd: "/tmp",
@@ -398,7 +398,7 @@ describe("shared dispatch runtime", () => {
 	it("does not start a second transport when a headless child exits with an error", async () => {
 		const child = fakeChild();
 		let starts = 0;
-		const promise = runExplicit("agent-team", () => run({
+		const promise = runExplicit("agent-team", () => createSubagentRuntime({
 			authorization: currentDispatchAuthorization(),
 			command: ["pi", "task"],
 			cwd: "/tmp",

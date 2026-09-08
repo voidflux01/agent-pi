@@ -140,7 +140,7 @@ function classifyHerdrSession(sessionFile: string | undefined): DispatchFailure 
 		const content = readFileSync(sessionFile, "utf8");
 		if (/\b(401|403)\b|invalid[_ ]api[_ -]?key|authentication|unauthorized/i.test(content)) return "authentication";
 		if (/"stopReason":"error"|"errorMessage"/i.test(content)) return "process_error";
-	} catch {}
+	} catch { }
 	return undefined;
 }
 
@@ -202,9 +202,9 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 		const terminateChild = () => {
 			forceKillTimer = setTimeout(() => {
-				try { child.kill("SIGKILL"); } catch {}
+				try { child.kill("SIGKILL"); } catch { }
 			}, FORCE_KILL_DELAY_MS);
-			try { child.kill("SIGTERM"); } catch {}
+			try { child.kill("SIGTERM"); } catch { }
 		};
 		const finish = (exitCode: number, failure?: DispatchFailure) => {
 			if (settled) return;
@@ -458,5 +458,3 @@ export async function createSubagentRuntime(spec: DispatchRuntimeSpec): Promise<
 	return settleRun(result);
 }
 
-/** @deprecated Use createSubagentRuntime; retained for external extension compatibility. */
-export const run = createSubagentRuntime;
