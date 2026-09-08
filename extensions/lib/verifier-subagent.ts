@@ -183,6 +183,7 @@ Your audit is NARROWED accordingly:
 
 const VERIFICATION_STATUSES = new Set(["PASS", "FAIL", "BLOCKED"]);
 const MAX_VERIFIER_FORMAT_REPAIRS = 2;
+const VERIFIER_SPAWN_RETRIES = 2;
 const QUALITY_STATUSES = new Set(["PASS", "WARN", "FAIL"]);
 const REVIEW_SEVERITIES = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
 
@@ -376,7 +377,7 @@ function readAssistantTranscript(sessionFile: string): string {
 				const message = event?.message || event;
 				if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
 				for (const part of message.content) if (part?.type === "text" && typeof part.text === "string") text.push(part.text);
-			} catch {}
+			} catch { }
 		}
 		return text.join("\n");
 	} catch {
@@ -434,8 +435,19 @@ export async function runVerifierSubagent(input: {
 		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
 		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
 	].filter(Boolean).join("\n\n");
+	// A startup failure (empty output, process_error) is transport/infra flake,
+	// not an evaluation result — retry the spawn a few times before surfacing
+	// an error (dogfood D15: herdr-transport child once failed to boot in 5.4s
+	// with zero tokens, consuming the attempt and BLOCKing verification).
 	let result = await launch(initialPrompt, "read,bash,grep,find,ls", "audit");
 	let outputText = result.outputText || "";
+	let spawnRetry = 0;
+	while (result.exitCode !== 0 && !outputText && spawnRetry < VERIFIER_SPAWN_RETRIES) {
+		spawnRetry++;
+		await new Promise((r) => setTimeout(r, 800 * spawnRetry));
+		result = await launch(initialPrompt, "read,bash,grep,find,ls", `spawn-retry-${spawnRetry}`);
+		outputText = result.outputText || "";
+	}
 	let parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
 	let report = parsed.report;
 	let repairAttempt = 0;
