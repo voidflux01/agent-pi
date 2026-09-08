@@ -243,48 +243,4 @@ export default function oauthProvider(pi: ExtensionAPI): void {
 			);
 		},
 	});
-
-	// ── /auth-clear Alias ──────────────────────────────────────────
-
-	pi.registerCommand("auth-clear", {
-		description: "Alias for /auth-logout — clear built-in OAuth credentials",
-		async handler(args, ctx) {
-			// Delegate to auth-logout
-			const commands = pi.getCommands();
-			const logoutCmd = commands.find(c => c.name === "auth-logout");
-			if (logoutCmd) {
-				// Can't invoke commands directly, so duplicate the logic
-				const authData = readAuthJson();
-
-				if (!authData || !(PROVIDER_NAME in authData)) {
-					ctx.ui.notify(
-						`No ${PROVIDER_NAME} credentials found in auth.json. Nothing to clear.`,
-						"info"
-					);
-					return;
-				}
-
-				const confirmed = await ctx.ui.confirm(
-					"Clear Anthropic Credentials",
-					`Remove the "${PROVIDER_NAME}" entry from auth.json?\n` +
-					`This clears the built-in OAuth credentials.\n` +
-					`${getOAuthToken() ? "Env var auth will continue to work." : "⚠️  No env var token set — you'll need to set one or /login again."}`
-				);
-
-				if (!confirmed) {
-					ctx.ui.notify("Cancelled.", "info");
-					return;
-				}
-
-				const { [PROVIDER_NAME]: _removed, ...rest } = authData;
-				writeAuthJson(rest);
-
-				ctx.ui.notify(
-					`✅ Cleared "${PROVIDER_NAME}" from auth.json.\n` +
-					`${getOAuthToken() ? "Env var auth remains active." : "Set " + ENV_PRIMARY + " to continue using Claude."}`,
-					"info"
-				);
-			}
-		},
-	});
 }
