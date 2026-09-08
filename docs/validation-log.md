@@ -5,13 +5,23 @@ Fixtures are isolated temporary Git projects driven through real Pi sessions in
 Herdr. External RTK `npm test` behavior was excluded from product conclusions;
 the authoritative fixture command is `node --test`.
 
+### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
 ## Rounds
 
 | Round | Workflow | Result | Finding and disposition |
 |---|---|---|---|
 | 1 | PLAN | PASS after fix | Non-Git `show_report` blocks by design; recorded as an environment boundary. Planning writes also conflicted with the task gate; planning-artifact writes now bypass that gate. |
 | 2 | PLAN | PASS | Fenced command assertions such as `[cmd] \`node --test\` → ...` were parsed incorrectly. Command extraction now removes code fences and trailing annotations. |
-| 3 | SPEC | PASS after fix | Generated specs omitted executable `## Contract` assertions, so `show_report` could not complete. SPEC prompt now requires `[cmd]`, `[file]`, or `[match]` assertions. |
+| 3 | SPEC | PASS after fix | Generated specs omitted executable `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
+## Contract` assertions, so `show_report` could not complete. SPEC prompt now requires `[cmd]`, `[file]`, or `[match]` assertions. |
 | 4 | TEAM | PASS after fix | Prompt referred to a Tester role absent from the available roster. TEAM now explicitly assigns verification/testing to Reviewer. |
 | 5 | CHAIN | PASS | `plan-build-review` ran Planner → Builder → Reviewer and produced a real passing fixture. Reviewer surfaced unrelated pre-existing fixture issues; they were kept out of scope. |
 | 6 | PIPELINE | PASS after fix | `set_mode PIPELINE` could race config/listener startup and leave no active pipeline. Pipeline activation now reconciles through an explicit cross-extension hook; phase flow and a set-mode-only race smoke pass. |
@@ -19,7 +29,12 @@ the authoritative fixture command is `node --test`.
 | 8 | NORMAL | PASS | Live `pi -p --mode json --no-session` smoke with `opencode-go/deepseek-v4-flash` in an isolated `/tmp` workspace returned `REAL-SMOKE-PASS`; no repository files were touched. |
 | 9 | PLAN / SPEC | PASS | Live provider smoke called `set_mode` exactly once for each mode and returned `PLAN-SMOKE-PASS` / `SPEC-SMOKE-PASS`; no file inspection or mutation was requested. |
 | 10 | TEAM / CHAIN / PIPELINE | PASS | Live provider smoke called `set_mode` exactly once for each mode and returned `TEAM-SMOKE-PASS`, `CHAIN-SMOKE-PASS`, and `PIPELINE-SMOKE-PASS`; no worker or file mutation was started. |
-| 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `## RESULT`, and the join preserved an explicit contract-violation warning rather than treating the output as verified evidence. |
+| 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
+## RESULT`, and the join preserved an explicit contract-violation warning rather than treating the output as verified evidence. |
 | 12 | NORMAL batch join:true | PASS | In an isolated `/tmp` workspace with the real provider, one parent call to `subagent_create_batch` used `join:true` for two parallel SCOUT workers; no separate `subagent_wait` call occurred, the parent returned `JOIN-TRUE-SMOKE-PASS`, and both worker journal rows/transcript archives were retained. The `--no-session` smoke intentionally had no parent composition event directory. |
 | 13 | NORMAL headless batch join:true | PASS | A repeat isolated `--no-session` real-provider smoke used one `join:true` batch call for two SCOUT workers and returned `HEADLESS-EVENTS-SMOKE-PASS`; the parent composition event directory contained run start, child starts/completions, usage, workspace delta, and terminal success. |
 | 14 | NORMAL / PLAN / SPEC / TEAM / CHAIN / PIPELINE | PASS | Real `opencode-go/deepseek-v4-flash` entry smoke in six isolated `/tmp` workspaces: each session called `set_mode` exactly once and returned its mode marker. All 6/6 passed; wall time was 15.8–28.1s including Pi startup, with CHAIN the slowest. No worker was started and no repository file was modified, so this is entry-path evidence rather than full workflow-performance evidence. |
@@ -29,6 +44,11 @@ the authoritative fixture command is `node --test`.
 | 18 | TEAM / REVIEWER | PASS | Real Herdr Pi TUI smoke explicitly loaded the plugin package root, dispatched one REVIEWER worker, observed `SA1 done`, and returned `TEAM-TASK-PASS`; the harness now accepts the implementation's `kind: sa` journal schema. |
 | 19 | PIPELINE | INCONCLUSIVE | Explicit package loading succeeded, but the default provider session did not reach the final marker within the bounded window. A retry with an unsupported Codex model was rejected before execution. No repository files or persistent external workspaces were modified. |
 
+### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
 ## Current evidence
 
 - Full repository tests: 182 Bun passed; 954 Vitest passed; 13 skipped.
@@ -320,6 +340,11 @@ the authoritative fixture command is `node --test`.
   audit boundary tests passed in the same targeted run (69 tests, 0 failures).
   No provider model request or business MCP tool was used.
 
+### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
 ## 2026-09-06 — PIPELINE gate re-audit
 
 - The earlier PIPELINE pass entry above is not reproducible under the current
@@ -341,6 +366,11 @@ the authoritative fixture command is `node --test`.
   tool. Completion was backed by workspace-scoped dispatch receipts, including
   the planner phase receipt consumed by `advance_phase`.
 
+### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
 ## 2026-09-06 · Workflow gap closure round
 
 Scope: approval gate, user evals, retrospective experience layer, recovery
@@ -371,10 +401,20 @@ advice, direct unit tests for previously indirectly-covered libs.
   `pi-workflow` eval executor reports BLOCKED until the live harness is
   wired; it never fabricates a PASS.
 
+### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
 ## 2026-09-08 · 治理重构后整车点火验证（charter branch）
 
 - **Live NORMAL smoke**: `pi -p --mode json --no-session` on opencode-go/deepseek-v4-flash returned `REAL-SMOKE-PASS` in 6.3s; extension layer booted clean (registered, 51 extensions).
-- **Live single delegation, end-to-end**: parent model called `subagent_create` (agent=builder, join=true) in isolated /tmp workspace. Dispatcher resolved per-agent model zai-coding-cn/glm-5.3-flash, spawned a real child pi, which appended `// delegated-ok` to a.ts, self-verified via `cat`, and returned the full `## RESULT` contract (role BUILDER / done:true / status:PASS / findings / files / key_errors). Parent reported `RESULT-SUMMARY: PASS`.
+- **Live single delegation, end-to-end**: parent model called `subagent_create` (agent=builder, join=true) in isolated /tmp workspace. Dispatcher resolved per-agent model zai-coding-cn/glm-5.3-flash, spawned a real child pi, which appended `// delegated-ok` to a.ts, self-verified via `cat`, and returned the full `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
+- 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
+- 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
+- 本仓侧防御（可做）：审计扩展保证无 tool result 缺 content。
+## RESULT` contract (role BUILDER / done:true / status:PASS / findings / files / key_errors). Parent reported `RESULT-SUMMARY: PASS`.
 - **Persisted trail verified on disk**: `.pi/agent-sessions/` held orchestration-run events.jsonl (run.started/subagent.started with runId+budget), workflow dispatch-receipt, task-journal.jsonl row (agent/mode/model/status/timestamps), and archived worker full output.
 - **Wiring audit (code-level)**: TEAM/CHAIN/PIPELINE `registerWorkflowDispatchHook` (agent-team L194 / agent-chain L145 / pipeline-team L190) ↔ `workflow-dispatch` registry ↔ `subagent_create` before/after calls (subagent-widget L853/L646) confirmed; `verify_execution`, security-guard tool_call, mode-cycler gate, tasks gate all registered. Full test suite green (bun 284 + vitest 997, 13 skipped) after S2/S3 deletions.
 - **Not live-driven this round (honest boundary)**: PLAN approval→verify_execution receipt closure, TEAM batch waves, full PIPELINE phase flow — wiring + gate tests + lib integration tests cover them, but a scripted multi-worker live drive is the next validation when wanted (tools/e2e or evals).
