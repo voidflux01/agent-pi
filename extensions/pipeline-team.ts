@@ -165,6 +165,26 @@ function resolveTemplate(
 
 // ── Extension ────────────────────────────────────
 
+
+/** D21 auto-advance decision (pure). Single-agent opt-in phase auto-advances
+ *  after its joined worker succeeds; review requires APPROVED in the output. */
+export function decideAutoAdvance(o: {
+	autoAdvance?: boolean;
+	agentCount: number;
+	status: string;
+	isCurrent: boolean;
+	isLast: boolean;
+	phaseName: string;
+	output?: string;
+}): boolean {
+	if (o.autoAdvance !== true) return false;
+	if (o.agentCount !== 1) return false;
+	if (o.status !== "done") return false;
+	if (!o.isCurrent || o.isLast) return false;
+	if (o.phaseName === "review" && !/\bAPPROVED\b/i.test(o.output || "")) return false;
+	return true;
+}
+
 export default function (pi: ExtensionAPI) {
 	registerHerdrCommands(pi);
 	let allAgents: Map<string, AgentDef> = new Map();
@@ -231,12 +251,16 @@ export default function (pi: ExtensionAPI) {
 			// declares auto_advance: true, exactly one configured agent, the
 			// worker actually succeeded, and review phases only when APPROVED.
 			const phaseName = phase.def.name.toLowerCase();
-			const autoOk = phase.def.autoAdvance === true
-				&& phase.def.agents.length === 1
-				&& result.status === "done"
-				&& phaseStates[currentPhaseIndex] === phase
-				&& currentPhaseIndex < phaseStates.length - 1;
-			if (autoOk && (phaseName !== "review" || /\bAPPROVED\b/i.test(output || ""))) {
+			const autoOk = decideAutoAdvance({
+				autoAdvance: phase.def.autoAdvance,
+				agentCount: phase.def.agents.length,
+				status: result.status,
+				isCurrent: phaseStates[currentPhaseIndex] === phase,
+				isLast: currentPhaseIndex >= phaseStates.length - 1,
+				phaseName,
+				output,
+			});
+			if (autoOk) {
 				phase.status = "done";
 				phase.summary = (output || "").slice(0, 2000);
 				phase.lastDispatchSuccess = true;

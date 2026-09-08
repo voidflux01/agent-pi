@@ -78,3 +78,22 @@ research-plan-build-review:
       agents:
         - role: reviewer
           task_template: "Review this implementation for bugs, correctness, and whether it honored the external research constraints:\n\n$INPUT"
+
+auto-build-report:
+  description: "Two-step single-agent flow with auto_advance (D21) — each finished worker advances without a coordinator call"
+  review_max_loops: 1
+  phases:
+    - name: build
+      description: "Make the change"
+      mode: interactive
+      auto_advance: true
+      agents:
+        - role: builder
+          task_template: "Implement: $INPUT"
+    - name: report
+      description: "Summarize what changed"
+      mode: interactive
+      auto_advance: true
+      agents:
+        - role: documenter
+          task_template: "Summarize the result: $INPUT"
