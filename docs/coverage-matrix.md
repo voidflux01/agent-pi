@@ -34,7 +34,7 @@
 | PIPELINE 全相位自助驱动 | 4-phase e2e 在固定窗口未完成；交互迷失（D16 指引已加，未再全通） | **可选/expert 档**；e2e 重跑留待更强模型或更长窗口 |
 | completion/plan/spec viewer GUI | 需真人浏览器（批准已人批；headless 无 URL 回传） | 可选保留 |
 | file/board/research/reports/cleanup viewer GUI | 需 GUI 会话 | 可选保留（登记） |
-| fleet-mailbox | PI_FLEET_MAILBOX env 门控 + 跨 pane 编排 | 可选保留（env 门控） |
+| fleet-mailbox | env 默认开，但真机 live 需交互多轮父问答 | 可选保留（lib 测试覆盖；live 需交互场景） |
 | security_news | 网络 allowlist | 可选保留 |
 | network-inspect/toolkit-cli/oauth/sounds/theme/banner/nav/footer/tex/session-replay/debug-capture/memory-cycle/security-report | 专项/GUI/装饰 | 可选保留（不再堆料） |
 | safe_port_scan | 系统无 nmap（优雅降级） | 保留（装 nmap 可用） |
@@ -50,7 +50,8 @@
 | D9 司机 git add -A 误收 .pi | 已修（gitignore） |
 | D11 SPEC bash 门无指引 → 死锁误判 | 已修（5d91f93，指引+测试） |
 | D12/D6/D8 show_report/批准 viewer 永等 → wedge | 已修（completion d21fff2 / plan+spec 8ef4de3，bounded wait 三件套） |
-| D13 reviewer 缺 decision 行 → 门误拦+父误报 | 已修（5cb77d3） |
+| D13 reviewer 缺 decision 行 → 门误拦+父误报 | 已修（5cb77d3）→ **D13-real 三连修**（3289abf 代码模板 / a1a3d6a 全块语义扫描 / 5940653 修复轮强制），live journal done |
+| D17 headless-bg 受 shell job-control 组杀 | 约束定性（herdr-pane 为耐久载体），记录指引 |
 | D15 verifier spawn startup 失败吞 attempt | 已修（9155a3e，spawn 重试） |
 | D16 PIPELINE status 无下一步指引 | 已修（771ceef，Next action） |
 | D1/D7/D8/D10/D14 观察/外部 | 记录（模型纪律、herdr 状态、provider 环境） |
