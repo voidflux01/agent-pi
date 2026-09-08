@@ -67,7 +67,13 @@ export function buildWorkerInitialPrompt(opts: {
 		`role: ${resultRole}`,
 		"done: true|false",
 		"status: PASS|FAIL|BLOCKED",
-		"summary: one or two lines describing the outcome",
+		...(role.trim().toLowerCase() === "reviewer"
+			? [
+				"decision: APPROVED|NEEDS CHANGES",
+				"summary: one or two lines describing the outcome",
+				"(decision line above MUST be exactly APPROVED or NEEDS CHANGES — the parent gate matches that literal word and treats narrative verdicts as UNKNOWN, blocking the result from handoff.)",
+			]
+			: ["summary: one or two lines describing the outcome"]),
 		"findings:",
 		"- detailed findings, evidence, and relevant code snippets",
 		"external_research_needed: true|false",
