@@ -6,7 +6,7 @@ import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } fr
 import { Type, type Static } from "@sinclair/typebox";
 import { Text } from "@mariozechner/pi-tui";
 import { registerToolWithExecutor, getRegisteredToolExecutors } from "./lib/tool-executor-registry.ts";
-import { capabilityConflict, getCapability, getCapabilityForTool, listCapabilities, registerCapability, validateCapabilityArguments } from "./lib/capability-registry.ts";
+import { capabilityConflict, getCapability, getCapabilityForTool, registerCapability, validateCapabilityArguments } from "./lib/capability-registry.ts";
 import { executeBuiltinTool, nestedApprovalBlock, nestedSecurityBlock } from "./tool-caller.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, RunBudgetError } from "./lib/orchestration-run.ts";
@@ -330,14 +330,6 @@ export default function (pi: ExtensionAPI) {
 			const summary = `${details?.completed ?? 0}/${details?.total ?? 0} completed${details?.failed ? ` · ${details.failed} issue(s)` : ""}`;
 			if (!expanded) return new Text(theme.fg(details?.failed ? "warning" : "success", summary), 0, 0);
 			return new Text(theme.fg(details?.failed ? "warning" : "success", summary) + "\n" + theme.fg("muted", JSON.stringify(details?.results ?? [], null, 2)), 0, 0);
-		},
-	});
-
-	pi.registerCommand("capabilities", {
-		description: "List registered executable capabilities",
-		handler: async (_args, ctx) => {
-			const capabilities = listCapabilities();
-			ctx.ui.notify(capabilities.length ? capabilities.map((capability) => `${capability.ref} [${capability.risk}]`).join("\n") : "No capabilities registered", "info");
 		},
 	});
 
