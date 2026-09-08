@@ -258,3 +258,26 @@ pipeline-b:
 		expect(configs[0].phases[0].agents[0].resources).toEqual(["src/app.ts", "workspace"]);
 	});
 });
+
+// D21: auto_advance opt-in field parses per phase.
+it("parses auto_advance opt-in on a phase", () => {
+	const yaml = `smoke-auto:
+  description: "single-agent auto pipeline"
+  phases:
+    - name: BUILD
+      description: "build it"
+      auto_advance: true
+      agents:
+        - role: builder
+          task_template: "build"
+    - name: REVIEW
+      description: "review it"
+      auto_advance: false
+      agents:
+        - role: reviewer
+          task_template: "review"
+`;
+	const [config] = parsePipelineYaml(yaml);
+	expect(config.phases[0].autoAdvance).toBe(true);
+	expect(config.phases[1].autoAdvance).toBe(false);
+});

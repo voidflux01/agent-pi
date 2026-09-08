@@ -223,6 +223,28 @@ export default function (pi: ExtensionAPI) {
 			}];
 			if (phase.def.name.toLowerCase() === "plan") planOutput = output;
 			if (phase.def.name.toLowerCase() === "review") reviewOutput = output;
+
+			// Auto-advance (opt-in, dogfood D21): a single-agent phase whose
+			// joined worker succeeded moves on without the coordinator having to
+			// call advance_phase — the stall cycle-15 saw was the model never
+			// advancing after a finished worker. Conservative: only when the phase
+			// declares auto_advance: true, exactly one configured agent, the
+			// worker actually succeeded, and review phases only when APPROVED.
+			const phaseName = phase.def.name.toLowerCase();
+			const autoOk = phase.def.autoAdvance === true
+				&& phase.def.agents.length === 1
+				&& result.status === "done"
+				&& phaseStates[currentPhaseIndex] === phase
+				&& currentPhaseIndex < phaseStates.length - 1;
+			if (autoOk && (phaseName !== "review" || /\bAPPROVED\b/i.test(output || ""))) {
+				phase.status = "done";
+				phase.summary = (output || "").slice(0, 2000);
+				phase.lastDispatchSuccess = true;
+				const nextIdx = currentPhaseIndex + 1;
+				currentPhaseIndex = nextIdx;
+				phaseStates[nextIdx].status = "active";
+				if (phaseName === "plan") bindPipelinePlan(planOutput);
+			}
 			updateWidget();
 			persistPipelineState();
 		},

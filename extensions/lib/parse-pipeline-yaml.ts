@@ -13,6 +13,8 @@ export interface PhaseDef {
 	mode: "interactive" | "parallel" | "sequential";
 	agents: PhaseAgentDef[];
 	max_iterations?: number;
+	/** Opt-in: a single-agent phase auto-advances after its worker's joined ## RESULT succeeds. */
+	autoAdvance?: boolean;
 }
 
 export interface PipelineConfig {
@@ -106,6 +108,13 @@ export function parsePipelineYaml(raw: string): PipelineConfig[] {
 		const iterMatch = line.match(/^\s+max_iterations:\s+(\d+)$/);
 		if (iterMatch && !currentAgent) {
 			currentPhase.max_iterations = parseInt(iterMatch[1], 10);
+			continue;
+		}
+
+		// Phase auto_advance (opt-in, single-agent phases)
+		const autoMatch = line.match(/^\s+auto_advance:\s*(true|false)$/);
+		if (autoMatch && !currentAgent) {
+			currentPhase.autoAdvance = autoMatch[1] === "true";
 			continue;
 		}
 
