@@ -57,7 +57,8 @@ try {
 	send("send-keys", paneId, "enter");
 
 	let finalText = "";
-	for (let i = 0; i < 75; i++) {
+	const maxWaitSec = Number(process.env.PIPELINE_E2E_MAX_SECONDS) || 225;
+	for (let i = 0; i < Math.ceil(maxWaitSec / 3); i++) {
 		await sleep(3000);
 		finalText = readPane();
 		const rows = readRows().filter((row: any) => (row.kind === "pipeline" || row.kind === "sa") && row.mode === "PIPELINE");
