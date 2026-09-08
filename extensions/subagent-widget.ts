@@ -494,7 +494,7 @@ export default function (pi: ExtensionAPI) {
 
 			let finished = false;
 			let formatRepairAttempts = 0;
-			let formatRepair: (() => Promise<void>) | undefined;
+			let formatRepair: ((reason?: string) => Promise<void>) | undefined;
 			const finish = (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
 				if (finished) return;
 				const result = externalFull ?? state.textChunks.join("");
@@ -502,9 +502,9 @@ export default function (pi: ExtensionAPI) {
 				const contractFailure = resultContractFailure(result, toolkitRun, state.name);
 				const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(result) : "APPROVED";
 				const reviewerFailure = reviewerOutcome !== "APPROVED" ? `reviewer decision gate: ${reviewerOutcome}; explicit APPROVED is required` : "";
-				if (code === 0 && !failure && !toolkitRun && contractFailure && result.trim() && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
+				if (code === 0 && !failure && !toolkitRun && (contractFailure || reviewerFailure) && result.trim() && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
 					formatRepairAttempts++;
-					void formatRepair().catch(() => finish(1, undefined, undefined, "process_error"));
+					void formatRepair(reviewerFailure || contractFailure || undefined).catch(() => finish(1, undefined, undefined, "process_error"));
 					return;
 				}
 				finished = true;
@@ -738,8 +738,8 @@ export default function (pi: ExtensionAPI) {
 			// Standard Pi transport is shared with team, chain, and pipeline. The
 			// Keep watchdog, epoch, and follow-up policies local to this widget.
 			const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
-			formatRepair = async () => {
-				const repairPrompt = `Your previous response did not pass the result format gate: ${resultContractFailure(state.textChunks.join("")) || "missing required result contract"}. Do not continue the task or add prose. Return exactly one final English Markdown result block with the required role, done, status, summary, findings, files, key_errors, verification, remaining fields, closed by ## END. The format gate must pass before this worker can return to its parent.`;
+			formatRepair = async (repairReason?: string) => {
+				const repairPrompt = `Your previous response did not pass the result format gate: ${repairReason || resultContractFailure(state.textChunks.join("")) || "missing required result contract"}. Do not continue the task or add prose. Return exactly one final English Markdown result block with the required role, done, status, summary, findings, files, key_errors, verification, remaining fields, closed by ## END.${state.name.toLowerCase() === "reviewer" ? " For a reviewer the summary MUST contain the literal word APPROVED or NEEDS CHANGES (e.g. \"decision: APPROVED\" on its own line) — a narrative verdict without that word is treated as UNKNOWN and blocked." : ""} The format gate must pass before this worker can return to its parent.`;
 				const repairResult = await createSubagentRuntime({
 					authorization: currentDispatchAuthorization(),
 					command: withSessionResume(["pi", "--mode", "json", "-p", "--session", state.sessionFile, "--model", model, "--tools", "", repairPrompt], state.sessionFile),
