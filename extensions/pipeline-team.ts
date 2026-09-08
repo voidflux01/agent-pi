@@ -24,10 +24,7 @@
 import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
-import {
-	Box, Text, Container, Spacer, type AutocompleteItem,
-	matchesKey, Key, truncateToWidth, visibleWidth,
-} from "@mariozechner/pi-tui";
+import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -49,10 +46,8 @@ import {
 import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
 import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor, type OutputBoxTheme } from "./lib/output-box.ts";
-import { renderVerticalTimeline, renderCollapsedTimeline, statusButton } from "./lib/pipeline-render.ts";
+import { renderVerticalTimeline, renderCollapsedTimeline } from "./lib/pipeline-render.ts";
 import { toolCallText } from "./lib/tui/tool-render.ts";
-import { beginPanel, endPanel, KEY_HINT_FOOTER } from "./lib/tui/panel.ts";
-import { truncatePreview } from "./lib/tui/text.ts";
 import { hideWidget } from "./lib/tui/widget.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
@@ -873,106 +868,6 @@ export default function (pi: ExtensionAPI) {
 		return { outputs, fullOutputs, fullOutputPaths, success: allSuccess };
 	}
 
-	// ── Ctrl+J Overlay ───────────────────────────
-
-	class AgentGridOverlay {
-		private selectedIndex = 0;
-		private expandedIndex: number | null = null;
-		private scrollOffset = 0;
-
-		constructor(
-			private items: AgentState[],
-			private onDone: () => void,
-		) {
-			this.selectedIndex = 0;
-		}
-
-		handleInput(data: string, tui: any): void {
-			if (matchesKey(data, Key.up)) {
-				this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-			} else if (matchesKey(data, Key.down)) {
-				this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
-			} else if (matchesKey(data, Key.enter)) {
-				this.expandedIndex = this.expandedIndex === this.selectedIndex ? null : this.selectedIndex;
-			} else if (matchesKey(data, Key.escape)) {
-				this.onDone();
-				return;
-			}
-			tui.requestRender();
-		}
-
-		private ensureVisible(height: number) {
-			const pageSize = Math.floor(height / 4);
-			if (this.selectedIndex < this.scrollOffset) {
-				this.scrollOffset = this.selectedIndex;
-			} else if (this.selectedIndex >= this.scrollOffset + pageSize) {
-				this.scrollOffset = this.selectedIndex - pageSize + 1;
-			}
-		}
-
-		render(width: number, height: number, theme: any): string[] {
-			this.ensureVisible(height);
-
-			const container = beginPanel(theme, new Container());
-			const phaseName = phaseStates[currentPhaseIndex]?.def.name.toUpperCase() || "PIPELINE";
-			container.addChild(new Text(
-				`${theme.fg("accent", theme.bold(` AGENTS — ${phaseName}`))} ${theme.fg("dim", "|")} ${theme.fg("success", this.items.length.toString())} agents`,
-				1, 0,
-			));
-			container.addChild(new Spacer(1));
-
-			const visibleItems = this.items.slice(this.scrollOffset);
-
-			visibleItems.forEach((item, idx) => {
-				const absoluteIndex = idx + this.scrollOffset;
-				const isSelected = absoluteIndex === this.selectedIndex;
-				const isExpanded = absoluteIndex === this.expandedIndex;
-
-				const cardBox = new Box(1, 0, (s) => isSelected ? theme.bg("selectedBg", s) : s);
-
-				const agentLabel = displayName(item.role) + " #" + (item.index + 1);
-				const statusBtn = statusButton(item.status, agentLabel, theme);
-				const timeStr = item.elapsed > 0 ? ` ${Math.round(item.elapsed / 1000)}s` : "";
-				const titleLine = `${statusBtn} ${theme.fg("dim", timeStr)}`;
-				cardBox.addChild(new Text(titleLine, 0, 0));
-
-				if (isExpanded && item.output) {
-					cardBox.addChild(new Spacer(1));
-					const output = item.output.length > 4000
-						? item.output.slice(0, 4000) + "\n... [truncated]"
-						: item.output;
-					cardBox.addChild(new Text(theme.fg("muted", output), 0, 0));
-				} else {
-					const preview = (item.lastWork || item.task || "—").replace(/\n/g, " ");
-					const truncated = truncatePreview(preview, width - 10);
-					cardBox.addChild(new Text(theme.fg("dim", "  " + truncated), 0, 0));
-				}
-
-				container.addChild(cardBox);
-			});
-
-			// Footer
-			endPanel(container, theme, KEY_HINT_FOOTER);
-
-			return container.render(width);
-		}
-	}
-
-	// ── Collect All Agents for Overlay ───────────
-
-	function collectOverlayAgents(): AgentState[] {
-		// Current phase agents first, then all others
-		const current = phaseStates[currentPhaseIndex]?.agents || [];
-		if (current.length > 0) return current;
-
-		// If no current phase agents, show all from all phases
-		const all: AgentState[] = [];
-		for (const ps of phaseStates) {
-			all.push(...ps.agents);
-		}
-		return all;
-	}
-
 	function bindPipelinePlan(planText: string): void {
 		const bound = bindAcceptanceContract(planText, "pipeline");
 		setExecutionContract("error" in bound ? undefined : bound);
@@ -1302,33 +1197,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-		// ── /pipeline-grid command ────────────────────
-
-	pi.registerCommand("pipeline-grid", {
-		description: "Open agent grid overlay",
-		handler: async (_args, ctx) => {
-			const agents = collectOverlayAgents();
-			if (agents.length === 0) {
-				ctx.ui.notify("No agents to inspect", "info");
-				return;
-			}
-
-			await ctx.ui.custom((tui, theme, _kb, done) => {
-				const overlay = new AgentGridOverlay(agents, () => done(undefined));
-				return {
-					render: (w) => overlay.render(w, 30, theme),
-					handleInput: (data) => overlay.handleInput(data, tui),
-					invalidate: () => {},
-				};
-			}, {
-				overlay: true,
-				overlayOptions: { width: "80%", anchor: "center" },
-			});
-		},
-	});
-;
-
-	// ── Alt+P Shortcut ──────────────────────────
+		// ── Alt+P Shortcut ──────────────────────────
 
 	pi.registerShortcut("alt+p", {
 		description: "Toggle pipeline widget collapse/expand",
