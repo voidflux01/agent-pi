@@ -5,6 +5,8 @@
 >
 > 状态：draft · 修订日期：2026-09 · 前置侦察：`.pi/agent-sessions/outputs/scout-sa1-1-mtoeauch.txt`
 
+> **S6 状态对账（2026-09-08）**：本文 P0–P4 阶段为路线图理想，非全部已实现。已 ship/部分项见 `docs/system-map.md`（层/档标注）与 `docs/verification-design.md`。按 `docs/POSITIONING.md` §4，P1(eval/judge)、P4(monitor/deploy) 等异步能力**默认 descope**，除非作者真实工作负载证明其杠杆——不因本文写了而实现。P0（兼容/evidence/foundations）已 ship；P2/P3（direction/retrospective）部分 ship。改动须先读 `docs/GOVERNANCE_CHECKLIST.md`。
+
 ## 0. 产品定位与边界
 
 agent-pi 是 Pi Coding Agent 的扩展与配置层，不是独立的 Agent runtime、CI/CD 平台、生产监控平台或外部记忆服务。
