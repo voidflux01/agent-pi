@@ -4,6 +4,31 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Dogfood campaign fixes (real-machine driven, 2026-09)
+
+- **Viewer waits are bounded** (wedge family): `show_report`, `show_plan`, and
+  `show_spec` no longer await a browser viewer forever when nobody acts.
+  `PI_REPORT_WAIT_MS` / `PI_VIEWER_WAIT_MS` (default 5 min) close the server and
+  end the turn gracefully; approvals stay blocked on timeout.
+- **Reviewer gate enforcement in code**: the worker RESULT template now inserts
+  `decision: APPROVED|NEEDS CHANGES` for reviewer role
+  (`buildWorkerInitialPrompt`); `reviewerDecision` scans the whole RESULT block
+  (format-tolerant, negation-aware, still fail-closed without the word
+  APPROVED); reviewer gate failures now enter the format-repair loop, which
+  demands the literal decision word. Live-verified: reviewer rows reach
+  `done` instead of spurious `error`.
+- **Verifier spawn retry**: `runVerifierSubagent` retries a startup failure
+  (`process_error` / empty output) up to 2x with backoff instead of BLOCKing
+  verification and consuming the attempt.
+- **PIPELINE next-action guidance**: `pipeline_status` prints an explicit
+  `Next action:` for the current phase (dispatch the configured worker then
+  `advance_phase`, or advance directly for non-dispatch phases).
+- **SPEC/PLAN mutating-bash guidance**: pre-approval mutating-bash blocks now
+  say how to proceed (`write` under `context-os/` / `.context/todo.md`) instead
+  of reading as a total lockdown.
+- **e2e**: `pipeline-herdr-e2e` wait window is env-tunable
+  (`PIPELINE_E2E_MAX_SECONDS`).
+
 ### Workflow gap closure (approval gate, user evals, experience layer, recovery advice)
 
 - Proposal-bound approval gate (`extensions/lib/workflow-approval-gate.ts`):
