@@ -1088,10 +1088,26 @@ export default function (pi: ExtensionAPI) {
 				return `${marker}${ps.def.name.toUpperCase()} [${ps.status}]${ps.summary ? ": " + ps.summary.slice(0, 100) : ""}`;
 			}).join("\n");
 
+			// Explicit next action: a model that gets lost mid-pipeline (dogfood
+			// D16) needs the current phase to say what to do, not just list state.
+			const cur = phaseStates[currentPhaseIndex];
+			let nextAction = "(pipeline finished — verify + report)";
+			if (cur && cur.status !== "done") {
+				if (phaseRequiresAgentDispatch(cur.def)) {
+					nextAction = phaseDispatchReady(cur)
+						? `call advance_phase with the bounded ## RESULT summary (phase worker done).`
+						: `dispatch the configured worker via subagent_create / subagent_create_batch (roles: ${cur.def.agents.map((a) => a.role).join(", ") || "see config"}), wait for its ## RESULT, then call advance_phase with that summary. Do not advance on a self-written summary.`;
+				} else {
+					nextAction = `this phase (${cur.def.name.toUpperCase()}) completes without agent dispatch — do its work with your own tools, then call advance_phase.`;
+				}
+			}
+
 			const status = [
 				`Pipeline: ${activeConfig.name}`,
 				`Current Phase: ${phaseStates[currentPhaseIndex]?.def.name.toUpperCase() || "none"} (${currentPhaseIndex + 1}/${phaseStates.length})`,
 				`Review Loops: ${reviewLoopCount}/${activeConfig.review_max_loops}`,
+				``,
+				`Next action: ${nextAction}`,
 				``,
 				`Phases:`,
 				phases,
