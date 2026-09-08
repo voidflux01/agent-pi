@@ -29,7 +29,6 @@
 import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
-import { type AutocompleteItem } from "@mariozechner/pi-tui";
 import { execFileSync, spawn } from "child_process";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
@@ -455,64 +454,6 @@ export default function (pi: ExtensionAPI) {
 			return "Missing prerequisites: vhs, ttyd, and ffmpeg must be on PATH. Install with: brew install vhs";
 		}
 	}
-
-	// ── /debug-capture command ───────────────────
-
-	const SCENARIOS = ["tasks", "modes", "footer", "theme", "pi"];
-
-	pi.registerCommand("debug-capture", {
-		description: "Capture a VHS screenshot of Pi's TUI for visual debugging",
-		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
-			const items = SCENARIOS.map(s => ({
-				value: s,
-				label: s === "tasks" ? "tasks — Task list widget with sample data"
-					: s === "modes" ? "modes — Each operational mode banner"
-					: s === "footer" ? "footer — Footer status bar"
-					: s === "theme" ? "theme <name> — Pi with a specific VHS theme"
-					: s === "pi" ? "pi <prompt> — Run Pi with a prompt and capture output"
-					: "",
-			}));
-			const filtered = items.filter(i => i.value.startsWith(prefix));
-			return filtered.length > 0 ? filtered : items;
-		},
-		handler: async (args, ctx) => {
-			const scenario = args?.trim();
-			if (!scenario) {
-				ctx.ui.notify(
-					"Usage: /debug-capture <scenario>\n" +
-					"Scenarios: tasks, modes, footer, theme <name>, pi <prompt>",
-					"warning",
-				);
-				return;
-			}
-
-			const prereqError = checkPrereqs();
-			if (prereqError) {
-				ctx.ui.notify(prereqError, "error");
-				return;
-			}
-
-			ctx.ui.notify(`Capturing: ${scenario}...`, "info");
-
-			const { tapePath, ts } = generateTape(scenario, ctx.cwd);
-			const result = await runVhs(tapePath, ctx.cwd, ts);
-
-			if (result.error) {
-				ctx.ui.notify(`Capture failed: ${result.error}`, "error");
-			} else {
-				const count = result.screenshots.length;
-				ctx.ui.notify(
-					`Captured ${count} screenshot${count !== 1 ? "s" : ""} in ${Math.round(result.elapsed / 1000)}s. ` +
-					`Use Read on the paths to inspect.`,
-					"info",
-				);
-			}
-
-			// Print full result to chat
-			// Command handlers must return void; result was already reported via ui.notify.
-			void formatResult(result);
-		},
-	});
 
 	// ── debug_capture tool ───────────────────────
 
