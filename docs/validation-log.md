@@ -5,7 +5,7 @@ Fixtures are isolated temporary Git projects driven through real Pi sessions in
 Herdr. External RTK `npm test` behavior was excluded from product conclusions;
 the authoritative fixture command is `node --test`.
 
-### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -16,7 +16,7 @@ the authoritative fixture command is `node --test`.
 |---|---|---|---|
 | 1 | PLAN | PASS after fix | Non-Git `show_report` blocks by design; recorded as an environment boundary. Planning writes also conflicted with the task gate; planning-artifact writes now bypass that gate. |
 | 2 | PLAN | PASS | Fenced command assertions such as `[cmd] \`node --test\` → ...` were parsed incorrectly. Command extraction now removes code fences and trailing annotations. |
-| 3 | SPEC | PASS after fix | Generated specs omitted executable `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+| 3 | SPEC | PASS after fix | Generated specs omitted executable `### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -29,7 +29,7 @@ the authoritative fixture command is `node --test`.
 | 8 | NORMAL | PASS | Live `pi -p --mode json --no-session` smoke with `opencode-go/deepseek-v4-flash` in an isolated `/tmp` workspace returned `REAL-SMOKE-PASS`; no repository files were touched. |
 | 9 | PLAN / SPEC | PASS | Live provider smoke called `set_mode` exactly once for each mode and returned `PLAN-SMOKE-PASS` / `SPEC-SMOKE-PASS`; no file inspection or mutation was requested. |
 | 10 | TEAM / CHAIN / PIPELINE | PASS | Live provider smoke called `set_mode` exactly once for each mode and returned `TEAM-SMOKE-PASS`, `CHAIN-SMOKE-PASS`, and `PIPELINE-SMOKE-PASS`; no worker or file mutation was started. |
-| 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+| 11 | NORMAL batch join | PASS | In an isolated `/tmp` workspace with the real provider, the parent called `subagent_create_batch` for two SCOUT workers and then one `subagent_wait`; both markers were present and the parent returned `BATCH-JOIN-SMOKE-PASS`. The workers intentionally omitted `### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -44,7 +44,7 @@ the authoritative fixture command is `node --test`.
 | 18 | TEAM / REVIEWER | PASS | Real Herdr Pi TUI smoke explicitly loaded the plugin package root, dispatched one REVIEWER worker, observed `SA1 done`, and returned `TEAM-TASK-PASS`; the harness now accepts the implementation's `kind: sa` journal schema. |
 | 19 | PIPELINE | INCONCLUSIVE | Explicit package loading succeeded, but the default provider session did not reach the final marker within the bounded window. A retry with an unsupported Codex model was rejected before execution. No repository files or persistent external workspaces were modified. |
 
-### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -340,7 +340,7 @@ the authoritative fixture command is `node --test`.
   audit boundary tests passed in the same targeted run (69 tests, 0 failures).
   No provider model request or business MCP tool was used.
 
-### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -366,7 +366,7 @@ the authoritative fixture command is `node --test`.
   tool. Completion was backed by workspace-scoped dispatch receipts, including
   the planner phase receipt consumed by `advance_phase`.
 
-### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -401,7 +401,7 @@ advice, direct unit tests for previously indirectly-covered libs.
   `pi-workflow` eval executor reports BLOCKED until the live harness is
   wired; it never fabricates a PASS.
 
-### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
@@ -409,7 +409,7 @@ advice, direct unit tests for previously indirectly-covered libs.
 ## 2026-09-08 · 治理重构后整车点火验证（charter branch）
 
 - **Live NORMAL smoke**: `pi -p --mode json --no-session` on opencode-go/deepseek-v4-flash returned `REAL-SMOKE-PASS` in 6.3s; extension layer booted clean (registered, 51 extensions).
-- **Live single delegation, end-to-end**: parent model called `subagent_create` (agent=builder, join=true) in isolated /tmp workspace. Dispatcher resolved per-agent model zai-coding-cn/glm-5.3-flash, spawned a real child pi, which appended `// delegated-ok` to a.ts, self-verified via `cat`, and returned the full `### [2026-09-08] 上游宿主缺陷 D22（记录，非本仓源码）
+- **Live single delegation, end-to-end**: parent model called `subagent_create` (agent=builder, join=true) in isolated /tmp workspace. Dispatcher resolved per-agent model zai-coding-cn/glm-5.3-flash, spawned a real child pi, which appended `// delegated-ok` to a.ts, self-verified via `cat`, and returned the full `### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。
 - 归属：`@earendil-works/pi-coding-agent` 0.85.1（宿主 runtime），非 agent-pi repo 源码；栈帧全在宿主。durable 修法：`result?.content ?? []`（上游补丁）。
