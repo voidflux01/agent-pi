@@ -17,7 +17,6 @@
  * Commands:
  *   /auth-status   — Show which auth method is active and token presence
  *   /auth-logout   — Clear built-in OAuth credentials from auth.json (keeps env var auth)
- *   /auth-clear    — Alias for /auth-logout
  *
  * Environment Variables:
  *   CLAUDE_CODE_OAUTH_TOKEN  — Primary: Claude Code OAuth token (Claude Max Plan)
