@@ -694,7 +694,7 @@ export default function (pi: ExtensionAPI) {
 			orchestrationRun.consumeStep();
 			const result = await runCanonicalAgent(agentDef, resolvedPrompt, ctx, orchestrationRun.signal);
 
-			const contractFailure = resultContractFailure(result.fullOutput || "");
+			const contractFailure = resultContractFailure(result.fullOutput || "", false, agentDef.name);
 			if (result.exitCode !== 0 || contractFailure) {
 				stepStates[i].status = "error";
 				updateWidget();

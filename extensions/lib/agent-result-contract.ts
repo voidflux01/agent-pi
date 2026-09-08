@@ -124,8 +124,15 @@ export interface ExtractedResult {
 /**
  * Normalize common model formatting drift without spending another model turn.
  * Only a RESULT block is normalized; report content is preserved verbatim.
+ * Deterministic repairs cover the frequent mechanical drifts: localized field
+ * labels, status/done value aliases, a missing role line (injected from the
+ * spawn identity where available), a missing summary (taken from the first
+ * findings bullet), and a missing ## END closer (re-emitted canonically).
  */
-export function normalizeResultContract(text: string): { text: string; changed: boolean } | undefined {
+export function normalizeResultContract(
+	text: string,
+	role?: string,
+): { text: string; changed: boolean } | undefined {
 	const extracted = extractResultBlock(text);
 	if (!extracted.found) return undefined;
 	const lines = extracted.result.split(/\r?\n/);
@@ -137,6 +144,17 @@ export function normalizeResultContract(text: string): { text: string; changed: 
 		"status": "status", "状态": "status",
 		"summary": "summary", "总结": "summary", "摘要": "summary",
 	};
+	// Status values drift far more often than the PASS|FAIL|BLOCKED enum;
+	// map the common phrasings deterministically instead of repairing.
+	const statusAliases: Record<string, string> = {
+		"pass": "PASS", "success": "PASS", "succeeded": "PASS", "ok": "PASS", "complete": "PASS", "completed": "PASS", "通过": "PASS",
+		"fail": "FAIL", "failed": "FAIL", "error": "FAIL", "failure": "FAIL", "错误": "FAIL", "失败": "FAIL",
+		"blocked": "BLOCKED", "block": "BLOCKED", "阻塞": "BLOCKED",
+	};
+	const doneAliases: Record<string, "true" | "false"> = {
+		"true": "true", "yes": "true", "y": "true", "done": "true", "completed": "true", "complete": "true", "successful": "true", "完成": "true", "已完成": "true", "是": "true",
+		"false": "false", "no": "false", "n": "false", "not": "false", "incomplete": "false", "incompleted": "false", "未完成": "false", "未": "false", "否": "false",
+	};
 	let done: string | undefined;
 	let summary = "";
 	let doneIndex = -1;
@@ -147,23 +165,49 @@ export function normalizeResultContract(text: string): { text: string; changed: 
 		const field = fieldMatch ? fieldAliases[fieldMatch[1].trim().toLowerCase()] : undefined;
 		if (field && fieldMatch) normalized[i] = `${field}: ${fieldMatch[2].trim()}`;
 		const canonicalLine = normalized[i].trim();
-		const doneMatch = canonicalLine.match(/^done:\s*(true|false|是|否)(?:\s*[—–-]\s*(.+))?$/i);
+		const doneMatch = canonicalLine.match(/^done:\s*([^\s]+)(?:\s*[—–-]\s*(.+))?$/i);
 		if (doneMatch) {
-			done = /^(true|是)$/i.test(doneMatch[1]) ? "true" : "false";
-			doneIndex = i;
-			if (!summary && doneMatch[2]) summary = doneMatch[2].trim();
+			const mapped = doneAliases[doneMatch[1].toLowerCase()];
+			if (mapped) {
+				done = mapped;
+				doneIndex = i;
+				if (!summary && doneMatch[2]) summary = doneMatch[2].trim();
+			}
+		}
+		const statusMatch = canonicalLine.match(/^status:\s*(\S+)/i);
+		if (statusMatch) {
+			const mapped = statusAliases[statusMatch[1].toLowerCase()];
+			if (mapped) normalized[i] = `status: ${mapped}`;
 		}
 		const summaryMatch = canonicalLine.match(/^summary:\s*(.*)$/i);
 		if (summaryMatch?.[1]?.trim()) summary = summaryMatch[1].trim();
 	}
 	if (!done) return undefined;
 	if (doneIndex >= 0) normalized[doneIndex] = `done: ${done}`;
+	// Inject the spawn identity when the worker dropped the role line.
+	const hasRole = normalized.some((line) => /^\s*role:\s*\S/i.test(line));
+	const roleLine = role ? `role: ${role.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "";
+	if (!hasRole && roleLine) {
+		normalized.splice(doneIndex + 1, 0, roleLine);
+	}
 	if (!normalized.some((line) => /^\s*summary:\s*\S/i.test(line))) {
-		normalized.splice(doneIndex + 1, 0, `summary: ${summary || "Result returned; see findings."}`);
+		const fallback = summary || fallbackSummary(normalized);
+		normalized.splice(doneIndex + 1 + (roleLine && !hasRole ? 1 : 0), 0, `summary: ${fallback}`);
 	}
 	const body = normalized.join("\n").trim();
 	const canonical = `## RESULT\n${body}\n## END`;
 	return { text: canonical, changed: canonical !== text.trim() };
+}
+
+/** First findings bullet as a zero-token summary fallback. */
+function fallbackSummary(lines: string[]): string {
+	for (const line of lines) {
+		const t = line.trim().replace(/^[-*]\s*/, "");
+		if (t && t.length > 2 && !/^(role|done|status|summary|findings|files|key_errors|verification|remaining|external_research_needed|queries|reason):/i.test(t)) {
+			return t.replace(/\s+/g, " ").slice(0, 160);
+		}
+	}
+	return "Result returned; see findings.";
 }
 
 /**
@@ -259,7 +303,7 @@ export function composeAgentResult(
 	const fullText = opts.outputText || "";
 	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
 
-	const normalized = opts.skipContract ? undefined : normalizeResultContract(fullText);
+	const normalized = opts.skipContract ? undefined : normalizeResultContract(fullText, opts.agent);
 	const contractText = normalized?.text || fullText;
 	const { found, result } = extractResultBlock(contractText);
 
@@ -363,9 +407,9 @@ export function checkResultCompliance(fullText: string): ResultCompliance {
 }
 
 /** A coordinator may advance only when the worker emitted a complete result. */
-export function resultContractFailure(fullText: string, skipContract = false): string | undefined {
+export function resultContractFailure(fullText: string, skipContract = false, role?: string): string | undefined {
 	if (skipContract) return undefined;
-	const normalized = normalizeResultContract(fullText);
+	const normalized = normalizeResultContract(fullText, role);
 	const compliance = checkResultCompliance(normalized?.text || fullText);
 	return compliance.ok ? undefined : `worker result contract incomplete: ${compliance.problems.join("; ")}`;
 }

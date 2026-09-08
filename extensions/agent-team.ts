@@ -915,7 +915,7 @@ export default function (pi: ExtensionAPI) {
 
 				// result.output is already the composed, precision-preserving index
 				// (status + ## RESULT block or tail/head fallback + full-output path).
-				const contractFailure = resultContractFailure(result.fullOutput);
+				const contractFailure = resultContractFailure(result.fullOutput, undefined, agent);
 				const status = result.exitCode === 0 && !contractFailure ? "done" : "error";
 				const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
@@ -1034,7 +1034,7 @@ export default function (pi: ExtensionAPI) {
 					orchestrationRun.consumeStep();
 					try {
 						const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-						const contractFailure = resultContractFailure(result.fullOutput);
+						const contractFailure = resultContractFailure(result.fullOutput, undefined, job.agent);
 						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 && !contractFailure ? "done" : "error", ...(contractFailure ? { contractFailure } : {}), ...result };
 					} catch (error: any) {
 						results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };

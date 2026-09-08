@@ -102,6 +102,63 @@ describe("checkResultCompliance", () => {
 	});
 });
 
+describe("deterministic autofix (zero-token drift repair)", () => {
+	test("maps status value aliases to the enum", () => {
+		const drift = [
+			"## RESULT",
+			"role: tester",
+			"done: true",
+			"status: SUCCESS",
+			"summary: done",
+			"## END",
+		].join("\n");
+		const normalized = normalizeResultContract(drift);
+		expect(normalized?.text).toContain("status: PASS");
+		expect(resultContractFailure(drift)).toBeUndefined();
+	});
+
+	test("maps done value aliases", () => {
+		expect(resultContractFailure("## RESULT\nrole: t\ndone: yes\nstatus: PASS\nsummary: ok\n## END")).toBeUndefined();
+		expect(resultContractFailure("## RESULT\n角色: t\n完成: 已完成\n状态: FAILED\n总结: 坏\n## END", false)).toBeUndefined();
+	});
+
+	test("injects role from spawn identity when dropped", () => {
+		const raw = "## RESULT\ndone: true\nstatus: PASS\nsummary: ok\n## END";
+		const normalized = normalizeResultContract(raw, "SCOUT");
+		expect(normalized?.text).toContain("role: scout");
+		expect(resultContractFailure(raw, false, "SCOUT")).toBeUndefined();
+		expect(resultContractFailure(raw)).toContain('missing "role:" line');
+	});
+
+	test("passes the composed agent name through the sanitized role line", () => {
+		const raw = "## RESULT\ndone: true\nstatus: PASS\nsummary: ok\n## END";
+		const out = composeAgentResult({ agent: "SA3 (SCOUT)", status: "done", exitCode: 0, elapsedMs: 1, outputText: raw, fullOutputPath: "/tmp/x.txt" });
+		expect(out.usedResult).toBe(true);
+		expect(out.contractProblems).toEqual([]);
+		expect(out.content).toContain("role: sa3-scout-");
+	});
+
+	test("falls back to first findings bullet for summary", () => {
+		const raw = "## RESULT\nrole: t\ndone: true\nstatus: PASS\nfindings:\n- fixed auth timeout\n- added tests\n## END";
+		const normalized = normalizeResultContract(raw);
+		expect(normalized?.text).toContain("summary: fixed auth timeout");
+		expect(resultContractFailure(raw)).toBeUndefined();
+	});
+
+	test("auto-closes a missing ## END closer", () => {
+		const raw = "## RESULT\nrole: t\ndone: true\nstatus: PASS\nsummary: ok";
+		const normalized = normalizeResultContract(raw);
+		expect(normalized?.text.endsWith("## END")).toBe(true);
+		expect(resultContractFailure(raw)).toBeUndefined();
+	});
+
+	test("empty transcripts are never auto-fixed", () => {
+		expect(normalizeResultContract("")).toBeUndefined();
+		expect(resultContractFailure("")).toContain("empty transcript");
+		expect(resultContractFailure("   \n  ")).toContain("empty transcript");
+	});
+});
+
 describe("composeAgentResult contract gate", () => {
 	const base = {
 		agent: "tester",
