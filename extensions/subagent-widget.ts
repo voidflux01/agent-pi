@@ -41,7 +41,7 @@ import { decideTypeDispatch } from "./lib/subagent-type-gate.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel, closeHerdrTabAsync, type HerdrTabRef } from "./lib/herdr-client.ts";
 import { shouldAwaitSubagentResult } from "./lib/task-gate.ts";
-import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker } from "./lib/worker-budget.ts";
+import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt } from "./lib/worker-budget.ts";
 import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
 import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
@@ -443,7 +443,10 @@ export default function (pi: ExtensionAPI) {
 				role: state.name,
 				task: prompt,
 				rolePrompt: agentDef?.systemPrompt,
-				additionalInstructions: isExecutionWorker(state.name) ? implementationWorkerPrompt() : undefined,
+				additionalInstructions: [
+					isExecutionWorker(state.name) ? implementationWorkerPrompt() : "",
+					state.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
+				].filter(Boolean).join("\n\n") || undefined,
 			});
 
 		// Mailbox identity must follow the visible SA id, not the role name:

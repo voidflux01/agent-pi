@@ -99,7 +99,10 @@ describe("defaultTeamName", () => {
 describe("orchestrator RESULT trust", () => {
 	it("treats child output as untrusted and requires independent verification", () => {
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("untrusted evidence");
-		expect(ORCHESTRATED_TASK_PROMPT).toContain("deterministic assertions");
+		// Independent verification is expressed via the approved contract's
+		// Objective + verify_execution; [cmd] global gates were removed (599f4be).
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("verify_execution");
+		expect(ORCHESTRATED_TASK_PROMPT).toContain("Objective");
 		expect(ORCHESTRATED_TASK_PROMPT).toContain("PASS");
 		expect(buildAgentResultContractPrompt()).toContain("untrusted worker claim");
 	});
