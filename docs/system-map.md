@@ -15,7 +15,7 @@
 - F：§7 底座（context/run 状态与轨迹/协调状态/证据与收据/manifest/worker 生命周期/完整性）
 - T：有同名 `__tests__/<name>.test.ts` 直接单测
 
-## 1. lib 主表（108，字母序）
+## 1. lib 主表（107，字母序）
 
 ```
 name | 层 | 档 | F | T | 职责
@@ -128,7 +128,7 @@ workflow-monitor | L2 | optional | - | Y | 有界 log-tail 分诊 + fail-closed 
 workspace-manifest | L2 | core | F | Y | 哈希全 workspace(tracked/staged/untracked) 绑定契约
 ```
 
-## 2. 顶层入口（53，L0）
+## 2. 顶层入口（51，L0；workspace-memory/optional-adapters no-op 壳已删）
 
 入口 = 注册壳，逻辑在 lib（§2 规则）。核心入口直接挂 §5 核心负载；模式 monolith 与 viewer/UX 多为可选或收敛对象。
 
@@ -147,6 +147,11 @@ tasks | 任务/SPEC 引擎 | 委托 task-* | tasks-*.test 族
 workflow-support | 工作流工具集 | 委托 workflow-* | workflow-support.test
 tool-registry | 工具注册 | 委托 tool-executor-registry | tool-registration-audit.test
 execution-command-recorder | 命令记录 | 微壳 | execution-command-recorder.test
+```
+
+**传输/worker 标记入口（core，运行时经 -e 加载，非注册壳）**
+```
+herdr-done | herdr 完成标记扩展 | -e 注入，首 agent_end 写完成 marker | herdr-visible-tui 测
 ```
 
 **模式 monolith（收敛对象）**
@@ -168,7 +173,7 @@ delegation-guard | 嵌套 pi 探测入口 | 委托 lib | delegation-guard.test
 
 **Viewer / UX（optional）**
 ```
-board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-viewer · sounds · theme-cycler · footer · agent-banner · agent-nav · system-select · escape-cancel · user-question · session-replay · debug-capture · ask-parent · compose-exec · lean-tools · nudge-listener · inbox-notify · herdr-done · oauth-provider · tool-search · toolkit-commands · mode-persist · model-persist · workspace-memory · optional-adapters · orchestration-status · orchestration-tool-audit · orchestration-budget · memory-cycle
+board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-viewer · sounds · theme-cycler · footer · agent-banner · agent-nav · system-select · escape-cancel · user-question · session-replay · debug-capture · ask-parent · compose-exec · lean-tools · nudge-listener · inbox-notify · oauth-provider · tool-search · toolkit-commands · mode-persist · model-persist · orchestration-status · orchestration-tool-audit · orchestration-budget · memory-cycle
 ```
 
 ## 3. 底座零件（§7 substrate，21 个 F）
