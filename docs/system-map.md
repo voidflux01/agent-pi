@@ -5,7 +5,7 @@
 
 ## 总览
 
-- **108 lib 模块**：核心档 53 · 可选档 55 · 待裁 0（无一证为孤儿；S2 另列"第二实现/别名"待人工审，见 §6）
+- **107 lib 模块**（execution-run 死 shim 已于 S2 删）：核心档 53 · 可选档 55 · 待裁 0
 - **底座零件(F)** 21 个：见 §4
 - **依赖方向审计：无违规。** 四路 scout 各自 grep 全 lib，均未发现 lib→顶层入口、L1→pi/runtime 的向上/跨层 import。仅需留意：个别模块 import-time 副作用（如 `defaults.ts` 在 import 时读 cwd）。
 
@@ -46,7 +46,6 @@ eval-sets | L2 | optional | - | Y | 跑有界 eval-set 与测试文件
 evidence-store | L2 | core | F | N | append-only 证据与执行事件存储（与 agent-task-journal 重叠）
 execution-contract | L1 | core | F | Y | acceptance 契约：objective/断言/指纹（§3 canonical）
 execution-gate | L1 | core | - | Y | 完成门：需 verifier 收据 + 绑定 eval（与 verifier-runtime 组合）
-execution-run | L1 | core | F | Y | 会话级收据/契约访问门面，re-export coordination-state（死 shim 别名）
 file-viewer-html | L2 | core | - | N | 本地文件 viewer/editor 独立 HTML 模板
 fleet-mailbox | L2 | optional | - | N | Maildir 文件邮箱，跨 agent 提问/转向原子投递
 herdr-client | L2 | optional | - | N | 生成/管理 herdr 外部 worker pane + 可见 TUI 传输
@@ -184,19 +183,23 @@ board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-view
 
 ## 4. S2 关注清单（第二实现 / 别名 / 待人工审）
 
-design-charter §3 规定"发现第二实现=合并或删"。以下由 S1 证据标出，**是否执行由人定**：
+design-charter §3 规定"发现第二实现=合并或删"。S2 review 结论（2026-09-08）：
+
+- **已清理**：`execution-run.ts`（死 shim，零引用）及其 test 已删（commit 6376b40）。
+- **monolith 内部 dead path 延后到 S4**：agent-team/agent-chain/pipeline-team 的 retired spawn 路径与活结构交织，且 `workflow-walk-fixes`、`herdr-visible-tui` 等源文本守卫测试钉着这些内部符号——盲删会炸 build。真实清理属 S4 编排重构（逐 monolith 溯源 + 同步守卫测试）。
+- **保留**：`output-box` outputLine/outputBox 虽为 no-op identity，但被全部 viewer + monolith 调用（几十处），是稳定格式缝；删需触所有调用点，零行为收益 → 保留。
+
+剩余候选（何时执行由重构时机定）：
 
 | # | 项 | 问题 | 建议 |
 |---|---|---|---|
 | 1 | approval-gate vs workflow-approval-gate | 两个指纹绑定批准门 | 合并到一 canonical |
 | 2 | evidence-store vs agent-task-journal | 两个 append-only 事件/轨迹存储 | 合并或明确分工 |
-| 3 | execution-run | 纯 re-export coordination-state 的死 shim（同名校验不 import 它） | 删（clean cutover §4） |
 | 4 | chain-state vs coordination-state/run-state | 词表重叠 | 收敛到 coordination/run-state |
 | 5 | subagent-scope vs subagent-type-gate | 两个 gate 同 dispatcher | 明确分工或合并 |
 | 6 | plan-viewer-render vs plan-viewer-html | TUI 渲染与 GUI 平行 | 按实际使用保留 |
 | 7 | persist-model vs persist-theme | 同 settings.json 分锁并行写 | 合并单写者 |
 | 8 | parse-chain-yaml vs parse-pipeline-yaml | 重复手写 YAML | 共享解析或用 yaml 依赖 |
-| 9 | output-box outputLine/outputBox | no-op stub（bar 移除） | 未用即删导出 |
 | 10 | secure-engine/installer + security-roster | 探索性项目加固（POSITIONING §8 S2 候选） | 无真实任务用→删 |
 
 ## 5. 无直接单测的 lib（回归风险带）
