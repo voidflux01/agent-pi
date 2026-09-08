@@ -146,6 +146,18 @@ describe("decideApprovalGate", () => {
 		}).block).toBe(true);
 	});
 
+	it("mutating-bash block reason guides to the legal planning root (D11)", () => {
+		const spec = decideApprovalGate({ mode: "SPEC", approved: false, toolName: "bash", args: { command: "mkdir -p context-os/specs/2026-09-08-x/planning" } });
+		expect(spec.block).toBe(true);
+		expect(spec.reason).toContain("Write under context-os/");
+		expect(spec.reason).toContain("mkdir via bash is not allowed pre-approval");
+		const plan = decideApprovalGate({ mode: "PLAN", approved: false, toolName: "bash", args: { command: "mkdir -p .context" } });
+		expect(plan.block).toBe(true);
+		expect(plan.reason).toContain("Write .context/todo.md");
+		// And the write-tool route to the planning root stays open pre-approval.
+		expect(decideApprovalGate({ mode: "SPEC", approved: false, toolName: "write", args: { path: "context-os/specs/2026-09-08-x/planning/initialization.md" } }).block).toBe(false);
+	});
+
 	it("allows read, tasks, ask_user, show_plan, and scout before approval", () => {
 		for (const toolName of ["read", "ls", "grep", "tasks", "ask_user", "show_plan", "set_mode"]) {
 			expect(decideApprovalGate({ mode: "PLAN", approved: false, toolName }).block).toBe(false);

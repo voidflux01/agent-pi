@@ -53,7 +53,7 @@ export function fingerprintDirectory(folderPath: string): { fileFingerprint: str
 		for (const name of names.sort()) {
 			const path = resolve(dir, name); let st; try { st = statSync(path); } catch { continue; }
 			if (st.isDirectory()) walk(path);
-			else if (st.isFile()) { try { entries.push([relative(root, path).split(sep).join("/"), readFileSync(path).toString("base64")]); } catch {} }
+			else if (st.isFile()) { try { entries.push([relative(root, path).split(sep).join("/"), readFileSync(path).toString("base64")]); } catch { } }
 		}
 	};
 	walk(root);
@@ -197,6 +197,16 @@ export function decideApprovalGate(input: {
 	if ((APPROVAL_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 	if ((READ_ONLY_BYPASS_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 	if (toolName === "bash" && isReadOnlyBash(args)) return { block: false };
+	if (toolName === "bash") {
+		// Mutating bash pre-approval: say how to proceed instead of the bare
+		// "discovered tool" reason, which reads as a total lockdown and makes
+		// agents stop short (dogfood D11). mkdir/rm via bash are blocked, but
+		// the same goal is reachable with write/edit under the planning root.
+		const reason = mode === "PLAN"
+			? "PLAN implementation is blocked until show_plan is approved. Write .context/todo.md with write/edit (mkdir via bash is not allowed pre-approval) and call show_plan. Read-only bash, tasks, ask_user, and scout may proceed."
+			: "SPEC implementation is blocked until show_spec is approved. Write under context-os/ with write/edit (mkdir via bash is not allowed pre-approval) and call show_spec. Read-only bash, tasks, ask_user, and show_plan (questions) may proceed.";
+		return { block: true, reason };
+	}
 	if ((FILE_MUTATION_TOOLS as readonly string[]).includes(toolName)) {
 		const path = toolPath(args);
 		if (path && isPlanningArtifact(mode, path, cwd)) return { block: false };
