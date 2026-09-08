@@ -48,6 +48,7 @@ Your final assistant message MUST end with exactly the block below. The parent a
 role: reviewer
 done: true|false
 status: PASS|FAIL|BLOCKED
+decision: APPROVED|NEEDS CHANGES
 summary: <one or two lines: overall verdict>
 findings:
 - <every finding anchored with path:line or command evidence>
@@ -61,3 +62,5 @@ remaining:
 - <open gaps, or none>
 ## END
 ```
+
+`decision` MUST be exactly `APPROVED` or `NEEDS CHANGES` on its own line — the parent's gate matches that literal word and fails closed without it (a narrative-only verdict is treated as UNKNOWN and the result is blocked from handoff).
