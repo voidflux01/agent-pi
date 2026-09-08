@@ -14,7 +14,10 @@
 5. **相位/完成门** — `advance_phase`（PIPELINE `phaseDispatchReady`）、`execution-gate`+`verifier-runtime`
 6. **类型并发门** — `lib/subagent-type-gate.ts`（同类型 worker 并发 ≤1）
 
-会话协调状态单一来源 = `lib/coordination-state.ts`；运行身份/预算/轨迹 = `lib/orchestration-run.ts`。
+**状态源（精确措辞，S4 一致性审计修正）**：
+- **横切面状态单一源** = `lib/coordination-state.ts`（mode / 执行契约 / verifier 收据 / 批准指纹 / eval 门）。
+- **运行身份/预算/轨迹** = `lib/orchestration-run.ts`。
+- **各模式专属会话态**（TEAM roster、CHAIN stepStates、PIPELINE phaseStates）**不**在 coordination-state —— 活在各自 monolith 闭包，持久化靠 agent-task-journal / workflow dispatch 收据 / 相位快照（chain-state / pipeline-state），崩溃恢复时由 `reconstructState` / batch-recovery 从磁盘投影重建。设计意图：横切面单一源 + 模式态=闭包+持久投影。
 
 ## 1. NORMAL
 
