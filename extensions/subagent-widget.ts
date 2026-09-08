@@ -501,7 +501,7 @@ export default function (pi: ExtensionAPI) {
 				const toolkitRun = isToolkitCliAgent(state.name);
 				const contractFailure = resultContractFailure(result, toolkitRun, state.name);
 				const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(result) : "APPROVED";
-				const reviewerFailure = reviewerOutcome !== "APPROVED" ? `reviewer decision gate: ${reviewerOutcome}; explicit APPROVED is required` : "";
+				const reviewerFailure = reviewerOutcome === "UNKNOWN" ? "reviewer decision gate: UNKNOWN; the word APPROVED or NEEDS CHANGES is required" : "";
 				if (code === 0 && !failure && !toolkitRun && (contractFailure || reviewerFailure) && result.trim() && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
 					formatRepairAttempts++;
 					void formatRepair(reviewerFailure || contractFailure || undefined).catch(() => finish(1, undefined, undefined, "process_error"));
