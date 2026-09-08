@@ -3,8 +3,8 @@
 > 2026-09-08 · 司机战役终期整合。范围：jd（/tmp/pi-dojo）+ ssg（/tmp/pi-dojo-ssg）两项目 0→1 真机迭代；agent-pi 六模式/编排/验证/安全组件逐项驾驶。配套：`dogfood-2026-09-08.md`（逐轮日志）、`coverage-matrix.md`（命中/未命中总账）、`slimming-candidates.md`（瘦身候选）、`validation-log.md`（验证记录）。
 
 ## 战役数字
-- 分支 commits（main..HEAD）：58，全程本地未 push（public 仓守则）
-- 真机驱动轮：5 战役轮 + 20 深水区轮；交互/headless pi 会话 25+，子 worker 40+（TEAM 三角色全流 2026-09-08 达成）
+- 分支 commits（main..HEAD）：64，全程本地未 push（public 仓守则）
+- 真机驱动轮：5 战役轮 + 24 深水区轮；交互/headless pi 会话 30+，子 worker 50+；**TEAM planner→builder→reviewer 全链 + NEEDS CHANGES→fix→APPROVED 闭合 + 跨项目迁移（jd/ssg）全达成**
 - agent-pi 缺陷修复：10 项代码级 + 3 文档/纪律类；信任红线逐一真机验证
 - 回归终态：`verify:release` GREEN ×3 · vitest 1002/13skip · bun 284 · doctor:strict 13/13
 
