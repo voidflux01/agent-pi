@@ -1481,6 +1481,7 @@ ${scoutSection}
 
 ## Dispatch rules
 - Keep each dispatch focused on one outcome.
+- Before running ANY tool (including read-only recon or bash), toggle the first task to inprogress (\`tasks toggle <id>\`); keep the task you are working on inprogress at all times and toggle it done only after its specialist ## RESULT is in. The task gate blocks tools while nothing is inprogress (dogfood D19).
 - When two or more tasks have independent owners and do not need each other's
   intermediate result, use \`subagent_create_batch\` to run them concurrently in
   one bounded call. Keep dependent work sequential with \`subagent_create\`.
