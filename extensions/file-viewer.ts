@@ -8,7 +8,6 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { generateFileViewerHTML } from "./lib/file-viewer-html.ts";
 import { registerActiveViewer, clearActiveViewer, closeActiveViewer, getActiveViewer, notifyViewerOpen , type ActiveViewerSession } from "./lib/viewer-session.ts";
@@ -366,12 +365,5 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("session_before_switch", async () => {
 		cleanupServer();
-	});
-
-	pi.registerCommand("show-file-help", {
-		description: "Show help for the local file viewer tool",
-		handler: async (_args, ctx) => {
-			outputLine(ctx as unknown as OutputBoxTheme, "accent", "show_file { file_path: \"path/to/file\", editable: true }");
-		},
 	});
 }
