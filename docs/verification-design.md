@@ -7,21 +7,24 @@
 - 完成唯一出口 = verifier 收据：`verify_execution` → `lib/isolated-verifier.ts runAcceptanceVerifier` → `VerifierReceipt`；`completeDecision`/`canComplete`（execution-gate + verifier-runtime）。
 - **Objective 评审拥有 PASS/FAIL/BLOCKED**（execution-contract.ts isMandatory 注释原文）。这是 roadmap "命令不再是全局强制门禁" 的刻意落地。
 
-## 2. 确定性腿在哪里（已核实，勿删）
+## 2. 确定性腿在哪里（已核实，2026-09-08 修正版）
 
-| 断言类型 | 解析于 | 是否执行 | 是否门 |
-|---|---|---|---|
-| `[cmd]` | execution-contract `parseAssertion` → `assertions` | **否**（见 §3 缺口） | 否（设计：作证据不作门） |
-| `[eval]` | → `requiredEval` | 是（sha256 + 24h 新鲜度，`eval-sets checkRequiredEvalBinding`） | **是**（绑定即真门） |
-| `advisory` | → `assertions` | 否 | 否 |
+| 断言类型 | 解析于 | 完成路径(runAcceptanceVerifier) | legacy(runIsolatedVerifier) | 是否门 |
+|---|---|---|---|---|
+| `[cmd]` | execution-contract `parseAssertion` → `assertions` | **不执行**（`runDeterministicVerification` 只遍历 `mandatory`，恒空） | **执行**（过滤 `assertions` 中 cmd → 真 PASS/FAIL/BLOCKED） | legacy 内是门；完成路径否 |
+| `[eval]` | → `requiredEval` | 是（sha256 + 24h 新鲜度，`eval-sets checkRequiredEvalBinding`） | — | **是**（绑定即真门） |
+| `advisory` | → `assertions` | 否 | 否 | 否 |
 
-确定性执行器 `lib/deterministic-verifier.ts`（execFile 无 shell；ENOENT/timeout→BLOCKED 不猜）存在且已测，只在 `[eval]` 绑定路径驱动。
+关键事实（此前文档与侦察有误，已修正）：
+- **完成路径的确定性证据恒为空**：`runAcceptanceVerifier` 调 `runDeterministicVerification(input.contract)`，TS 结构上只读 `contract.mandatory`（恒 `[]`），cmd 断言在完成路径**从不执行**。
+- **`runIsolatedVerifier`（legacy）真执行 cmd**：过滤 `contract.assertions` 中 `kind==="cmd"` 跑 execFile；失败 cmd → FAIL 收据 → `canComplete=false`（workspace-manifest.test.ts:101-114 实证）。但**零生产调用者**——仅测试使用（execution-gate.test.ts:155 还断言完成报告源不引用它）。
+- 确定性执行器 `lib/deterministic-verifier.ts`（execFile 无 shell；ENOENT/timeout→BLOCKED 不猜）存在、已测、双路径可用。
 
-## 3. 已核实缺口（非 bug，待真实需求触发再补）
+## 3. 已核实缺口（设计态，待真实需求触发再补）
 
-**`[cmd]` 断言从不执行**：解析后进 `assertions`，既不 gate 也不作为确定性证据喂 verifier（当前只可能作 LLM 上下文文本）。若某 spec 声明了可复现命令检查，它不会被自动验证。
-- **为何不改**：改 = 把 `[cmd]` 从"证据"升级为某种门，与 §1 刻意设计冲突。
-- **若未来出现真实任务需要**：安全的中间态 = 把 `assertions` 里 `kind==="cmd"` 项经 `deterministic-verifier` 执行，结果作为 **untrusted evidence**（非 gate）进 verifier-subagent prompt。非门、加严谨、零 gate 行为变化。此改动应在测试层 lib 做，且有现成 `deterministic-verifier.test.ts` 可扩展。**当前无真实任务用 → defer。**
+**完成路径无任何确定性证据**：cmd 断言只在零生产调用的 legacy `runIsolatedVerifier` 里执行；`runAcceptanceVerifier` 的确定性结果恒空 → verifier subagent 收不到确定性证据，全靠 Objective 评审 + 可选 `[eval]`。若某 spec 声明了可复现命令检查，完成路径不会自动验证它。
+- **为何不改**：把 cmd 接进完成路径 = 把 `[cmd]` 从"证据"升级为门，与 §1 刻意设计（命令非全局门）冲突。
+- **若未来出现真实任务需要**：两个安全选项——(a) 让 `runAcceptanceVerifier` 把 `assertions` 中 cmd 经 `deterministic-verifier` 执行，结果作为 **untrusted evidence**（非门）进 verifier prompt；(b) 或生产调用者显式走 `runIsolatedVerifier` 得确定性收据再叠 Objective 评审。两者都零 gate 语义变化，且 `deterministic-verifier.test.ts` 可扩展。**当前无真实任务用 → defer。**
 
 ## 4. INCONCLUSIVE 策略（已明确，勿重复实现）
 
