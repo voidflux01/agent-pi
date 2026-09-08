@@ -272,7 +272,7 @@ function gatherReportData(cwd: string, title: string, summary: string, baseRef: 
 	if (existsSync(todoPath)) {
 		try {
 			taskMarkdown = readFileSync(todoPath, "utf-8");
-		} catch {}
+		} catch { }
 	}
 
 	return {
@@ -457,7 +457,7 @@ function openBrowser(url: string): void {
 		} catch {
 			try {
 				execFileSync("cmd.exe", ["/c", "start", "", url], { stdio: "ignore" });
-			} catch {}
+			} catch { }
 		}
 	}
 }
@@ -472,15 +472,38 @@ const ShowReportParams = Type.Object({
 
 // ── Extension ────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	let activeServer: Server | null = null;
 	let activeSession: { kind: "report"; title: string; url: string; launchUrl?: string; server: Server; onClose: () => void } | null = null;
+
+	// A completion report is passive review material. If nobody opens/acts on
+	// the viewer (headless drive, remote pane, user ignores the URL), waiting
+	// forever wedges the whole turn (dogfood D12). Bound the wait; on timeout
+	// close the server and finish gracefully — the report is already persisted
+	// and nothing is rolled back.
+	const REPORT_WAIT_MS = Number(process.env.PI_REPORT_WAIT_MS) || 300_000;
+	async function awaitReportResult(waitForResult: () => Promise<ReportResult>): Promise<{ timedOut: boolean; result?: ReportResult }> {
+		let settled = false;
+		const finish = (timedOut: boolean, result?: ReportResult) => {
+			if (settled) return;
+			settled = true;
+			resolver({ timedOut, result });
+		};
+		let resolver!: (v: { timedOut: boolean; result?: ReportResult }) => void;
+		const raced = new Promise<{ timedOut: boolean; result?: ReportResult }>((res) => { resolver = res; });
+		waitForResult().then((r) => finish(false, r)).catch(() => finish(true));
+		const timer = setTimeout(() => finish(true), REPORT_WAIT_MS);
+		timer.unref?.();
+		raced.finally(() => clearTimeout(timer));
+		return raced;
+	}
+
 
 	function cleanupServer() {
 		const server = activeServer;
 		activeServer = null;
 		if (server) {
-			try { server.close(); } catch {}
+			try { server.close(); } catch { }
 		}
 		if (activeSession) {
 			clearActiveViewer(activeSession);
@@ -567,9 +590,16 @@ export default function (pi: ExtensionAPI) {
 			openBrowser(launchUrl);
 			notifyViewerOpen(ctx, activeSession);
 
-			// Wait for user to close the report
+			// Wait for user to close the report (bounded: unattended viewers
+			// must not wedge the turn — D12).
 			try {
-				const result = await waitForResult();
+				const { timedOut, result } = await awaitReportResult(waitForResult);
+				if (timedOut || !result) {
+					return {
+						content: [{ type: "text" as const, text: `Completion report left open for review (${REPORT_WAIT_MS / 1000}s) with no action; report persisted, no files rolled back. Reopen with /report if you want to roll back.` }],
+						details: { action: "timeout", rolledBackFiles: [], totalFiles: report.files.length, totalAdditions: report.totalAdditions, totalDeletions: report.totalDeletions },
+					};
+				}
 
 				try {
 					upsertPersistedReport({
@@ -589,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 							rolledBackFiles: result.rolledBackFiles,
 						},
 					});
-				} catch {}
+				} catch { }
 
 				const rolledBack = result.rolledBackFiles.length;
 				const closedSummary = rolledBack > 0
@@ -696,8 +726,12 @@ export default function (pi: ExtensionAPI) {
 			openBrowser(launchUrl);
 			notifyViewerOpen(ctx, activeSession);
 
-			const result = await waitForResult();
+			const { timedOut, result } = await awaitReportResult(waitForResult);
 			cleanupServer();
+			if (timedOut || !result) {
+				ctx.ui.notify("Completion report left open with no action (timeout); nothing rolled back.", "info");
+				return;
+			}
 
 			if (result.rolledBackFiles.length > 0) {
 				ctx.ui.notify(
