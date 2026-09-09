@@ -31,7 +31,7 @@
 - **入口/面**：`extensions/plan-viewer.ts` + `lib/plan-viewer-html.ts` / `plan-viewer-editor.ts` / `plan-viewer-render.ts`。
 - **强制**（代码，非提示词）：
   - **批准门** `lib/approval-gate.ts`：写工具/bash/委派在计划批准前被拦（`decideApprovalGate`）；批准由**计划文件内容指纹绑定**，字节漂移即撤批（approval-gate.ts:118-127, 159-198）。执行点 mode-cycler tool_call + tool-caller 嵌套门。
-  - **task 门** `lib/task-gate.ts`：PLAN 属 TASK_REQUIRED_MODES，委派/bash 需 active task。
+  - **task 门** `lib/task-gate.ts`：PLAN 属 TASK_REQUIRED_MODES，委派/bash 需 active task。**批准前豁免**：plan 未批准时 task-gate 不强求 active task（task 创建被批准门锁死，强求会成死锁，见 `taskGateRequiresActiveTask`）；该相位由批准门独自把守，审批通过解锁实现后再重建任务清单并绑定 task-gate。
   - **workflow hook** `lib/workflow-dispatch.ts`：批准/重置事件通过 `registerWorkflowApprovalHook("PLAN", ...)` 发布，供统一审计消费。
 - **完成面**：plan 经 viewer 批准；`show_report` 走 completion 门。
 

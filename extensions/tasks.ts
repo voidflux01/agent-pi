@@ -31,9 +31,9 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
 import { padRight } from "./lib/ui-helpers.ts";
-import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn, decidePreApprovalTaskCreationGate } from "./lib/task-gate.ts";
+import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskGateRequiresActiveTask, taskValidationTriggerTurn, decidePreApprovalTaskCreationGate } from "./lib/task-gate.ts";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
-import { isApprovalGatedMode } from "./lib/approval-gate.ts";
+import { isApprovalGatedMode, approvalStateForMode } from "./lib/approval-gate.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { saveRetrospective } from "./lib/workflow-memory.ts";
@@ -370,7 +370,11 @@ export default function (pi: ExtensionAPI) {
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 
 		const mode = coordinationState().mode;
-		const requiredMode = taskRequiredForMode(mode);
+		// Pre-approval PLAN/SPEC are governed by the approval gate, not the task
+		// gate: task creation is blocked until approval, so demanding an active
+		// task here is a catch-22 (see taskGateRequiresActiveTask) that forced
+		// agents out of PLAN to seed a placeholder task in NORMAL.
+		const requireTask = taskGateRequiresActiveTask(mode, approvalStateForMode(mode));
 		if (event.toolName === "tasks") {
 			if (isApprovalGatedMode(mode)) {
 				const args = (event.input ?? {}) as Record<string, unknown>;
@@ -384,7 +388,7 @@ export default function (pi: ExtensionAPI) {
 			return { block: false };
 		}
 		if (isPlanningArtifactWrite(event.toolName, mode, event.input)) return { block: false };
-		if (taskRefreshRequired && requiredMode) {
+		if (taskRefreshRequired && requireTask) {
 			const args = event.input;
 			if (isScoutRecon(event.toolName, args)) return { block: false };
 			const reason = "This mode has a task list from an earlier workflow. Rebuild it with `tasks new-list`, add concrete steps from the current plan/spec, and mark the first implementation step inprogress before continuing.";
@@ -393,19 +397,19 @@ export default function (pi: ExtensionAPI) {
 		}
 		// In orchestration modes, delegated work is subject to the same hard gate
 		// as local write/execution tools. Setup and status tools remain available.
-		if (shouldBypassTaskGate(event.toolName, requiredMode, event.input)) return { block: false };
+		if (shouldBypassTaskGate(event.toolName, requireTask, event.input)) return { block: false };
 
 		// A malformed historical tool result must not crash the extension or
 		// create an unrecoverable gate. Reconstruction normalizes this, but keep
 		// the boundary defensive for live state as well.
 		if (!Array.isArray(tasks)) return { block: false };
 
-		const decision = decideGateClaim(tasks, requiredMode);
-		if (decision.block && (requiredMode || taskGateStrict())) {
+		const decision = decideGateClaim(tasks, requireTask);
+		if (decision.block && (requireTask || taskGateStrict())) {
 			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "task_gate", reason: decision.reason, context: _ctx });
 			return decision;
 		}
-		if (!decision.block || requiredMode || taskGateStrict()) return decision;
+		if (!decision.block || requireTask || taskGateStrict()) return decision;
 
 		// NORMAL with PI_TASKS_STRICT=0 stays advisory so small work is not
 		// blocked by task ceremony. Unset or any value other than 0 is strict.

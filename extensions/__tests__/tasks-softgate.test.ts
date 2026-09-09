@@ -135,11 +135,12 @@ describe("transcript-backed reconstruction", () => {
 
 describe("mode-aware gate integration", () => {
 	const requiredModes = ["PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
+	const approvalFreeRequired = ["PIPELINE", "TEAM", "CHAIN"] as const;
 
-	it("hard-blocks empty task lists for every orchestration mode", async () => {
+	it("hard-blocks empty task lists for non-approval orchestration modes", async () => {
 		const previous = coordinationState().mode;
 		try {
-			for (const mode of requiredModes) {
+			for (const mode of approvalFreeRequired) {
 				const handlers = new Map<string, Function>();
 				const pi = {
 					registerTool() {}, registerCommand() {},
@@ -158,6 +159,69 @@ describe("mode-aware gate integration", () => {
 			setCoordinationMode(previous);
 		}
 	});
+
+	it("does not demand an active task in PLAN/SPEC before approval (approval gate owns the phase)", async () => {
+		// Regression: pre-approval PLAN demanded an active task, but task
+		// creation is blocked until approval — a catch-22 that forced agents to
+		// drop to NORMAL to seed a placeholder task. The approval gate (registered
+		// separately in mode-cycler) blocks implementation with a precise
+		// "show_plan first" reason; the task gate must not shadow it.
+		const previous = coordinationState().mode;
+		const prevPlan = coordinationState().planApproved;
+		const prevSpec = coordinationState().specApproved;
+		try {
+			coordinationState().planApproved = false;
+			coordinationState().specApproved = false;
+			for (const mode of ["PLAN", "SPEC"] as const) {
+				const handlers = new Map<string, Function>();
+				const pi = {
+					registerTool() {}, registerCommand() {},
+					on(name: string, handler: Function) { handlers.set(name, handler); },
+					sendMessage() {},
+				};
+				const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+				setCoordinationMode(mode);
+				tasksExtension(pi as any);
+				for (const toolName of ["bash", "subagent_create", "advance_phase"]) {
+					const d = await handlers.get("tool_call")!({ toolName }, ctx);
+					expect(d.block, `${mode} pre-approval should defer ${toolName} to the approval gate`).toBe(false);
+				}
+			}
+		} finally {
+			coordinationState().planApproved = prevPlan;
+			coordinationState().specApproved = prevSpec;
+			setCoordinationMode(previous);
+		}
+	});
+
+	it("hard-blocks empty task lists in PLAN/SPEC once approved", async () => {
+		const previous = coordinationState().mode;
+		const prevPlan = coordinationState().planApproved;
+		const prevSpec = coordinationState().specApproved;
+		try {
+			for (const mode of ["PLAN", "SPEC"] as const) {
+				coordinationState()[mode === "PLAN" ? "planApproved" : "specApproved"] = true;
+				const handlers = new Map<string, Function>();
+				const pi = {
+					registerTool() {}, registerCommand() {},
+					on(name: string, handler: Function) { handlers.set(name, handler); },
+					sendMessage() {},
+				};
+				const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
+				setCoordinationMode(mode);
+				tasksExtension(pi as any);
+				for (const toolName of ["bash", "subagent_create"]) {
+					const blocked = await handlers.get("tool_call")!({ toolName }, ctx);
+					expect(blocked.block, `${mode} approved should gate ${toolName}`).toBe(true);
+				}
+			}
+		} finally {
+			coordinationState().planApproved = prevPlan;
+			coordinationState().specApproved = prevSpec;
+			setCoordinationMode(previous);
+		}
+	});
+
 
 	it("allows delegated work after toggling a task active in every orchestration mode", async () => {
 		const previous = coordinationState().mode;
@@ -203,13 +267,16 @@ describe("mode-aware gate integration", () => {
 			await tool.execute("add", { action: "add", text: "coarse old task" }, undefined, undefined, ctx);
 			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
 
-			setCoordinationMode("SPEC");
+			// Non-approval orchestration mode (PIPELINE) so the rebuild guard is the
+			// active binding: in SPEC/PLAN it only binds after approval (rebuilding
+			// pre-approval is impossible — new-list is blocked).
+			setCoordinationMode("PIPELINE");
 			const beforeRefresh = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 			expect(beforeRefresh.block).toBe(true);
 			expect(beforeRefresh.reason).toContain("Rebuild it with `tasks new-list`");
 
-			await tool.execute("new-list", { action: "new-list", text: "spec implementation" }, undefined, undefined, ctx);
-			await tool.execute("add", { action: "add", text: "concrete spec step" }, undefined, undefined, ctx);
+			await tool.execute("new-list", { action: "new-list", text: "pipeline implementation" }, undefined, undefined, ctx);
+			await tool.execute("add", { action: "add", text: "concrete pipeline step" }, undefined, undefined, ctx);
 			await tool.execute("toggle", { action: "toggle", id: 1 }, undefined, undefined, ctx);
 			const afterRefresh = await handlers.get("tool_call")!({ toolName: "subagent_create" }, ctx);
 			expect(afterRefresh.block).toBe(false);
@@ -228,7 +295,9 @@ describe("mode-aware gate integration", () => {
 				sendMessage() {},
 			};
 			const ctx = { ui: { setStatus() {}, setWidget() {}, notify() {} } };
-			setCoordinationMode("PLAN");
+			// PIPELINE (task gate binds) keeps the scout-vs-builder contrast; in
+			// pre-approval PLAN/SPEC both defer to the approval gate.
+			setCoordinationMode("PIPELINE");
 			tasksExtension(pi as any);
 			const scout = await handlers.get("tool_call")!({ toolName: "subagent_create", input: { name: "scout", task: "map auth" } }, ctx);
 			expect(scout.block).toBe(false);
@@ -248,7 +317,7 @@ describe("mode-aware gate integration", () => {
 				on(name: string, handler: Function) { handlers.set(name, handler); },
 				sendMessage() {},
 			};
-			setCoordinationMode("PLAN");
+			setCoordinationMode("PIPELINE");
 			tasksExtension(pi as any);
 			const researcher = await handlers.get("tool_call")!({ toolName: "subagent_create", input: { name: "researcher", task: "check current API docs" } }, {});
 			expect(researcher.block).toBe(false);

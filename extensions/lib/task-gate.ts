@@ -84,6 +84,24 @@ export function taskRequiredForMode(mode: string | undefined): boolean {
 	return (TASK_REQUIRED_MODES as readonly string[]).includes(mode ?? "");
 }
 
+/**
+ * Whether the task gate must demand an active (inprogress) task in the current
+ * mode. Orchestration modes require it, EXCEPT PLAN/SPEC before the plan/spec
+ * is approved: task creation is blocked until approval (see
+ * decidePreApprovalTaskCreationGate) and the approval gate (mode-cycler)
+ * already blocks implementation with a precise "approve first" reason. An
+ * active-task demand here emits the impossible instruction "create a task"
+ * (itself blocked pre-approval), which made agents drop to NORMAL to seed a
+ * placeholder task — breaking the single-pass PLAN flow (write plan → show_plan
+ * → approve → rebuild tasks → execute). Pre-approval, the approval gate owns
+ * the phase; the task gate starts binding once approval unlocks implementation.
+ */
+export function taskGateRequiresActiveTask(mode: string | undefined, approved: boolean): boolean {
+	if (!taskRequiredForMode(mode)) return false;
+	if ((mode === "PLAN" || mode === "SPEC") && !approved) return false;
+	return true;
+}
+
 /** Start a follow-up turn for leftover tasks. TEAM/CHAIN/PIPELINE coordinators
  *  often stop with the last task still inprogress; forcing a new turn aborts
  *  the session. Display the list, but do not triggerTurn in that case. */
