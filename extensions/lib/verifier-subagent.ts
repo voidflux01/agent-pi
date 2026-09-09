@@ -409,7 +409,7 @@ export async function runVerifierSubagent(input: {
 	const sessionFile = join(sessionDir, `verifier-${input.contract.fingerprint}-${Date.now()}.jsonl`);
 	const extDir = dirname(fileURLToPath(import.meta.url));
 	const herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts");
-	const launch = (prompt: string, tools: string, suffix: string) => createSubagentRuntime({
+	const launch = (prompt: string, tools: string, suffix: string, transport: "auto" | "headless" = "auto") => createSubagentRuntime({
 		authorization: currentDispatchAuthorization(),
 		command: withSessionResume([
 			"pi", "--thinking", AGENT_PI_CONFIG.workers.thinking.byAgent.verifier || AGENT_PI_CONFIG.workers.thinking.default, "--mode", "json", "-p", "--session", sessionFile,
@@ -423,6 +423,7 @@ export async function runVerifierSubagent(input: {
 		launchId: `verifier-${suffix}-${Date.now()}`,
 		parentRunId: input.parentRunId,
 		mode: input.mode,
+		transport,
 		sessionFile,
 		herdrDoneExtPath,
 		herdrLabel: "VERIFIER",
@@ -456,8 +457,8 @@ export async function runVerifierSubagent(input: {
 	let repairAttempt = 0;
 	while (!report && result.exitCode === 0 && repairAttempt < MAX_VERIFIER_FORMAT_REPAIRS) {
 		repairAttempt++;
-		const repairPrompt = `The previous verifier response failed the Markdown format gate: ${parsed.error || "invalid verifier RESULT"}. Do not perform more audit work. Return exactly one complete English ## RESULT block in the required verifier schema, including all required sections and fields, and close it with ## END. The parent agent will receive nothing until this format gate passes.`;
-		result = await launch(repairPrompt, "read,bash,grep,find,ls", `format-repair-${repairAttempt}`);
+		const repairPrompt = `Internal result repair only. The previous verifier response failed the schema gate: ${parsed.error || "invalid verifier RESULT"}. Do not perform more audit work or use tools. Return exactly one complete English ## RESULT block in the required verifier schema, including all required sections and fields, and close it with ## END.`;
+		result = await launch(repairPrompt, "", `format-repair-${repairAttempt}`, "headless");
 		outputText = result.outputText || outputText;
 		parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
 		report = parsed.report;
