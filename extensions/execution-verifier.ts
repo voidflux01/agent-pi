@@ -28,6 +28,61 @@ import { workflowDirection } from "./lib/workflow-direction.ts";
 import { checkRequiredEvalBinding } from "./lib/eval-sets.ts";
 import { getWorkflowRunLink } from "./lib/coordination-state.ts";
 import { markWorkflowRunBlocked, updateWorkflowRun } from "./lib/workflow-run.ts";
+import type { VerifierSubagentReport } from "./lib/verifier-subagent.ts";
+
+function formatVerifierReport(report: VerifierSubagentReport): string {
+	const list = (items: string[]) => items.length ? items.map(item => `- ${item}`).join("\n") : "- none";
+	const files = (items?: string[]) => items?.length ? `\nfiles:\n${list(items)}` : "";
+	const requirements = report.requirements.map((item, index) => `### REQ-${String(index + 1).padStart(3, "0")}\nstatus: ${item.status}\nrequirement: ${item.requirement}\nevidence: ${item.evidence}${files(item.files)}`).join("\n\n");
+	const reviews = report.review.findings.map((item, index) => `### REV-${String(index + 1).padStart(3, "0")}\nseverity: ${item.severity || "LOW"}\ncategory: ${item.category || "maintainability"}\ntitle: ${item.title || "review finding"}\nlocation: ${item.location || "unknown"}\nevidence: ${item.evidence || "none"}\nrecommendation: ${item.recommendation || "none"}`).join("\n\n");
+	const tests = report.behavior.tests || { discovered: 0, executed: 0, failed: 0, skipped: 0 };
+	return [
+		"## RESULT",
+		"role: verifier",
+		"done: true",
+		`status: ${report.status}`,
+		`summary: ${report.summary}`,
+		"findings:", list([...report.contract.findings, ...report.behavior.findings, ...report.quality.findings, ...report.security.findings]),
+		"files:", list(report.requirements.flatMap(item => item.files || [])),
+		"verification:", list([`verifier report: ${report.status}`]),
+		"key_errors:", list(report.hard_blockers),
+		"remaining:", list(report.warnings),
+		"",
+		"## Requirements",
+		requirements,
+		"",
+		"## Contract",
+		`status: ${report.contract.status}`,
+		"findings:", list(report.contract.findings),
+		"",
+		"## Review",
+		`status: ${report.review.status}`,
+		reviews || "(no review findings)",
+		"",
+		"## Behavior",
+		`status: ${report.behavior.status}`,
+		`tests_discovered: ${tests.discovered}`,
+		`tests_executed: ${tests.executed}`,
+		`tests_failed: ${tests.failed}`,
+		`tests_skipped: ${tests.skipped}`,
+		"findings:", list(report.behavior.findings),
+		"",
+		"## Quality",
+		`status: ${report.quality.status}`,
+		"findings:", list(report.quality.findings),
+		"",
+		"## Security",
+		`status: ${report.security.status}`,
+		"findings:", list(report.security.findings),
+		"",
+		"## Hard Blockers",
+		list(report.hard_blockers),
+		"",
+		"## Warnings",
+		list(report.warnings),
+		"## END",
+	].join("\n");
+}
 
 const Params = Type.Object({
 	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including an Objective and any optional context or explicit eval binding" })),
@@ -121,7 +176,7 @@ export default function(pi: ExtensionAPI) {
 				syncVerifierWorkflowRun(cwd, "PASS", previousReceipt);
 				const summary = previousReceipt?.verifier?.summary || "existing PASS receipt is still current";
 				return {
-					content: [{ type: "text", text: `Verifier: PASS — reused current receipt; ${summary}` }],
+					content: [{ type: "text", text: previousReceipt?.verifier?.report ? formatVerifierReport(previousReceipt.verifier.report) : `Verifier: PASS — reused current receipt; ${summary}` }],
 					details: { status: "PASS", completionAllowed: true, receipt: previousReceipt, reused: true, reason: "same contract and unchanged workspace" },
 				};
 			}
@@ -175,7 +230,7 @@ export default function(pi: ExtensionAPI) {
 				attempt,
 			});
 			return {
-				content: [{ type: "text", text: `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => `${r.raw}${r.note ? ` (${r.note})` : ""}`).join("; ") || "all assertions passed"}` }],
+				content: [{ type: "text", text: verification.receipt.verifier?.report ? formatVerifierReport(verification.receipt.verifier.report) : `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => `${r.raw}${r.note ? ` (${r.note})` : ""}`).join("; ") || "all assertions passed"}` }],
 				details: {
 					status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt,
 					nextAction: workflowDirection({ status: verification.receipt.status, attempt })

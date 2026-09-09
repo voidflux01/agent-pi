@@ -28,7 +28,7 @@ const DEFAULT_CONFIG: AgentPiConfig = {
 	models: { byAgent: {} },
 	workers: {
 		thinking: { default: "medium", byAgent: {} },
-		timeoutsMs: { default: 15 * 60_000, planner: 120_000, reviewer: 120_000, verifier: 10 * 60_000 },
+		timeoutsMs: { default: 15 * 60_000, planner: 15 * 60_000, reviewer: 15 * 60_000, verifier: 15 * 60_000 },
 	},
 	orchestration: { maxSteps: 16, pipelineMaxParallel: 4 },
 	ui: { herdrSuccessLingerMs: 30_000, herdrErrorLingerMs: null, widgetAutoRemoveMs: 30_000, cleanupStaleAfterMs: 600_000 },

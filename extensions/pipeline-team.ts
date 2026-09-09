@@ -1279,7 +1279,7 @@ Call \`advance_phase\` with a comprehensive task summary when ready to proceed.`
   } else if (phaseNameLower === "gather") {
    phaseInstructions = `## Phase Instructions: GATHER
 				You are in the GATHER phase. Dispatch scout agents in parallel only when local context is unfamiliar or independently scoped work requires it; reuse existing scoped findings and report verified terminal results directly. When the task needs current external facts, also dispatch one researcher in parallel. If no compatible web capability is available, record the gap and continue.
-				Use \`subagent_create_batch\` for independent workers, or \`subagent_create\` with \`join: true\` for one worker, and wait for bounded results.
+				Use \`subagent_create_batch\` for independent workers, or \`subagent_create\` with \`join: true\` for one worker, and wait for complete RESULT reports.
 				${RESEARCH_ROUTING_COMPACT_PROMPT}
 				Review their findings, then call \`advance_phase\` with a summary.
 
@@ -1352,7 +1352,7 @@ ${contextSummary}${planSection}${reviewSection}
 
 ## Tools
 				- \`advance_phase\`: Move to next phase after this phase's subagent_create workers have finished (required summary from their RESULT)
-				- \`subagent_create\` / \`subagent_create_batch\`: Send the configured phase workers and return bounded results
+				- \`subagent_create\` / \`subagent_create_batch\`: Send the configured phase workers and return complete RESULT reports
 - \`pipeline_status\`: Check current pipeline state
 - Plus all standard codebase tools (read, write, edit, bash, etc.)`,
   };
