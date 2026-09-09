@@ -221,8 +221,8 @@ export function decideApprovalGate(input: {
 		// agents stop short (dogfood D11). mkdir/rm via bash are blocked, but
 		// the same goal is reachable with write/edit under the planning root.
 		const reason = mode === "PLAN"
-			? "PLAN implementation is blocked until show_plan is approved. Write .context/todo.md with write/edit (mkdir via bash is not allowed pre-approval) and call show_plan. Read-only bash, tasks, ask_user, and scout may proceed."
-			: "SPEC implementation is blocked until show_spec is approved. Write under context-os/ with write/edit (mkdir via bash is not allowed pre-approval) and call show_spec. Read-only bash, tasks, ask_user, and show_plan (questions) may proceed.";
+			? "PLAN implementation is blocked until show_plan is approved. Write .context/todo.md with write/edit (mkdir via bash is not allowed pre-approval) and call show_plan. Read-only bash, ask_user, and scout may proceed; tasks cannot be created until approval."
+			: "SPEC implementation is blocked until show_spec is approved. Write under context-os/ with write/edit (mkdir via bash is not allowed pre-approval) and call show_spec. Read-only bash, ask_user, and show_plan (questions) may proceed; tasks cannot be created until approval.";
 		return { block: true, reason };
 	}
 	if ((FILE_MUTATION_TOOLS as readonly string[]).includes(toolName)) {
@@ -240,7 +240,7 @@ export function decideApprovalGate(input: {
 	if (!(IMPLEMENTATION_TOOLS as readonly string[]).includes(toolName)) return { block: false };
 
 	const reason = mode === "PLAN"
-		? "PLAN implementation is blocked until show_plan is approved. Write .context/todo.md and call show_plan. Read-only tools, tasks, ask_user, and scout may proceed."
-		: "SPEC implementation is blocked until show_spec is approved. Write under context-os/ and call show_spec. Read-only tools, tasks, ask_user, and show_plan (questions) may proceed.";
+		? "PLAN implementation is blocked until show_plan is approved. Write .context/todo.md and call show_plan. Read-only tools, ask_user, and scout may proceed; tasks cannot be created until approval."
+		: "SPEC implementation is blocked until show_spec is approved. Write under context-os/ and call show_spec. Read-only tools, ask_user, and show_plan (questions) may proceed; tasks cannot be created until approval.";
 	return { block: true, reason };
 }

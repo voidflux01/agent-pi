@@ -20,6 +20,7 @@ import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import {
 	coordinationState,
+	setCoordinationMode,
 	getExecutionContract,
 	getVerifierReceipt,
 	getEvalGate,
@@ -652,6 +653,22 @@ export default function(pi: ExtensionAPI) {
 				const closedSummary = rolledBack > 0
 					? `Report closed. ${rolledBack} file${rolledBack > 1 ? "s" : ""} rolled back: ${result.rolledBackFiles.join(", ")}`
 					: "Report closed. No files were rolled back.";
+
+				// A completed show_report closes the workflow: return to the NORMAL
+				// baseline so the next request is not left in an orchestration mode.
+				// Only when no files were rolled back (rollback means the change was
+				// not accepted and work continues). The mode-cycler's __piSetMode
+				// also syncs the mode file and UI; fall back to the shared state.
+				if (rolledBack === 0 && process.env.PI_SUBAGENT !== "1") {
+					const currentMode = coordinationState().mode;
+					if (currentMode !== "NORMAL") {
+						try {
+							const setMode = (globalThis as any).__piSetMode as undefined | ((mode: string, nextCtx?: any) => void);
+							if (typeof setMode === "function") setMode("NORMAL", ctx);
+							else setCoordinationMode("NORMAL");
+						} catch { }
+					}
+				}
 
 				return {
 					content: [{ type: "text" as const, text: closedSummary }],

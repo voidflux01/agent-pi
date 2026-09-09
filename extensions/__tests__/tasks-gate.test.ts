@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isPlanningArtifactWrite, isReadOnlyBash, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "../lib/task-gate.ts";
+import { isPlanningArtifactWrite, isReadOnlyBash, isScoutRecon, shouldAwaitSubagentResult, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn, isTaskCreationAction, decidePreApprovalTaskCreationGate } from "../lib/task-gate.ts";
 import { registerCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
 
 describe("shouldBypassTaskGate", () => {
@@ -255,5 +255,51 @@ describe("taskValidationTriggerTurn", () => {
 		expect(taskValidationTriggerTurn("TEAM", [{ status: "inprogress" }, { status: "idle" }])).toBe(true);
 		expect(taskValidationTriggerTurn("PLAN", [{ status: "inprogress" }])).toBe(true);
 		expect(taskValidationTriggerTurn("NORMAL", [{ status: "inprogress" }])).toBe(true);
+	});
+});
+
+describe("pre-approval task creation gate", () => {
+	it("classifies only list-creating/activating actions", () => {
+		expect(isTaskCreationAction("new-list")).toBe(true);
+		expect(isTaskCreationAction("add")).toBe(true);
+		expect(isTaskCreationAction("toggle")).toBe(true);
+		expect(isTaskCreationAction("list")).toBe(false);
+		expect(isTaskCreationAction("update")).toBe(false);
+		expect(isTaskCreationAction("remove")).toBe(false);
+		expect(isTaskCreationAction("clear")).toBe(false);
+		expect(isTaskCreationAction(undefined)).toBe(false);
+	});
+
+	it("blocks new-list/add/toggle in PLAN before approval", () => {
+		for (const action of ["new-list", "add", "toggle"]) {
+			const gate = decidePreApprovalTaskCreationGate({ mode: "PLAN", approved: false, action });
+			expect(gate.block).toBe(true);
+			expect(gate.reason).toContain("show_plan");
+		}
+	});
+
+	it("blocks new-list/add/toggle in SPEC before approval", () => {
+		const gate = decidePreApprovalTaskCreationGate({ mode: "SPEC", approved: false, action: "add" });
+		expect(gate.block).toBe(true);
+		expect(gate.reason).toContain("show_spec");
+	});
+
+	it("allows read-only task management actions pre-approval", () => {
+		for (const action of ["list", "update", "remove", "clear"]) {
+			expect(decidePreApprovalTaskCreationGate({ mode: "PLAN", approved: false, action }).block).toBe(false);
+		}
+	});
+
+	it("allows creation once approved", () => {
+		for (const action of ["new-list", "add", "toggle"]) {
+			expect(decidePreApprovalTaskCreationGate({ mode: "PLAN", approved: true, action }).block).toBe(false);
+			expect(decidePreApprovalTaskCreationGate({ mode: "SPEC", approved: true, action }).block).toBe(false);
+		}
+	});
+
+	it("never gates non-approval modes", () => {
+		for (const mode of ["NORMAL", "PIPELINE", "TEAM", "CHAIN", undefined]) {
+			expect(decidePreApprovalTaskCreationGate({ mode, approved: false, action: "add" }).block).toBe(false);
+		}
 	});
 });

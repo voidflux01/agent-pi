@@ -31,8 +31,9 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber, renderTaskList, revealIncompleteTasks, type TaskListState } from "./lib/task-list-render.ts";
 import { padRight } from "./lib/ui-helpers.ts";
-import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn } from "./lib/task-gate.ts";
+import { isPlanningArtifactWrite, isScoutRecon, shouldBypassTaskGate, taskGateStrict, taskRequiredForMode, taskValidationTriggerTurn, decidePreApprovalTaskCreationGate } from "./lib/task-gate.ts";
 import { coordinationState, onCoordinationModeChange } from "./lib/coordination-state.ts";
+import { isApprovalGatedMode } from "./lib/approval-gate.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { saveRetrospective } from "./lib/workflow-memory.ts";
@@ -370,7 +371,18 @@ export default function (pi: ExtensionAPI) {
 
 		const mode = coordinationState().mode;
 		const requiredMode = taskRequiredForMode(mode);
-		if (event.toolName === "tasks") return { block: false };
+		if (event.toolName === "tasks") {
+			if (isApprovalGatedMode(mode)) {
+				const args = (event.input ?? {}) as Record<string, unknown>;
+				const approved = mode === "PLAN" ? coordinationState().planApproved : coordinationState().specApproved;
+				const gate = decidePreApprovalTaskCreationGate({ mode, approved, action: args?.action });
+				if (gate.block) {
+					recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "task_gate", reason: gate.reason ?? "", context: _ctx });
+					return gate;
+				}
+			}
+			return { block: false };
+		}
 		if (isPlanningArtifactWrite(event.toolName, mode, event.input)) return { block: false };
 		if (taskRefreshRequired && requiredMode) {
 			const args = event.input;

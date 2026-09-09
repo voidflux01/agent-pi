@@ -102,3 +102,38 @@ export function taskValidationTriggerTurn(
 export function taskGateStrict(): boolean {
 	return process.env.PI_TASKS_STRICT !== "0";
 }
+
+/**
+ * Task actions that create or activate the working list. In PLAN/SPEC these
+ * must wait until the plan/spec is approved, so an agent cannot seed a coarse
+ * placeholder task before the approved plan/spec exists (the sequencing bug
+ * that collapsed multi-step plans into one coarse task). Read-only management
+ * (list/update/remove) stays available pre-approval.
+ */
+export const TASK_CREATION_ACTIONS = ["new-list", "add", "toggle"] as const;
+
+export function isTaskCreationAction(action: unknown): boolean {
+	return (TASK_CREATION_ACTIONS as readonly string[]).includes(String(action ?? ""));
+}
+
+/**
+ * Gate decision: in PLAN/SPEC, creating/activating the task list before the
+ * plan/spec is approved is blocked. `approved` is the approval state for the
+ * current mode. Other modes (or post-approval) never block here.
+ */
+export function decidePreApprovalTaskCreationGate(input: {
+	mode: string | undefined;
+	approved: boolean;
+	action: unknown;
+}): { block: boolean; reason?: string } {
+	if (input.mode !== "PLAN" && input.mode !== "SPEC") return { block: false };
+	if (input.approved) return { block: false };
+	if (!isTaskCreationAction(input.action)) return { block: false };
+	const planLabel = input.mode === "PLAN" ? "plan" : "spec";
+	const approveTool = input.mode === "PLAN" ? "show_plan" : "show_spec";
+	const planPath = input.mode === "PLAN" ? ".context/todo.md" : "spec folder documents";
+	return {
+		block: true,
+		reason: `The ${input.mode} ${planLabel} is not approved yet, so tasks cannot be created or activated. Write the ${planLabel} (${planPath}) and call ${approveTool} first. After approval, rebuild the task list from the approved ${planLabel} (tasks new-list + add for each concrete step).`,
+	};
+}
