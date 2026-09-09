@@ -6,6 +6,7 @@ import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { buildWorkspaceManifest } from "../lib/workspace-manifest.ts";
 import { resetExecutionVerification } from "../lib/coordination-state.ts";
 import { builderRepairDispatcher, runAutonomousCompletion } from "../lib/autonomous-completion.ts";
+import { grantCompletionOverride } from "../lib/completion-override.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "../lib/verification-policy.ts";
 
 const { runVerifier } = vi.hoisted(() => ({ runVerifier: vi.fn() }));
@@ -100,5 +101,16 @@ describe("autonomous completion loop", () => {
 		);
 		executor.mockResolvedValueOnce({ details: { status: "error", error: true } });
 		expect(await builderRepairDispatcher({ cwd } as any)("broken repair")).toBe(false);
+	});
+
+	it("admits completion on a recorded user override without running the verifier", async () => {
+		if ("error" in contract) throw new Error("expected contract");
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
+		const granted = grantCompletionOverride(cwd, contract, "user approved despite verifier BLOCK");
+		expect(granted.approved).toBe(true);
+		const result = await runAutonomousCompletion({ contract, cwd, mode: "NORMAL" });
+		expect(result.allowed).toBe(true);
+		expect(result.reason).toContain("override");
+		expect(runVerifier).not.toHaveBeenCalled();
 	});
 });

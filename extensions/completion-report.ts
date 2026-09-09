@@ -32,6 +32,7 @@ import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { bindTaskContract, isAutonomousCompletionEnabled } from "./lib/autonomous-policy.ts";
+import { hasCompletionOverride } from "./lib/completion-override.ts";
 import { runAutonomousCompletion, builderRepairDispatcher } from "./lib/autonomous-completion.ts";
 import { markWorkflowRunComplete } from "./lib/workflow-run.ts";
 
@@ -561,6 +562,7 @@ export default function(pi: ExtensionAPI) {
 				receipt,
 				workspaceManifestHash: manifest.hash,
 				evalGate: getEvalGate(scope),
+				overrideActive: hasCompletionOverride(cwd, contract),
 			});
 			if (!gate.allowed && isAutonomousCompletionEnabled()) {
 				const autonomous = await runAutonomousCompletion({

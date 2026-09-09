@@ -9,6 +9,8 @@ import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-mani
 import { canComplete, type VerifierReceipt } from "./verifier-runtime.ts";
 import { bumpVerifierAttempt, getEvalGate, getVerifierReceipt, setEvalGate, setVerifierReceipt, verificationScope, getVerifierAttempt } from "./coordination-state.ts";
 import { checkApproval, recordApproval, type ApprovalProposal } from "./workflow-approval-gate.ts";
+import { hasCompletionOverride } from "./completion-override.ts";
+import { OVERRIDE_ALLOWED_REASON } from "./execution-gate.ts";
 import { upsertPersistedReport } from "./report-index.ts";
 import { getRegisteredToolExecutors } from "./tool-executor-registry.ts";
 import { getWorkflowRunLink } from "./coordination-state.ts";
@@ -168,6 +170,14 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			syncWorkflowRun(input, existing, iteration, runId);
 			if (!persistObservation(observation, cwd)) return withRunId({ allowed: false, status: "BLOCKED", reason: "iteration history unavailable", attempts: 0, receipt: existing, iteration });
 			return withRunId(iteration.action === "COMPLETE" ? { allowed: true, status: "PASS", receipt: existing, attempts: 0, iteration } : { allowed: false, status: "BLOCKED", reason: iteration.reason, receipt: existing, attempts: 0, iteration });
+		}
+		// A valid verifier PASS already returned above. When the user has explicitly
+		// approved an override for this contract (the isolated verifier can misjudge
+		// under limited context), admit completion without launching more verifier
+		// attempts. The override never skips a bound mandatory eval binding.
+		if (hasCompletionOverride(cwd, contract) && !(contract.requiredEval && !evalGate?.ok)) {
+			const stored = getVerifierReceipt(scope);
+			return withRunId({ allowed: true, status: "PASS", reason: OVERRIDE_ALLOWED_REASON, attempts: getVerifierAttempt(scope), receipt: stored, iteration: { action: "COMPLETE", reason: OVERRIDE_ALLOWED_REASON, attempts: getVerifierAttempt(scope), requiresApproval: false } });
 		}
 		let attempts = getVerifierAttempt(scope);
 		let previousReport = existing?.verifier?.report;

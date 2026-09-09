@@ -17,6 +17,8 @@ export const STALE_RECEIPT_REASON = "The verifier receipt is missing, failed, or
 export const REQUIRED_EVAL_REASON =
 	"The confirmed contract binds a mandatory eval set, but no fresh PASS report satisfies it. " +
 	"Run eval_run with the bound eval set (or fix the failing case), then re-run verify_execution.";
+export const OVERRIDE_ALLOWED_REASON =
+	"User-approved override: completion accepted despite no verifier PASS. The override cannot skip a bound mandatory eval set.";
 
 export function verificationRequired(input: {
 	surface: CompletionSurface;
@@ -36,13 +38,21 @@ export function completeDecision(input: {
 	receipt?: VerifierReceipt;
 	workspaceManifestHash?: string;
 	evalGate?: { ok: boolean };
+	/** An explicit user-approved override for this contract (see completion-override). */
+	overrideActive?: boolean;
 }): { allowed: boolean; reason?: string } {
 	if (!verificationRequired({ surface: input.surface, contract: input.contract })) return { allowed: true };
 	if (!input.contract || !input.contract.objective.trim()) {
 		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	}
+	const evalSatisfied = !(input.contract.requiredEval && input.evalGate?.ok !== true);
+	if (input.overrideActive) {
+		// Override escapes only the verifier PASS requirement, never a mandatory eval binding.
+		if (!evalSatisfied) return { allowed: false, reason: REQUIRED_EVAL_REASON };
+		return { allowed: true, reason: OVERRIDE_ALLOWED_REASON };
+	}
+	if (!evalSatisfied) return { allowed: false, reason: REQUIRED_EVAL_REASON };
 	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };
-	if (input.contract.requiredEval && input.evalGate?.ok !== true) return { allowed: false, reason: REQUIRED_EVAL_REASON };
 	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash, input.evalGate)) {
 		return { allowed: false, reason: STALE_RECEIPT_REASON };
 	}
@@ -56,6 +66,7 @@ export function completionDecision(input: {
 	receipt?: VerifierReceipt;
 	workspaceManifestHash?: string;
 	evalGate?: { ok: boolean };
+	overrideActive?: boolean;
 }): { allowed: boolean; reason?: string } {
 	return completeDecision(input);
 }
@@ -66,6 +77,7 @@ export function pipelineCompleteDecision(
 	receipt: VerifierReceipt | undefined,
 	workspaceManifestHash?: string,
 	evalGate?: { ok: boolean },
+	overrideActive?: boolean,
 ): { allowed: boolean; reason?: string; contract?: AcceptanceContract } {
 	if (!planText.trim()) return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	const bound = bindAcceptanceContract(planText, "pipeline");
@@ -76,6 +88,7 @@ export function pipelineCompleteDecision(
 		receipt,
 		workspaceManifestHash,
 		evalGate,
+		overrideActive,
 	});
 	return { ...decision, contract: bound };
 }

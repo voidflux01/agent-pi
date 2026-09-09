@@ -117,6 +117,32 @@ describe("completion gate (contract-bound)", () => {
 	});
 });
 
+describe("completion override (user-approved non-PASS escape)", () => {
+	it("admits a gated surface on overrideActive without any receipt", () => {
+		const bound = contract();
+		const d = completeDecision({ surface: "plan-show-report", contract: bound, overrideActive: true });
+		expect(d.allowed).toBe(true);
+		expect(d.reason).toContain("override");
+	});
+
+	it("refuses an override that would skip a bound mandatory eval set", () => {
+		const bound: AcceptanceContract = { ...contract(), requiredEval: { path: "eval/login.json", sha256: "abc" } };
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, overrideActive: true, evalGate: { ok: false } }).allowed).toBe(false);
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, overrideActive: true, evalGate: { ok: true } }).allowed).toBe(true);
+	});
+
+	it("keeps a current verifier PASS as the default even when override is not set", () => {
+		const bound = contract();
+		expect(completeDecision({ surface: "plan-show-report", contract: bound, receipt: receipt(bound, "m1"), workspaceManifestHash: "m1" }).allowed).toBe(true);
+		expect(completeDecision({ surface: "plan-show-report", contract: bound }).allowed).toBe(false);
+	});
+
+	it("pipeline last phase honors overrideActive without a receipt", () => {
+		expect(pipelineCompleteDecision(PLAN, undefined, "m1", undefined, true).allowed).toBe(true);
+		expect(pipelineCompleteDecision(PLAN, undefined, "m1", undefined, false).allowed).toBe(false);
+	});
+});
+
 describe("shipped wiring", () => {
 	const root = dirname(fileURLToPath(import.meta.url));
 

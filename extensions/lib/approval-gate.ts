@@ -16,7 +16,7 @@ export { isReadOnlyBash } from "./tool-invocation.ts";
 /** Tools that may run in PLAN/SPEC before the viewer is approved. */
 export const APPROVAL_BYPASS_TOOLS = [
 	"tasks", "set_mode", "subagent_wait", "ask_user", "show_plan", "show_spec", "show_file", "show_report",
-	"pipeline_status",
+	"verifier_override", "pipeline_status",
 ] as const;
 
 export const FILE_MUTATION_TOOLS = ["write", "edit", "write_file", "edit_file"] as const;

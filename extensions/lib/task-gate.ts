@@ -6,7 +6,7 @@ import { RECON_TOOL_NAMES } from "./tool-classification.ts";
 import { classifyToolInvocation, isReadOnlyBash } from "./tool-invocation.ts";
 
 export const TASK_GATE_BYPASS_TOOLS = [
-	"tasks", "set_mode", "team_batch_recover", "subagent_wait", "ask_user", "verify_execution", "show_report",
+	"tasks", "set_mode", "team_batch_recover", "subagent_wait", "ask_user", "verify_execution", "verifier_override", "show_report",
 	"pipeline_status",
 ] as const;
 
