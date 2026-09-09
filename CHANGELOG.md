@@ -4,6 +4,19 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Completion report surfaces verifier risk
+
+- **`show_report` reports verifier risk to the reviewer**: any residual risk
+  the verifier recorded that survived to completion now shows as a visible
+  banner in the report viewer (fail = red, amber = warn) and is echoed into the
+  returned text. Sources are not limited to an overall non-PASS or the explicit
+  Warnings list — they also cover per-section verdicts (quality/security can be
+  WARN or FAIL while the overall status stays PASS), severity-tagged review
+  findings (CRITICAL/HIGH/MEDIUM, matching the verifier's own materiality),
+  per-requirement statuses, and failed-test counts, deduplicated. A fully clean
+  PASS stays silent; reviewers are no longer shown an unqualified success when
+  the verifier flagged anything.
+
 ### Agent prompt de-duplication (2026-09)
 
 - **Worker role prompts slimmed**: all `agents/*.md` bodies are now the exact

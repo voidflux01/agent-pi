@@ -28,6 +28,7 @@ import {
 	getWorkflowRunLink,
 } from "./lib/coordination-state.ts";
 import { completeDecision } from "./lib/execution-gate.ts";
+import type { VerifierReceipt } from "./lib/verifier-runtime.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
@@ -44,6 +45,79 @@ interface ReportResult {
 }
 
 const MAX_COMPLETION_REQUEST_BODY_BYTES = 256 * 1024;
+
+/**
+ * Surface verifier risk to the report reviewer. Risk is not just an overall
+ * non-PASS status or the explicit Warnings list — the verifier report carries
+ * verdicts per section (quality/security can be WARN or FAIL while the overall
+ * status stays PASS), severity-tagged review findings, per-requirement status,
+ * and failed-test counts. Any of those surviving to completion is residual risk
+ * the reviewer must see rather than an unqualified success. We mirror the
+ * verifier's own materiality: review findings below MEDIUM and clean sections
+ * are not treated as risk.
+ */
+export function verifierRiskSummary(receipt: VerifierReceipt | undefined): { status: string; risks: string[] } | undefined {
+	const report = receipt?.verifier?.report;
+	if (!report) return undefined;
+	const risks: string[] = [];
+	const seen = new Set<string>();
+	const push = (value: string) => {
+		const key = value.trim().toLowerCase();
+		if (!key || seen.has(key)) return;
+		seen.add(key);
+		risks.push(value.trim());
+	};
+	const nonPass = (status?: string) => !!status && !/^pass$/i.test(status);
+	const material = (severity?: string) => severity === "CRITICAL" || severity === "HIGH" || severity === "MEDIUM";
+	const findings = (items?: string[]) => (items ?? []).filter((item) => !!item && !/^none$/i.test(item));
+
+	// Explicitly named residual-risk channels.
+	for (const blocker of report.hard_blockers ?? []) if (!/^none$/i.test(blocker)) push(`[blocker] ${blocker}`);
+	for (const warning of report.warnings ?? []) if (!/^none$/i.test(warning)) push(warning);
+
+	// Requirements the verifier could not clear.
+	for (const req of report.requirements ?? []) {
+		if (!nonPass(req.status)) continue;
+		const detail = req.evidence?.trim() ? ` — ${req.evidence.trim()}` : "";
+		push(`[requirement ${req.status}] ${req.requirement}${detail}`);
+	}
+
+	// Review findings the verifier itself treats as material (its re-audit narrows to MEDIUM+).
+	for (const finding of report.review?.findings ?? []) {
+		if (!material(finding.severity)) continue;
+		const where = finding.location?.trim() ? ` @ ${finding.location.trim()}` : "";
+		const title = finding.title?.trim() || finding.evidence?.trim() || finding.category || "review finding";
+		push(`[${finding.severity}] ${title}${where}`);
+	}
+
+	// Sections whose own verdict is not clean (WARN/FAIL) plus their findings.
+	const sections: Array<[string, string | undefined, string[] | undefined]> = [
+		["quality", report.quality?.status, report.quality?.findings],
+		["security", report.security?.status, report.security?.findings],
+		["behavior", report.behavior?.status, report.behavior?.findings],
+		["contract", report.contract?.status, report.contract?.findings],
+	];
+	for (const [name, status, list] of sections) {
+		if (nonPass(status)) for (const item of findings(list)) push(`[${name}] ${item}`);
+	}
+
+	// Failed tests even when no finding line was emitted.
+	if ((report.behavior?.tests?.failed ?? 0) > 0) {
+		push(`[behavior] ${report.behavior!.tests!.failed} test(s) failed`);
+	}
+
+	if (risks.length === 0) {
+		// Overall non-PASS with nothing else concrete still deserves a flag.
+		if (nonPass(report.status)) push(`Verifier reported ${report.status}; completion proceeded via override or autonomous path.`);
+		else return undefined;
+	}
+	return { status: report.status, risks };
+}
+
+function formatVerifierRisks(risks: { status: string; risks: string[] }): string {
+	const lines = risks.risks.map((r) => `  - ${r}`);
+	return `Verifier ${risks.status === "PASS" ? "warning(s)" : `status ${risks.status}`}:\n${lines.join("\n")}`;
+}
 
 function readRequestBody(req: IncomingMessage, res: ServerResponse, onBody: (body: string) => void): void {
 	readBoundedRequestBody(req, res, onBody, MAX_COMPLETION_REQUEST_BODY_BYTES, { ok: false, error: "Request body too large" }, { ok: false, error: "Request body unreadable" });
@@ -588,13 +662,19 @@ export default function(pi: ExtensionAPI) {
 			// Gather report data
 			const report = gatherReportData(cwd, title, summary, base_ref || "");
 
+			// Surface verifier risk (non-PASS reached via override/autonomous, or
+			// PASS-with-warnings) to the reviewer — never present an unqualified
+			// success when the verifier flagged anything.
+			const verifierRisks = verifierRiskSummary(getVerifierReceipt(scope));
+			if (verifierRisks) report.verifier = verifierRisks;
+			const riskText = verifierRisks ? `\n\nVerifier risk:\n${formatVerifierRisks(verifierRisks)}` : "";
+
 			if (report.files.length === 0) {
 				try { markWorkflowRunComplete(cwd, workflowRunId); } catch { }
 				return {
 					content: [{ type: "text" as const, text: "No file changes detected. Nothing to report." }],
 				};
 			}
-
 			// Clean up any previous server
 			cleanupServer();
 
@@ -625,7 +705,7 @@ export default function(pi: ExtensionAPI) {
 				const { timedOut, result } = await awaitReportResult(waitForResult);
 				if (timedOut || !result) {
 					return {
-						content: [{ type: "text" as const, text: `Completion report left open for review (${REPORT_WAIT_MS / 1000}s) with no action; report persisted, no files rolled back. Reopen with /report if you want to roll back.` }],
+						content: [{ type: "text" as const, text: `Completion report left open for review (${REPORT_WAIT_MS / 1000}s) with no action; report persisted, no files rolled back. Reopen with /report if you want to roll back.${riskText}` }],
 						details: { action: "timeout", rolledBackFiles: [], totalFiles: report.files.length, totalAdditions: report.totalAdditions, totalDeletions: report.totalDeletions, ...(workflowRunId ? { runId: workflowRunId } : {}) },
 					};
 				}
@@ -652,9 +732,9 @@ export default function(pi: ExtensionAPI) {
 
 				try { markWorkflowRunComplete(cwd, workflowRunId); } catch { }
 				const rolledBack = result.rolledBackFiles.length;
-				const closedSummary = rolledBack > 0
+				const closedSummary = (rolledBack > 0
 					? `Report closed. ${rolledBack} file${rolledBack > 1 ? "s" : ""} rolled back: ${result.rolledBackFiles.join(", ")}`
-					: "Report closed. No files were rolled back.";
+					: "Report closed. No files were rolled back.") + riskText;
 
 				// A completed show_report closes the workflow: return to the NORMAL
 				// baseline so the next request is not left in an orchestration mode.

@@ -6,47 +6,48 @@ import { SAFE_MARKDOWN_RUNTIME } from "./safe-markdown-runtime.ts";
  * Data structure for a single changed file.
  */
 function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+ return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
 }
 
 export interface ChangedFile {
-	path: string;
-	status: "modified" | "added" | "deleted" | "renamed";
-	additions: number;
-	deletions: number;
-	diff: string;
-	oldPath?: string; // for renames
+ path: string;
+ status: "modified" | "added" | "deleted" | "renamed";
+ additions: number;
+ deletions: number;
+ diff: string;
+ oldPath?: string; // for renames
 }
 
 /**
  * Data structure for the full completion report.
  */
 export interface ReportData {
-	title: string;
-	summary: string; // markdown summary of work done
-	files: ChangedFile[];
-	baseRef: string;
-	totalAdditions: number;
-	totalDeletions: number;
-	taskMarkdown?: string; // contents of .context/todo.md if it exists
+ title: string;
+ summary: string; // markdown summary of work done
+ files: ChangedFile[];
+ baseRef: string;
+ totalAdditions: number;
+ totalDeletions: number;
+ taskMarkdown?: string; // contents of .context/todo.md if it exists
+ verifier?: { status: string; risks: string[] }; // non-PASS or warnings to surface to the reviewer
 }
 
 /**
  * Generate the full HTML page for the completion report viewer window.
  */
 export function generateCompletionReportHTML(opts: {
-	report: ReportData;
-	port: number;
+ report: ReportData;
+ port: number;
 }): string {
-	const { report, port } = opts;
-	// JSON.stringify doesn't escape </script> or </style> sequences inside strings.
-	// If diff content contains these (e.g. an HTML template with </script>), the browser's
-	// HTML parser terminates the <script> block prematurely, causing raw JS/JSON to render
-	// as visible text and any embedded HTML to render as real DOM elements.
-	const escapedReport = JSON.stringify(report)
-		.replace(/<\//g, '<\\/');
+ const { report, port } = opts;
+ // JSON.stringify doesn't escape </script> or </style> sequences inside strings.
+ // If diff content contains these (e.g. an HTML template with </script>), the browser's
+ // HTML parser terminates the <script> block prematurely, causing raw JS/JSON to render
+ // as visible text and any embedded HTML to render as real DOM elements.
+ const escapedReport = JSON.stringify(report)
+  .replace(/<\//g, '<\\/');
 
-	return `<!DOCTYPE html>
+ return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -331,6 +332,39 @@ export function generateCompletionReportHTML(opts: {
   .task-stat.files .value { color: var(--accent); }
   .task-stat.additions .value { color: var(--success); }
   .task-stat.deletions .value { color: var(--error); }
+
+  /* ── Verifier Risk Banner ────────────── */
+  .verifier-banner {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning);
+    border-left: 4px solid var(--warning);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+  .verifier-banner.fail {
+    background: var(--error-bg);
+    border-color: var(--error);
+    border-left-color: var(--error);
+  }
+  .verifier-banner .verifier-title {
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+  }
+  .verifier-banner.warn .verifier-title { color: var(--warning); }
+  .verifier-banner.fail .verifier-title { color: var(--error); }
+  .verifier-banner ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .verifier-banner li { margin: 3px 0; }
 
   /* ── Files Section ───────────────────── */
   .files-section {
@@ -759,6 +793,12 @@ export function generateCompletionReportHTML(opts: {
 
 <!-- Content -->
 <div class="content">
+  <!-- Verifier risk banner -->
+  <div class="verifier-banner" id="verifierBanner" style="display:none;">
+    <div class="verifier-title" id="verifierTitle"></div>
+    <ul id="verifierRisks"></ul>
+  </div>
+
   <!-- Task overview stats -->
   <div class="task-overview" id="taskOverview"></div>
 
@@ -864,6 +904,25 @@ export function generateCompletionReportHTML(opts: {
 
     // Task overview cards
     renderOverviewCards();
+
+    // Verifier risk banner (non-PASS status or warnings that survived to completion)
+    if (report.verifier && report.verifier.risks && report.verifier.risks.length) {
+      const banner = document.getElementById('verifierBanner');
+      const titleEl = document.getElementById('verifierTitle');
+      const list = document.getElementById('verifierRisks');
+      const nonPass = report.verifier.status !== 'PASS';
+      banner.className = 'verifier-banner ' + (nonPass ? 'fail' : 'warn');
+      banner.style.display = 'block';
+      titleEl.textContent = nonPass
+        ? 'Verifier did not PASS (' + report.verifier.status + ') — review before accepting'
+        : 'Verifier passed with warnings';
+      list.innerHTML = '';
+      report.verifier.risks.forEach(function (risk) {
+        var li = document.createElement('li');
+        li.textContent = risk;
+        list.appendChild(li);
+      });
+    }
 
     // Summary section
     if (report.summary && report.summary.trim()) {
