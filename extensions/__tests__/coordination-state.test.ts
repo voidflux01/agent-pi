@@ -2,7 +2,7 @@
 // ABOUTME: Verifies mode, active workflows, approvals, and mode-change listeners.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { coordinationState, setActiveChain, setActivePipeline, setCoordinationMode, onCoordinationModeChange } from "../lib/coordination-state.ts";
+import { coordinationState, setActiveChain, setActivePipeline, setCoordinationMode, onCoordinationModeChange, verificationScope, bumpVerifierAttempt, getVerifierAttempt, setEvalGate, getEvalGate } from "../lib/coordination-state.ts";
 
 function resetState(): void {
 	setCoordinationMode("NORMAL");
@@ -11,8 +11,7 @@ function resetState(): void {
 	coordinationState().planApproved = false;
 	coordinationState().specApproved = false;
 	coordinationState().executionContract = undefined;
-	coordinationState().verifierReceipt = undefined;
-	coordinationState().verifierAttempt = 0;
+	coordinationState().verificationSessions = Object.create(null);
 }
 
 beforeEach(resetState);
@@ -32,5 +31,18 @@ describe("coordination state bus", () => {
 		setCoordinationMode("CHAIN", { ui });
 		expect(listener).toHaveBeenCalledWith("CHAIN", "NORMAL", { ui });
 		stop();
+	});
+
+	it("keeps attempts and eval gates isolated by cwd and contract", () => {
+		const first = verificationScope("/tmp/one", "a");
+		const second = verificationScope("/tmp/two", "a");
+		bumpVerifierAttempt(first);
+		bumpVerifierAttempt(first);
+		bumpVerifierAttempt(second);
+		setEvalGate({ ok: true, reason: "first" }, first);
+		expect(getVerifierAttempt(first)).toBe(2);
+		expect(getVerifierAttempt(second)).toBe(1);
+		expect(getEvalGate(first)?.reason).toBe("first");
+		expect(getEvalGate(second)).toBeUndefined();
 	});
 });

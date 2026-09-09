@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 export type WorkerThinking = "low" | "medium" | "high";
 
 export interface AgentPiConfig {
+	autoverify?: boolean;
 	workflowSupport?: { enabled: boolean; evaluations: boolean; retrospective: boolean; context: boolean; monitoring: boolean };
 	models: { default?: string; toolkit?: string; byAgent: Record<string, string> };
 	workers: {
@@ -112,6 +113,6 @@ export const AGENT_PI_CONFIG = loadAgentPiConfig();
 export const AGENT_PI_GLOBAL_CONFIG_PATH = GLOBAL_CONFIG_PATH;
 
 export function configuredModelForAgent(agentName: string): string | undefined {
-		const name = agentName.trim().toLowerCase();
-		return AGENT_PI_CONFIG.models.byAgent[name] || (name.endsWith("-agent") ? AGENT_PI_CONFIG.models.byAgent[name.slice(0, -6)] : undefined) || (name === "toolkit" ? AGENT_PI_CONFIG.models.toolkit : undefined);
+	const name = agentName.trim().toLowerCase();
+	return AGENT_PI_CONFIG.models.byAgent[name] || (name.endsWith("-agent") ? AGENT_PI_CONFIG.models.byAgent[name.slice(0, -6)] : undefined) || (name === "toolkit" ? AGENT_PI_CONFIG.models.toolkit : undefined);
 }

@@ -22,11 +22,15 @@ import {
 	coordinationState,
 	getExecutionContract,
 	getVerifierReceipt,
+	getEvalGate,
+	verificationScope,
 } from "./lib/coordination-state.ts";
 import { completeDecision } from "./lib/execution-gate.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
+import { bindTaskContract, isAutonomousCompletionEnabled } from "./lib/autonomous-policy.ts";
+import { runAutonomousCompletion, builderRepairDispatcher } from "./lib/autonomous-completion.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -468,6 +472,7 @@ const ShowReportParams = Type.Object({
 	title: Type.Optional(Type.String({ description: "Title for the report (default: 'Completion Report')" })),
 	summary: Type.Optional(Type.String({ description: "Markdown summary of the work done" })),
 	base_ref: Type.Optional(Type.String({ description: "Git ref to diff against (default: auto-detect — HEAD for uncommitted changes, HEAD~1 for committed)" })),
+	task: Type.Optional(Type.String({ maxLength: 4_000, description: "The task completed by this report when no approved contract is already bound" })),
 });
 
 // ── Extension ────────────────────────────────────────────────────────
@@ -519,7 +524,7 @@ export default function(pi: ExtensionAPI) {
 		description:
 			"Open a completion report viewer in the browser. Shows a summary of work done, " +
 			"files changed with unified diffs, and per-file rollback controls.\n\n" +
-			"In PLAN and SPEC modes, verify_execution must PASS before this tool is called; show_report never starts a verifier itself.\n\n" +
+			"When a contract or task is supplied, show_report verifies and repairs before allowing completion; it never authorizes or deploys changes.\n\n" +
 			"Automatically gathers git diff data from the working directory. " +
 			"Includes task completion data from .context/todo.md if available.\n\n" +
 			"The user can review diffs, rollback individual files or all changes, " +
@@ -531,23 +536,39 @@ export default function(pi: ExtensionAPI) {
 				title = "Completion Report",
 				summary = "",
 				base_ref,
-			} = params as { title?: string; summary?: string; base_ref?: string };
+				task,
+			} = params as { title?: string; summary?: string; base_ref?: string; task?: string };
 
 			const cwd = ctx.cwd || process.cwd();
 
 			let contract = getExecutionContract();
-			const manifest = contract ? buildWorkspaceManifest(cwd, contract.fingerprint) : undefined;
-			const currentHash = manifest?.hash;
-			const receipt = getVerifierReceipt();
+			if (!contract && task?.trim()) contract = bindTaskContract(task, cwd).contract;
+			if (!contract) {
+				return { content: [{ type: "text" as const, text: "Completion report blocked: no acceptance contract or non-empty task was supplied. Do not output done:true; report done:false or continue fixing." }], details: { error: true, completionBlocked: true, reason: "no acceptance contract or task" } };
+			}
+			const scope = verificationScope(cwd, contract.fingerprint);
+			const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
+			const receipt = getVerifierReceipt(scope);
 			const mode = coordinationState().mode;
 			const surface = mode === "PLAN" ? "plan-show-report" : mode === "SPEC" ? "spec-show-report" : "agent-show-report";
 			const gate = completeDecision({
 				surface,
 				contract,
 				receipt,
-				workspaceManifestHash: currentHash,
+				workspaceManifestHash: manifest.hash,
+				evalGate: getEvalGate(scope),
 			});
-			if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason} Call verify_execution first; show_report never starts a verifier. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
+			if (!gate.allowed && isAutonomousCompletionEnabled()) {
+				const autonomous = await runAutonomousCompletion({
+					contract, cwd, mode, risk: "low",
+					dispatchRepair: builderRepairDispatcher(ctx),
+				});
+				if (autonomous.allowed) {
+					// Continue to report viewer after autonomous verification passes.
+				} else {
+					return { content: [{ type: "text" as const, text: `Completion report blocked: ${autonomous.reason || gate.reason} Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: autonomous.reason || gate.reason } };
+				}
+			} else if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason} Call verify_execution first. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
 
 			// Check if we're in a git repo
 			if (!isGitRepo(cwd)) {

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>驾驶舱命令地图</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--line:#21262d;--fg:#e6edf3;--muted:#8b949e;
+    --a:#ff8a3d;--b:#58a6ff;--c:#3fb950;--d:#d29922;--e:#bc8cff;--f:#ff7b72;--g:#39c5cf;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.55 -apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;
+    padding:28px 20px 60px}
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 26px;color:var(--muted);font-size:12px}
+  .lg{display:flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  section{margin-bottom:26px}
+  h2{font-size:15px;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line);
+     display:flex;align-items:center;gap:8px}
+  h2 .n{color:var(--muted);font-weight:400;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .cmd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;font-size:13px}
+  .p{color:var(--muted);font-size:12px;margin:5px 0 0}
+  .eg{color:var(--fg);font-size:11px;margin:6px 0 0;opacity:.85;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+  .tag{display:inline-block;font-size:10px;color:#0d1117;border-radius:4px;padding:1px 6px;font-weight:700;vertical-align:1px}
+  .b0{background:var(--a)}.b1{background:var(--b)}.b2{background:var(--c)}.b3{background:var(--d)}
+  .b4{background:var(--e)}.b5{background:var(--f)}.b6{background:var(--g)}
+  .pending{outline:1px dashed var(--d)}
+  .foot{margin-top:6px;color:var(--muted);font-size:11px;line-height:1.7}
+  code{background:#0a0d12;border:1px solid var(--line);padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>驾驶舱命令地图 <span style="color:var(--muted);font-weight:400;font-size:14px">— 40 条 · 每条的用途</span></h1>
+  <p class="sub">删的是入口，不是功能。颜色 = 驾驶域；每条给「一句话用途 + 触发场景」。</p>
+  <div class="legend">
+    <span class="lg"><span class="dot" style="background:var(--a)"></span>子代理收派</span>
+    <span class="lg"><span class="dot" style="background:var(--b)"></span>团队</span>
+    <span class="lg"><span class="dot" style="background:var(--c)"></span>Pipeline/编排</span>
+    <span class="lg"><span class="dot" style="background:var(--d)"></span>模式/会话</span>
+    <span class="lg"><span class="dot" style="background:var(--e)"></span>治理</span>
+    <span class="lg"><span class="dot" style="background:var(--f)"></span>安全</span>
+    <span class="lg"><span class="dot" style="background:var(--g)"></span>仪表/viewer</span>
+  </div>
+
+  <section>
+    <h2><span class="n">A</span> 子代理收派 — 派活 / 追问 / 续跑 / 杀停 / 纠偏 / 应答 <span class="n">8</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b0">sub</span> 派一个子代理跑临时活 <p class="p">开新 SA + widget，受控并行。</p><div class="eg">/sub 让 scout 审计 YAML 解析注入面</div></div>
+      <div class="card"><span class="tag b0">subcont</span> 就同一个子代理追问/迭代 <p class="p">续聊，上下文不丢，不开新进程。</p><div class="eg">/subcont 3 展开第 2 条给修复 diff</div></div>
+      <div class="card"><span class="tag b0">subresume</span> 断点续跑持久化子代理 <p class="p">会话断/压缩后从 journal 恢复。</p><div class="eg">/subresume &lt;journal-id&gt; 收尾调研</div></div>
+      <div class="card"><span class="tag b0">subrm</span> 杀掉并移除指定子代理 <p class="p">误派/跑偏立刻止损（会 kill）。</p><div class="eg">/subrm 4</div></div>
+      <div class="card"><span class="tag b0">subclear</span> 全清子代理收场 <p class="p">杀全部 running + 清屏重开。</p><div class="eg">/subclear</div></div>
+      <div class="card"><span class="tag b0">nudge</span> 中途纠正运行中 worker <p class="p">定向 steer，不杀重派。</p><div class="eg">/nudge reviewer 只看本次 diff</div></div>
+      <div class="card"><span class="tag b0">asks</span> 看子代理挂起向你问的问题 <p class="p">ask_parent 待办列表。</p><div class="eg">/asks</div></div>
+      <div class="card"><span class="tag b0">ask-answer</span> 回答挂起提问让它继续 <p class="p">给答案 → agent 解挂继续跑。</p><div class="eg">/ask-answer &lt;id&gt; 留 LEGACY 默认</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">B</span> 团队 — 换组合 / 看在场 <span class="n">2</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b1">agents-team</span> 切换角色组合 <p class="p">审代码/写文档/查安全等预制团队。</p><div class="eg">/agents-team code-review</div></div>
+      <div class="card"><span class="tag b1">agents-list</span> 列当前可用 agent <p class="p">角色 + 状态 + 模型，派活前扫一眼。</p><div class="eg">/agents-list</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">C</span> Pipeline / 编排 — 流程驾驶 <span class="n">7</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b2">pipeline</span> 选一条分阶段多 agent 流程 <p class="p">research→plan→build→review 等。</p><div class="eg">/pipeline research-plan-build-review</div></div>
+      <div class="card"><span class="tag b2">pipeline-status</span> 看流程跑到哪、谁卡住 <p class="p">阶段 + agent 状态一屏。</p><div class="eg">/pipeline-status</div></div>
+      <div class="card"><span class="tag b2">pipeline-resume</span> 从快照续跑流程 <p class="p">断/换会话后恢复。</p><div class="eg">/pipeline-resume</div></div>
+      <div class="card"><span class="tag b2">pipeline-reset</span> 回 phase 1 重来 <p class="p">理解错方向时，不重启进程。</p><div class="eg">/pipeline-reset</div></div>
+      <div class="card"><span class="tag b2">pipeline-off</span> 退出流水线态收 UI <p class="p">任务完成切去干别的。</p><div class="eg">/pipeline-off</div></div>
+      <div class="card"><span class="tag b2">orchestration-status</span> compose 批执行状态 <p class="p">看每步 complete/failed/blocked。</p><div class="eg">/orchestration-status &lt;run_id&gt;</div></div>
+      <div class="card"><span class="tag b2">budget</span> 设/查编排 token 与花费上限 <p class="p">跑重批防烧穿。</p><div class="eg">/budget 500000 5.0</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">D</span> 模式 / 会话 / 模型 <span class="n">5</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b3">mode</span> 切运行模式 <p class="p">NORMAL/PLAN/SPEC/PIPELINE/TEAM/CHAIN。</p><div class="eg">/mode TEAM</div></div>
+      <div class="card"><span class="tag b3">system</span> 换角色 system prompt <p class="p">用不同"大脑"视角干活。</p><div class="eg">/system → pi-orchestrator</div></div>
+      <div class="card"><span class="tag b3">cycle</span> 压缩→新会话→带记忆继续 <p class="p">超长会话顶上下文时清场续跑。</p><div class="eg">/cycle</div></div>
+      <div class="card pending"><span class="tag b3">model-save</span> 存当前模型为默认 <p class="p">一次性；唯一入口（待你定留删）。</p><div class="eg">/model-save</div></div>
+      <div class="card"><span class="tag b3">execution-status</span> 验收契约/verifier 状态 <p class="p">验收链路调试用。</p><div class="eg">/execution-status</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">E</span> 治理 — 鉴权 / 工具精简 <span class="n">4</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b4">auth-status</span> 看鉴权来源/token 状态 <p class="p">报 401 时排障起点。</p><div class="eg">/auth-status</div></div>
+      <div class="card"><span class="tag b4">auth-logout</span> 清内置 OAuth 凭据 <p class="p">换 env var 接管，带确认。</p><div class="eg">/auth-logout</div></div>
+      <div class="card"><span class="tag b4">lean-tools</span> 精简工具模式开关 <p class="p">agent 先 tool_search 再 call_tool。</p><div class="eg">/lean-tools</div></div>
+      <div class="card"><span class="tag b4">tool-search</span> 查有没有对应工具 <p class="p">lean 配套发现面。</p><div class="eg">/tool-search viewer</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">F</span> 安全 <span class="n">2</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b5">secure</span> 仓库漏洞扫描 / 上保护 / 报告 <p class="p">sweep|install|status|report（red-team 系）。</p><div class="eg">/secure sweep</div></div>
+      <div class="card"><span class="tag b5">security</span> 运行时 tool 守卫运维 <p class="p">status|log|policy|reload。</p><div class="eg">/security log</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">G</span> 仪表 / viewer — 看状态与产出 <span class="n">12</span></h2>
+    <div class="grid">
+      <div class="card"><span class="tag b6">board</span> 浏览器 kanban 总览 <p class="p">多 agent 进度，可过滤。</p><div class="eg">/board</div></div>
+      <div class="card"><span class="tag b6">tasks</span> 终端快查分支任务 <p class="p">不开浏览器的轻量版。</p><div class="eg">/tasks</div></div>
+      <div class="card"><span class="tag b6">report</span> 本次 git 变更完成报告 <p class="p">提交前核对改了什么。</p><div class="eg">/report</div></div>
+      <div class="card"><span class="tag b6">reports</span> 历史报告索引 <p class="p">回看以前任务产出。</p><div class="eg">/reports</div></div>
+      <div class="card"><span class="tag b6">replay</span> 会话时间线复盘 <p class="p">定位"哪步开始错"。</p><div class="eg">/replay</div></div>
+      <div class="card"><span class="tag b6">plan</span> 看 todo.md 计划进度 <p class="p">派活前对齐既定步骤。</p><div class="eg">/plan</div></div>
+      <div class="card"><span class="tag b6">spec</span> 开 spec 文档 <p class="p">写 spec 开发态核对结构。</p><div class="eg">/spec &lt;dir&gt;</div></div>
+      <div class="card"><span class="tag b6">show-file</span> 亲眼看本地文件 <p class="p">查报错行/产物。</p><div class="eg">/show-file path</div></div>
+      <div class="card"><span class="tag b6">close-viewer</span> 关当前 viewer <p class="p">viewer 开多了收掉。</p><div class="eg">/close-viewer</div></div>
+      <div class="card"><span class="tag b6">cleanup</span> 磁盘清理 viewer <p class="p">扫大文件分级处置。</p><div class="eg">/cleanup</div></div>
+      <div class="card"><span class="tag b6">research</span> 联网研究 + 研究浏览器 <p class="p">带源研究，流水线前置。</p><div class="eg">/research 查模型定价</div></div>
+      <div class="card"><span class="tag b6">workflow</span> workflow 能力 / 存 review 草稿 <p class="p">能力清单与草稿存档。</p><div class="eg">/workflow context</div></div>
+    </div>
+  </section>
+
+  <div class="foot">虚线框 = 待定（<code>model-save</code> 是存默认模型的唯一入口，删即丢功能，保守保留待确认）。已删入口的替代：<code>auth-clear→/auth-logout</code> · <code>theme→ctrl+q</code> · <code>debug-capture/sounds→同名 tool</code>。详细手册见 <code>docs/command-manual.md</code>，场景分析见 <code>docs/command-scenarios.md</code>。</div>
+</div>
+</body>
+</html>

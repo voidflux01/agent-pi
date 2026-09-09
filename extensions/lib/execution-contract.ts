@@ -19,7 +19,7 @@ export interface RequiredEvalBinding {
 
 export interface AcceptanceContract {
 	version: 3;
-	source: "plan" | "pipeline" | "spec";
+	source: "plan" | "pipeline" | "spec" | "task";
 	objective: string;
 	scope: string;
 	acceptanceCriteria: string;
@@ -166,7 +166,7 @@ export function emptyContract(markdown: string, source: AcceptanceContract["sour
 	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", contractPath: contractPath ? resolve(contractPath) : undefined, assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
 }
 
-export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline", contractPath?: string): AcceptanceContract {
+export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline" | "task", contractPath?: string): AcceptanceContract {
 	return buildContract(markdown, source, ["Verification Commands", "Contract", "Verification"], contractPath);
 }
 

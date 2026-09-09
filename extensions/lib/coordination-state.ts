@@ -1,9 +1,16 @@
 // ABOUTME: Typed coordination state shared by Pi modes and orchestration extensions.
 // ABOUTME: Keeps one global state object while hiding its shape behind typed accessors.
 
+import { resolve } from "node:path";
 import type { Mode } from "./mode-cycler-logic.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
+
+export interface VerificationSession {
+	receipt?: VerifierReceipt;
+	attempt: number;
+	evalGate?: { ok: boolean; checkedAt: string; reason: string };
+}
 
 export interface CoordinationState {
 	mode: Mode;
@@ -19,11 +26,8 @@ export interface CoordinationState {
 	specApprovalBinding?: { folderPath: string; fileFingerprint: string; contentFingerprint: string };
 	/** Current acceptance checklist bound to an approved plan or pipeline $PLAN. */
 	executionContract?: AcceptanceContract;
-	/** Latest mandatory-eval gate result, set by verify_execution and cleared on contract change. */
-	evalGate?: { ok: boolean; checkedAt: string; reason: string };
-	/** Isolated verifier receipt for the current contract fingerprint. */
-	verifierReceipt?: VerifierReceipt;
-	verifierAttempt?: number;
+	/** Verifier state isolated by resolved workspace and contract fingerprint. */
+	verificationSessions: Record<string, VerificationSession>;
 }
 
 interface CoordinationGlobal {
@@ -42,8 +46,7 @@ function createState(): CoordinationState {
 		planApprovalBinding: undefined,
 		specApprovalBinding: undefined,
 		executionContract: undefined,
-		verifierReceipt: undefined,
-		verifierAttempt: 0,
+		verificationSessions: Object.create(null),
 	};
 }
 
@@ -56,54 +59,61 @@ export function coordinationState(): CoordinationState {
 	if (state.planApprovalBinding && typeof state.planApprovalBinding !== "object") state.planApprovalBinding = undefined;
 	if (state.specApprovalBinding && typeof state.specApprovalBinding !== "object") state.specApprovalBinding = undefined;
 	if (state.executionContract && typeof state.executionContract !== "object") state.executionContract = undefined;
-	if (state.verifierReceipt && typeof state.verifierReceipt !== "object") state.verifierReceipt = undefined;
-	if (typeof state.verifierAttempt !== "number") state.verifierAttempt = 0;
+	if (!state.verificationSessions || typeof state.verificationSessions !== "object") state.verificationSessions = Object.create(null);
 	return state;
 }
 
-export function setExecutionContract(contract: AcceptanceContract | undefined): void {
+export function verificationScope(cwd: string, contractFingerprint: string): string {
+	return `${resolve(cwd)}|${contractFingerprint}`;
+}
+
+function session(scope: string): VerificationSession {
 	const state = coordinationState();
-	const previousFingerprint = state.executionContract?.fingerprint;
-	state.executionContract = contract;
-	if (contract?.fingerprint !== previousFingerprint) {
-		state.verifierReceipt = undefined;
-		state.verifierAttempt = 0;
-		state.evalGate = undefined;
-	}
+	return state.verificationSessions[scope] ||= { attempt: 0 };
+}
+
+export function setExecutionContract(contract: AcceptanceContract | undefined): void {
+	coordinationState().executionContract = contract;
 }
 
 export function getExecutionContract(): AcceptanceContract | undefined {
 	return coordinationState().executionContract;
 }
 
-export function setVerifierReceipt(receipt: VerifierReceipt | undefined): void {
-	coordinationState().verifierReceipt = receipt;
+export function setVerifierReceipt(receipt: VerifierReceipt | undefined, scope: string): void {
+	const current = session(scope);
+	if (receipt) current.receipt = receipt;
+	else delete current.receipt;
 }
 
-export function setEvalGate(gate: { ok: boolean; reason: string } | undefined): void {
-	coordinationState().evalGate = gate ? { ok: gate.ok, checkedAt: new Date().toISOString(), reason: gate.reason } : undefined;
+export function setEvalGate(gate: { ok: boolean; reason: string } | undefined, scope: string): void {
+	const current = session(scope);
+	if (gate) current.evalGate = { ok: gate.ok, checkedAt: new Date().toISOString(), reason: gate.reason };
+	else delete current.evalGate;
 }
 
-export function getEvalGate(): { ok: boolean; checkedAt: string; reason: string } | undefined {
-	return coordinationState().evalGate;
+export function getEvalGate(scope: string): { ok: boolean; checkedAt: string; reason: string } | undefined {
+	return coordinationState().verificationSessions[scope]?.evalGate;
 }
 
-export function getVerifierReceipt(): VerifierReceipt | undefined {
-	return coordinationState().verifierReceipt;
+export function getVerifierReceipt(scope: string): VerifierReceipt | undefined {
+	return coordinationState().verificationSessions[scope]?.receipt;
 }
 
-export function bumpVerifierAttempt(): number {
-	const state = coordinationState();
-	state.verifierAttempt = (state.verifierAttempt || 0) + 1;
-	return state.verifierAttempt;
+export function getVerifierAttempt(scope: string): number {
+	return coordinationState().verificationSessions[scope]?.attempt || 0;
+}
+
+export function bumpVerifierAttempt(scope: string): number {
+	const current = session(scope);
+	current.attempt += 1;
+	return current.attempt;
 }
 
 export function resetExecutionVerification(): void {
 	const state = coordinationState();
 	state.executionContract = undefined;
-	state.verifierReceipt = undefined;
-	state.verifierAttempt = 0;
-	state.evalGate = undefined;
+	state.verificationSessions = Object.create(null);
 }
 
 /** Live TUI ctx from `/mode` / set_mode so widgets hide on the visible UI. */
@@ -123,7 +133,7 @@ export function setCoordinationMode(mode: Mode, ctx?: ModeChangeUi): void {
 	coordinationState().mode = mode;
 	if (previous === mode) return;
 	for (const listener of modeChangeListeners) {
-		try { listener(mode, previous, ctx); } catch {}
+		try { listener(mode, previous, ctx); } catch { }
 	}
 }
 

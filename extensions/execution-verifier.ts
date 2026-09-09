@@ -8,10 +8,13 @@ import { Type } from "@sinclair/typebox";
 import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import {
 	bumpVerifierAttempt,
+	getVerifierAttempt,
 	getExecutionContract,
 	getVerifierReceipt,
 	setExecutionContract,
 	setVerifierReceipt,
+	verificationScope,
+	getEvalGate,
 } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
@@ -27,22 +30,23 @@ import { checkRequiredEvalBinding } from "./lib/eval-sets.ts";
 const Params = Type.Object({
 	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including an Objective and any optional context or explicit eval binding" })),
 	objective: Type.Optional(Type.String({ description: "Optional short objective when contract is supplied separately" })),
-	});
+});
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	pi.registerCommand("execution-status", {
 		description: "Show the current acceptance contract and verifier receipt",
 		handler: async (_args, ctx) => {
 			const contract = getExecutionContract();
-			const receipt = getVerifierReceipt();
 			const cwd = ctx.cwd || process.cwd();
 			if (!contract) { ctx.ui.notify("No acceptance contract is bound", "info"); return; }
+			const scope = verificationScope(cwd, contract.fingerprint);
+			const receipt = getVerifierReceipt(scope);
 			if (!receipt) {
 				ctx.ui.notify(`UNVERIFIED · ${contract.objective} · Objective review pending · ${contract.assertions.length} context items`, "warning");
 				return;
 			}
 			const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
-			const current = canComplete(receipt, contract, manifest.hash);
+			const current = canComplete(receipt, contract, manifest.hash, getEvalGate(scope));
 			ctx.ui.notify(
 				`${current ? receipt.status : "STALE"} · ${contract.objective} · attempt ${receipt.attempt}`,
 				current ? "info" : "warning",
@@ -76,19 +80,20 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			const cwd = ctx.cwd || process.cwd();
+			const scope = verificationScope(cwd, contract.fingerprint);
 			// A contract-bound eval set is a mandatory acceptance item: a missing, stale
 			// or failed report blocks verification itself, so no receipt can exist.
 			if (contract.requiredEval) {
 				const gate = checkRequiredEvalBinding(cwd, contract.requiredEval);
-				setEvalGate(gate);
+				setEvalGate(gate, scope);
 				if (!gate.ok) {
 					return { content: [{ type: "text", text: `Verification blocked: ${gate.reason} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false, reason: "required eval gate not satisfied" } };
 				}
-			} else setEvalGate(undefined);
+			} else setEvalGate(undefined, scope);
 			// A PASS receipt is already bound to both this contract and the exact
 			// workspace manifest. Reuse it instead of launching another verifier
 			// session/Herdr pane when the parent repeats the same tool call.
-			const previousReceipt = getVerifierReceipt();
+			const previousReceipt = getVerifierReceipt(scope);
 			const currentManifest = buildWorkspaceManifest(cwd, contract.fingerprint);
 			if (canComplete(previousReceipt, contract, currentManifest.hash, contract.requiredEval ? { ok: true } : undefined)) {
 				const summary = previousReceipt?.verifier?.summary || "existing PASS receipt is still current";
@@ -97,7 +102,11 @@ export default function (pi: ExtensionAPI) {
 					details: { status: "PASS", completionAllowed: true, receipt: previousReceipt, reused: true, reason: "same contract and unchanged workspace" },
 				};
 			}
-			const attempt = bumpVerifierAttempt();
+			const previousAttempt = getVerifierAttempt(scope);
+			if (previousAttempt >= DEFAULT_VERIFIER_ATTEMPTS) {
+				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt: previousAttempt } };
+			}
+			const attempt = bumpVerifierAttempt(scope);
 			// Re-verification rounds against the same contract get a narrowed delta
 			// prompt built from the prior receipt — fresh session, focused audit.
 			const previousReport = previousReceipt?.verifier?.report
@@ -114,11 +123,6 @@ export default function (pi: ExtensionAPI) {
 			});
 			orchestrationRun.consumeStep();
 			orchestrationRun.record("verification.started", { attempt, objective: contract.objective });
-			if (attempt > DEFAULT_VERIFIER_ATTEMPTS) {
-				orchestrationRun.record("verification.completed", { status: "BLOCKED", attempt });
-				orchestrationRun.finish("failed", { verificationStatus: "BLOCKED", attempt });
-				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt } };
-			}
 			const verification = await runAcceptanceVerifier({
 				cwd,
 				contract,
@@ -134,7 +138,7 @@ export default function (pi: ExtensionAPI) {
 				orchestrationRun.finish("failed", { verificationStatus: "BLOCKED", error: verification.error });
 				return { content: [{ type: "text", text: `${verification.error || "Verifier could not complete."} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false } };
 			}
-			setVerifierReceipt(verification.receipt);
+			setVerifierReceipt(verification.receipt, scope);
 			orchestrationRun.record("verification.completed", {
 				status: verification.receipt.status,
 				passed: verification.receipt.results.filter(result => result.status === "pass").length,
@@ -146,8 +150,10 @@ export default function (pi: ExtensionAPI) {
 			});
 			return {
 				content: [{ type: "text", text: `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => `${r.raw}${r.note ? ` (${r.note})` : ""}`).join("; ") || "all assertions passed"}` }],
-					details: { status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt,
-						nextAction: workflowDirection({ status: verification.receipt.status, attempt }) },
+				details: {
+					status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt,
+					nextAction: workflowDirection({ status: verification.receipt.status, attempt })
+				},
 			};
 		}) as any,
 

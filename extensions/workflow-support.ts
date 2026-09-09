@@ -13,23 +13,25 @@ import { checkApproval, listApprovals, recordApproval, type ApprovalProposal } f
 import { aggregateEvalStatus } from "./lib/eval-engine.ts";
 import { checkRequiredEvalBinding, loadEvalSet, runUserEvalSet } from "./lib/eval-sets.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
-import { getEvalGate, getExecutionContract, getVerifierReceipt } from "./lib/coordination-state.ts";
+import { getEvalGate, getExecutionContract, getVerifierReceipt, verificationScope } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 
 const result = (value: unknown) => ({ content: [{ type: "text" as const, text: redactEvidence(JSON.stringify(value, null, 2)) }] });
 const text = (maxLength = 1000) => Type.String({ maxLength });
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	const config = AGENT_PI_CONFIG.workflowSupport;
 	if (!config?.enabled || process.env.PI_WORKFLOW_SUPPORT === "0") return;
 	registerToolWithExecutor(pi, {
 		name: "workflow_advice", label: "Workflow advice", description: "Inspect the actual acceptance receipt and suggest verify, repair, replan or human intervention; never changes permissions or completion state.",
 		parameters: Type.Object({ failure: Type.Optional(Type.Union([Type.Literal("implementation"), Type.Literal("assumption"), Type.Literal("requirements"), Type.Literal("environment")])), risk: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])) }),
 		execute: async (_id, params, _signal, _update, ctx) => {
-			const contract = getExecutionContract(), receipt = getVerifierReceipt();
+			const contract = getExecutionContract();
+			const scope = contract ? verificationScope(ctx.cwd, contract.fingerprint) : undefined;
+			const receipt = scope ? getVerifierReceipt(scope) : undefined;
 			let status = receipt?.status || "UNVERIFIED";
-			if (receipt?.status === "PASS" && (!contract || !canComplete(receipt, contract, buildWorkspaceManifest(ctx.cwd, contract.fingerprint).hash, getEvalGate()))) status = "UNVERIFIED";
+			if (receipt?.status === "PASS" && (!contract || !scope || !canComplete(receipt, contract, buildWorkspaceManifest(ctx.cwd, contract.fingerprint).hash, getEvalGate(scope)))) status = "UNVERIFIED";
 			return result({ status, ...workflowDirection({ status: status as any, attempt: receipt?.attempt, ...params }) });
 		},
 	});
@@ -72,9 +74,11 @@ export default function (pi: ExtensionAPI) {
 			const decision = params.approved === undefined
 				? checkApproval(ctx.cwd, proposal)
 				: recordApproval(ctx.cwd, proposal, params.approved, params.reason);
-			return result({ ...decision, can_execute: false, message: decision.approved
-				? "Matching approval recorded; a separate gated workflow step must still consume it and stays fail-closed on any proposal change."
-				: `Approval check failed (${decision.status}); do not execute the proposed action until the user approves this exact proposal.` });
+			return result({
+				...decision, can_execute: false, message: decision.approved
+					? "Matching approval recorded; a separate gated workflow step must still consume it and stays fail-closed on any proposal change."
+					: `Approval check failed (${decision.status}); do not execute the proposed action until the user approves this exact proposal.`
+			});
 		},
 	});
 	if (config.retrospective) registerToolWithExecutor(pi, {

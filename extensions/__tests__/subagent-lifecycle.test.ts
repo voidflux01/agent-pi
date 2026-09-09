@@ -50,7 +50,9 @@ describe("stale session lifecycle protection", () => {
 		expect(team).toContain('runStatus: code === 130 ? "cancelled" : undefined');
 		expect(team).toContain("function clearAgentTimer");
 		expect(team).toContain("clearAgentTimer(state)");
-		expect(team).toContain("removeAllAgentWidgets(widgetCtx);\n\t\tfor (const state of agentStates.values()) {\n\t\t\tclearAgentTimer(state);");
+		expect(team).toContain("removeAllAgentWidgets(widgetCtx);");
+		expect(team).toContain("for (const state of agentStates.values())");
+		expect(team).toContain("clearAgentTimer(state)");
 	});
 
 	it("awaits scout subagent_create until RESULT and skips the follow-up turn", () => {
