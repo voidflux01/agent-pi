@@ -4,10 +4,12 @@ import {
 	boundedHandoff,
 	boundedOutputPreview,
 	compactHandoff,
+	buildResultFormatRepairPrompt,
 	composeAgentResult,
 	contractGateEnabled,
 	normalizeResultContract,
 	resultContractFailure,
+	resultFormatRepairReason,
 } from "../lib/agent-result-contract.ts";
 
 const GOOD = [
@@ -159,6 +161,22 @@ describe("deterministic autofix (zero-token drift repair)", () => {
 		expect(normalizeResultContract("")).toBeUndefined();
 		expect(resultContractFailure("")).toContain("empty transcript");
 		expect(resultContractFailure("   \n  ")).toContain("empty transcript");
+	});
+});
+
+describe("worker-owned format repair gate", () => {
+	test("repairs plain prose but accepts deterministic syntax normalization", () => {
+		expect(resultFormatRepairReason("worker stopped after inspection", "scout", { exitCode: 1 })).toContain("no ## RESULT block");
+		expect(resultFormatRepairReason("## RESULT\nrole: scout\ndone: yes\nstatus: SUCCESS\nsummary: done\n## END", "scout", { exitCode: 0 })).toBeUndefined();
+		expect(resultFormatRepairReason("", "scout", { exitCode: 0 })).toContain("empty transcript");
+	});
+
+	test("repair prompt preserves incomplete outcomes as BLOCKED", () => {
+		const prompt = buildResultFormatRepairPrompt({ role: "scout", reason: "empty transcript", exitCode: 1 });
+		expect(prompt).toContain("done: true and status: BLOCKED");
+		expect(prompt).toContain("role: scout");
+		expect(prompt).toContain("key_errors:");
+		expect(prompt).toContain("## END");
 	});
 });
 

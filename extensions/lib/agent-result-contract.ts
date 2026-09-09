@@ -88,6 +88,25 @@ export function buildWorkerInitialPrompt(opts: {
 	].filter((part) => part !== undefined && part !== "").join("\n");
 }
 
+/**
+ * Drop every heading line whose title matches `heading` plus the lines that
+ * follow it until the next heading or EOF. Regexes are unsuitable here: a
+ * multiline `$` lookahead matches at any line end, silently deleting only the
+ * heading and orphaning the section body into the section above.
+ */
+function dropLegacySections(text: string, heading: RegExp): string {
+	let dropping = false;
+	return text.split("\n").filter((line) => {
+		const head = /^#{2,6}\s+(.+?)\s*$/.exec(line.trimStart());
+		if (head && heading.test(head[1].trim())) {
+			dropping = true;
+			return false;
+		}
+		if (head) dropping = false;
+		return !dropping;
+	}).join("\n");
+}
+
 /** Remove legacy result-wrapper instructions from role text before composition. */
 function stripEmbeddedResultProtocol(prompt?: string): string | undefined {
 	if (!prompt?.trim()) return undefined;
@@ -95,14 +114,18 @@ function stripEmbeddedResultProtocol(prompt?: string): string | undefined {
 	// Agent definition files may still contain a legacy reporting protocol.
 	// The runtime owns that protocol now, so remove the whole protocol-bearing
 	// tail rather than trying to repair individual lines from it.
-	value = value.replace(/^\s*- If external information is required[\s\S]*?(?=^\s*- The final assistant message MUST end)/im, "");
-	value = value.replace(/^\s*- The final assistant message MUST end[\s\S]*$/im, "");
+	// Wording drifted between "The final" and "Your final" over time — match both.
+	value = value.replace(/^\s*- If external information is required[\s\S]*?(?=^\s*- (?:The|Your) final assistant message MUST end)/im, "");
+	value = value.replace(/^\s*- (?:The|Your) final assistant message MUST end[\s\S]*$/im, "");
 	value = value.replace(/^\s*## Output Format\s*$[\s\S]*$/im, "");
 	// Runtime owns generic safety and reporting protocol; keep role prompts focused
-	// on role-specific judgment instead of repeating shared boilerplate.
-	value = value.replace(/^\s*## Security Redlines\s*$[\s\S]*?(?=^##\s|\s*$)/gim, "");
-	value = value.replace(/^\s*## Result Contract\s*$[\s\S]*?(?=^##\s|\s*$)/gim, "");
+	// on role-specific judgment instead of repeating shared boilerplate. Drop the
+	// whole section (heading AND body until the next heading or EOF) — deleting
+	// only the heading would orphan the body into the previous section. The
+	// fenced template goes first: its `## RESULT`/`## END` fences are headings
+	// too and would otherwise end the drop early.
 	value = value.replace(/```(?:text|markdown)?\s*\n## RESULT[\s\S]*?## END\s*\n```/gi, "");
+	value = dropLegacySections(value, /^(Security Redlines|Result Contract)$/i);
 	value = value.replace(/^\s*- \*\*Do NOT include any emojis\. Emojis are banned\.\*\*\s*$/im, "");
 	return value.replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -502,6 +525,92 @@ export function resultContractFailure(
 	const normalized = normalizeResultContract(fullText, role, { allowUnstructured: exitCode !== undefined, exitCode });
 	const compliance = checkResultCompliance(normalized?.text || fullText);
 	return compliance.ok ? undefined : `worker result contract incomplete: ${compliance.problems.join("; ")}`;
+}
+
+export const MAX_RESULT_FORMAT_REPAIRS = 1;
+
+export interface ResultFormatRepairOptions {
+	role?: string;
+	exitCode?: number | null;
+	failure?: string;
+	cancelled?: boolean;
+}
+
+/** Strict repair gate: deterministic syntax fixes pass, prose recovery does not. */
+export function resultFormatRepairReason(
+	fullText: string,
+	role?: string,
+	options: ResultFormatRepairOptions = {},
+): string | undefined {
+	if (options.cancelled || options.failure === "aborted") return undefined;
+	const raw = checkResultCompliance(fullText);
+	if (raw.ok) return undefined;
+	const normalized = normalizeResultContract(fullText, role, {
+		allowUnstructured: true,
+		exitCode: options.exitCode,
+	});
+	if (normalized && !normalized.recovered && checkResultCompliance(normalized.text).ok) return undefined;
+	return `worker result contract incomplete: ${raw.problems.join("; ")}`;
+}
+
+/** Self-contained no-tool repair prompt shared by every worker transport. */
+export function buildResultFormatRepairPrompt(opts: {
+	role?: string;
+	reason?: string;
+	outputText?: string;
+	exitCode?: number | null;
+	failure?: string;
+}): string {
+	const role = opts.role?.trim() || "worker";
+	const previous = `${opts.outputText || ""}\\n${opts.reason || ""}`;
+	const mustBlock = opts.exitCode !== undefined && opts.exitCode !== 0
+		|| !!opts.failure && opts.failure !== "aborted"
+		|| /(?:^|\\n)\\s*done:\\s*false\\b/i.test(previous);
+	const outcome = mustBlock
+		? "The previous attempt was incomplete or failed. You MUST return done: true and status: BLOCKED; do not upgrade it to PASS or FAIL."
+		: "Preserve the actual outcome with done: true and status: PASS, FAIL, or BLOCKED.";
+	return [
+		"Internal result repair only.",
+		`Previous response failed the shared RESULT format gate: ${opts.reason || "missing required result contract"}.`,
+		"Do not continue the task, use tools, or add prose.",
+		"Return exactly one final English Markdown RESULT block, with no text before or after it.",
+		outcome,
+		"Required fields:",
+		`role: ${role}`,
+		"done: true",
+		"status: PASS|FAIL|BLOCKED",
+		"summary: one concise outcome line",
+		"findings:",
+		"- concrete findings or none",
+		"external_research_needed: true|false",
+		"queries: omit when false",
+		"reason: omit when false",
+		"files: none or every created/modified path",
+		"key_errors: none or exact errors",
+		"verification: exact commands/tests and outcome, or not run",
+		"remaining: none or unresolved items",
+		"Close with exactly ## END.",
+		role.toLowerCase() === "reviewer"
+			? "Reviewer requirement: include decision: APPROVED or decision: NEEDS CHANGES; the literal decision word must appear."
+			: "",
+	].filter(Boolean).join("\\n");
+}
+
+/** Stable repair diagnostics for journals, parent handoffs, and verifier errors. */
+export function formatResultRepairDiagnostics(opts: {
+	attempts: number;
+	maxAttempts?: number;
+	initialReason?: string;
+	finalReason?: string;
+	exitCodes?: Array<number | null | undefined>;
+}): string {
+	const exits = (opts.exitCodes || []).map(code => code == null ? "unknown" : String(code)).join(", ") || "none";
+	return [
+		`result format repair attempts: ${opts.attempts}/${opts.maxAttempts ?? MAX_RESULT_FORMAT_REPAIRS}`,
+		`exit codes: ${exits}`,
+		opts.initialReason ? `initial reason: ${opts.initialReason}` : "",
+		opts.finalReason ? `final reason: ${opts.finalReason}` : "",
+	].filter(Boolean).join("; ");
 }
 
 /** Set PI_RESULT_CONTRACT_GATE=0 to silence warning lines (checks still run). */

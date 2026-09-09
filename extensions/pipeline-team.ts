@@ -47,7 +47,7 @@ import { renderVerticalTimeline, renderCollapsedTimeline } from "./lib/pipeline-
 import { toolCallText } from "./lib/tui/tool-render.ts";
 import { hideWidget } from "./lib/tui/widget.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, boundedOutputPreview, buildResultFormatRepairPrompt, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, persistFullOutput, resultFormatRepairReason, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import { loadAgentModelsConfig, parseAgentMdFile, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -69,6 +69,7 @@ import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { registerWorkflowDispatchHook, readDispatchReceipt } from "./lib/workflow-dispatch.ts";
 import { workflowDirection } from "./lib/workflow-direction.ts";
 import { markWorkflowRunComplete } from "./lib/workflow-run.ts";
+import { withSessionResume } from "./lib/subagent-recovery.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -656,18 +657,54 @@ export default function(pi: ExtensionAPI) {
   let liveText = "";
 
   return new Promise((resolvePromise) => {
+   let finished = false;
+   let repairAttempts = 0;
+   let initialRepairReason = "";
+   const repairExitCodes: Array<number | null> = [];
    // Shared completion path for both transports. Persist the FULL
    // transcript on disk, then compose the compact but complete
-   // result index for the next phase agent / final report.
-   const finish = (code: number | null, externalFull?: string) => {
+   // result index for the parent context / final report.
+   const finish = async (code: number | null, externalFull?: string) => {
+    if (finished) return;
+    const output = externalFull ?? textChunks.join("");
+    const repairReason = resultFormatRepairReason(output, agentDef.name, { exitCode: code, cancelled: !!signal?.aborted });
+    if (repairReason && !signal?.aborted && repairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
+     if (!initialRepairReason) initialRepairReason = repairReason;
+     repairAttempts++;
+     const repairPrompt = buildResultFormatRepairPrompt({ role: agentDef.name, reason: repairReason, outputText: output, exitCode: code });
+     const repair = await createSubagentRuntime({
+      authorization: currentDispatchAuthorization(),
+      command: withSessionResume(["pi", "--mode", "json", "-p", "--session", agentSessionFile, "--model", model, "--tools", "", repairPrompt], agentSessionFile),
+      cwd: ctx.cwd,
+      env: childEnvironment({ PI_SUBAGENT: "1", PI_AGENT_NAME: agentDef.name.toLowerCase(), PI_SESSION_FILE: agentSessionFile, PI_AGENT_PI_RUN_ID: parentRunId }),
+      launchDir: sessionDir,
+      launchId: `${journalId}-format-repair-${repairAttempts}`,
+      parentRunId,
+      mode: "PIPELINE",
+      pollTimeoutMs: workerTimeoutMs(agentDef.name) ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS,
+      sessionFile: agentSessionFile,
+      herdrDoneExtPath,
+      herdrLabel: herdrWorkerLabel(agentDef.name, journalId),
+      herdrPaneKey: `${journalId}-format-repair-${repairAttempts}`,
+      isAborted: () => !!signal?.aborted,
+     });
+     repairExitCodes.push(repair.exitCode);
+     const repaired = repair.outputText || readLastAssistantText(agentSessionFile).text || undefined;
+     await finish(repair.exitCode, repaired);
+     return;
+    }
+    const finalRepairReason = repairReason;
+    const repairDiagnostic = repairAttempts > 0
+     ? formatResultRepairDiagnostics({ attempts: repairAttempts, initialReason: initialRepairReason, finalReason: finalRepairReason, exitCodes: repairExitCodes })
+     : "";
+    finished = true;
     lifecycle.clearTimer(agentState.timer);
     lifecycle.clearProcess(agentState.proc);
     agentState.proc = null;
     agentState.elapsed = Date.now() - startTime;
-    updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 ? "done" : "error");
-    const output = externalFull ?? textChunks.join("");
+    updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 && !finalRepairReason ? "done" : "error");
     agentState.output = output;
-    agentState.status = code === 0 ? "done" : "error";
+    agentState.status = code === 0 && !finalRepairReason ? "done" : "error";
     agentState.lastWork = resultOneLiner(output, extractResultBlock(output).result)
      || output.split("\n").filter((l: string) => {
       const t = l.trim();
@@ -711,6 +748,7 @@ export default function(pi: ExtensionAPI) {
      elapsedMs: agentState.elapsed,
      sessionFile: code === 0 ? agentSessionFile : undefined,
      outputFile: fullOutputPath || undefined,
+     note: repairDiagnostic || undefined,
      usage: pu && pu.assistantMessages > 0 ? {
       input: pu.input, output: pu.output, cacheRead: pu.cacheRead, cacheWrite: pu.cacheWrite,
       totalTokens: pu.totalTokens, budgetTokens: pu.input + pu.output + pu.cacheWrite, costUsd: Math.round(pu.costUsd * 1e6) / 1e6,

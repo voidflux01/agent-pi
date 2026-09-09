@@ -4,6 +4,23 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Agent prompt de-duplication (2026-09)
+
+- **Worker role prompts slimmed**: all `agents/*.md` bodies are now the exact
+  runtime content. Legacy `## Security Redlines`, `## Result Contract`,
+  `## Output Format`, embedded RESULT templates, and emoji bans were deleted
+  from the files (the runtime wrapper already owns safety, protocol, and output
+  format). Effective prompts shrink where role files repeated runtime
+  instructions: builder/researcher dead protocol tails (~1.6 KB per dispatch)
+  are gone, and the 8 model-variant `builder-*.md` files (~1 KB each) now carry
+  only role guidance (~0.5 KB), letting the runtime stop/protocol instructions
+  cover the rest. All other roles send byte-identical prompts to before.
+- **Legacy-agent strip hardened** (`stripEmbeddedResultProtocol`): matches both
+  `The final`/`Your final` protocol wording (external agent defs drift between
+  them), and `## Security Redlines`/`## Result Contract` now drop the whole
+  section instead of only the heading line — the old regex deleted just the
+  heading and orphaned the section body into the section above.
+
 ### Dogfood campaign fixes (real-machine driven, 2026-09)
 
 - **Universal RESULT recovery**: all standard worker handoffs reapply the

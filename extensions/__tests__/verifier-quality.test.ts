@@ -129,7 +129,8 @@ describe("acceptance contract quality", () => {
 		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
 		expect(source).toContain('launch(initialPrompt, "read,bash,grep,find,ls", "audit")');
 		expect(source).toContain("normalizeResultContract");
-		expect(source).toContain("no extra worker was started for formatting repair");
+		expect(source).toContain("formatResultRepairDiagnostics({");
+		expect(source).toContain("If evidence is incomplete, use done: true and status: BLOCKED");
 		expect(source).toContain('herdrDoneExtPath = join(dirname(extDir), "herdr-done.ts")');
 		expect(source).toContain('herdrLabel: "VERIFIER"');
 		expect(source).toContain("withSessionResume");
@@ -182,9 +183,10 @@ describe("acceptance contract quality", () => {
 			.toContain("missing section(s)");
 	});
 
-	it("accepts a complete rich report when only outer markers are missing", () => {
+	it("rejects a complete rich report when shared RESULT markers are missing", () => {
 		const unwrapped = validVerifierResult.replace(/^## RESULT\n/, "").replace(/\n## END$/, "");
-		expect(parseVerifierReport(unwrapped)).toMatchObject({ status: "PASS", summary: "clean" });
+		expect(parseVerifierReport(unwrapped)).toBeUndefined();
+		expect(parseVerifierReportDetailed(unwrapped).error).toContain("shared RESULT contract");
 	});
 
 	it("parses persisted transcript output before process exit is considered", () => {

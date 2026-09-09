@@ -38,7 +38,7 @@ import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine } from "./lib/output-box.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedHandoff, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, persistFullOutput, resultFormatRepairReason, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { clearChainSnapshot, readChainSnapshot, writeChainSnapshot, type ChainSnapshot } from "./lib/chain-state.ts";
 import { loadExplicitAgentModelsConfig, parseAgentMdFile, type AgentModelsConfig } from "./lib/agent-defs.ts";
@@ -687,7 +687,7 @@ export default function(pi: ExtensionAPI) {
    orchestrationRun.consumeStep();
    const result = await runCanonicalAgent(agentDef, resolvedPrompt, ctx, orchestrationRun.signal);
 
-   const contractFailure = resultContractFailure(result.fullOutput || "", false, agentDef.name, result.exitCode);
+   const contractFailure = resultFormatRepairReason(result.fullOutput || "", agentDef.name, { exitCode: result.exitCode });
    if (result.exitCode !== 0 || contractFailure) {
     stepStates[i].status = "error";
     updateWidget();

@@ -9,7 +9,7 @@ import { childEnvironment } from "./child-runtime.ts";
 import { currentDispatchAuthorization, createSubagentRuntime } from "./dispatch-runtime.ts";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
-import { extractResultBlock, normalizeResultContract } from "./agent-result-contract.ts";
+import { checkResultCompliance, extractResultBlock, formatResultRepairDiagnostics, normalizeResultContract } from "./agent-result-contract.ts";
 import { withSessionResume } from "./subagent-recovery.ts";
 
 export interface VerifierSubagentReport {
@@ -30,6 +30,12 @@ export interface VerifierSubagentResult {
 	outputText: string;
 	error?: string;
 	runId?: string;
+	repairAttempts?: number;
+	initialExitCode?: number;
+	initialParseError?: string;
+	repairExitCodes?: number[];
+	finalParseError?: string;
+	processFailure?: string;
 }
 
 const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required shared Markdown RESULT contract supplied in the task prompt.`;
@@ -267,13 +273,33 @@ function invalidReport(error: string): VerifierReportParseResult {
 	return { error: `invalid verifier RESULT: ${error}` };
 }
 
+function blockedVerifierReport(objective: string, reason: string): VerifierSubagentReport {
+	return {
+		status: "BLOCKED",
+		summary: "Verifier RESULT format blocked after bounded repair.",
+		requirements: [{ requirement: objective || "approved objective", status: "BLOCKED", evidence: reason }],
+		contract: { status: "BLOCKED", findings: ["Shared RESULT schema gate failed."] },
+		review: { status: "BLOCKED", findings: [] },
+		behavior: { status: "BLOCKED", findings: [], tests: { discovered: 0, executed: 0, failed: 0, skipped: 0 } },
+		quality: { status: "WARN", findings: ["Verifier report was not parseable after bounded repair."] },
+		security: { status: "WARN", findings: [] },
+		hard_blockers: [reason],
+		warnings: [],
+	};
+}
+
 /** Parse report and preserve a concrete reason when the shared block is malformed. */
 export function parseVerifierReportDetailed(output: string): VerifierReportParseResult {
-	const extracted = extractResultBlock(output);
-	// Verifier has a richer schema than ordinary workers. If the model emitted
-	// that schema but forgot only the outer markers, parse it directly; semantic
-	// validation below still requires every verifier section and field.
-	const body = extracted.found ? extracted.result : output.trim();
+	if (!output.trim()) return invalidReport("empty verifier result");
+	const normalized = normalizeResultContract(output)?.text;
+	if (!normalized) {
+		const role = field(output.split(/^##\s+/m, 1)[0], "role").toLowerCase();
+		return invalidReport(role ? `shared RESULT contract missing for role ${role}` : "role must be verifier, got missing");
+	}
+	const shared = checkResultCompliance(normalized);
+	if (!shared.ok) return invalidReport(`shared RESULT contract: ${shared.problems.join("; ")}`);
+	const extracted = extractResultBlock(normalized);
+	const body = extracted.result;
 	if (!body) return invalidReport("empty verifier result");
 	const common = body.split(/^##\s+/m, 1)[0];
 	const role = field(common, "role").toLowerCase();
@@ -452,35 +478,82 @@ export async function runVerifierSubagent(input: {
 		result = await launch(initialPrompt, "read,bash,grep,find,ls", `spawn-retry-${spawnRetry}`);
 		outputText = result.outputText || "";
 	}
+	const initialExitCode = result.exitCode;
 	let parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
+	const initialParseError = parsed.error;
 	let report = parsed.report;
 	let repairAttempt = 0;
-	while (!report && result.exitCode === 0 && repairAttempt < MAX_VERIFIER_FORMAT_REPAIRS) {
+	const repairExitCodes: number[] = [];
+	while (!report && !input.signal?.aborted && repairAttempt < MAX_VERIFIER_FORMAT_REPAIRS) {
 		repairAttempt++;
-		const repairPrompt = `Internal result repair only. The previous verifier response failed the schema gate: ${parsed.error || "invalid verifier RESULT"}. Do not perform more audit work or use tools. Return exactly one complete English ## RESULT block in the required verifier schema, including all required sections and fields, and close it with ## END.`;
+		const repairPrompt = [
+			"Internal result repair only.",
+			`The previous verifier response failed the schema gate: ${parsed.error || "invalid verifier RESULT"}.`,
+			"Do not perform more audit work or use tools.",
+			"Return exactly one complete English Markdown block with ## RESULT and ## END; no prose outside it.",
+			"Required top-level fields: role: verifier, done: true, status: PASS|FAIL|BLOCKED, summary, findings, files, verification, key_errors, remaining.",
+			"Required sections: ## Requirements, ## Contract, ## Review, ## Behavior, ## Quality, ## Security, ## Hard Blockers, ## Warnings.",
+			"Requirements must contain one ### REQ-nnn per acceptance criterion. Every REQ must include non-empty status (PASS|FAIL|BLOCKED), requirement, evidence, and files.",
+			"Every REV must include severity, category, title, location, evidence, and recommendation. Behavior must include integer tests_discovered, tests_executed, tests_failed, tests_skipped.",
+			"If evidence is incomplete, use done: true and status: BLOCKED; never upgrade uncertainty to PASS.",
+		].join("\n");
 		result = await launch(repairPrompt, "", `format-repair-${repairAttempt}`, "headless");
+		repairExitCodes.push(result.exitCode);
 		outputText = result.outputText || outputText;
 		parsed = parseVerifierOutput(readAssistantTranscript(sessionFile), outputText);
 		report = parsed.report;
 	}
 	const runId = result.runId;
-	if (result.exitCode !== 0) {
-		const processError = result.stderr || result.failure || `exit code ${result.exitCode}`;
-		const reportState = report
-			? `parsed RESULT status=${report.status}`
-			: parsed.error || "report unavailable";
+	const repairDiagnostics = formatResultRepairDiagnostics({
+		attempts: repairAttempt,
+		maxAttempts: MAX_VERIFIER_FORMAT_REPAIRS,
+		initialReason: initialParseError,
+		finalReason: parsed.error,
+		exitCodes: [initialExitCode, ...repairExitCodes],
+	});
+	if (input.signal?.aborted) {
+		const reason = `verifier subagent cancelled before a valid RESULT; ${repairDiagnostics}`;
 		return {
+			report: blockedVerifierReport(input.contract.objective, reason),
 			outputText,
 			runId,
-			error: `verifier subagent failed: ${processError}; ${reportState}`,
+			error: reason,
+			repairAttempts: repairAttempt,
+			initialExitCode,
+			initialParseError,
+			repairExitCodes,
+			finalParseError: parsed.error,
+		};
+	}
+	if (result.exitCode !== 0) {
+		const processError = result.stderr || result.failure || `exit code ${result.exitCode}`;
+		const reason = `verifier subagent failed: ${processError}; ${repairDiagnostics}`;
+		return {
+			report: blockedVerifierReport(input.contract.objective, reason),
+			outputText,
+			runId,
+			error: reason,
+			repairAttempts: repairAttempt,
+			initialExitCode,
+			initialParseError,
+			repairExitCodes,
+			finalParseError: parsed.error,
+			processFailure: processError,
 		};
 	}
 	if (!report) {
+		const reason = `verifier subagent returned no valid Markdown ## RESULT; ${repairDiagnostics}`;
 		return {
+			report: blockedVerifierReport(input.contract.objective, reason),
 			outputText,
 			runId,
-			error: `verifier subagent returned no valid Markdown ## RESULT: ${parsed.error || "unknown parse error"}; no extra worker was started for formatting repair`,
+			error: reason,
+			repairAttempts: repairAttempt,
+			initialExitCode,
+			initialParseError,
+			repairExitCodes,
+			finalParseError: parsed.error,
 		};
 	}
-	return { report, outputText, runId };
+	return { report, outputText, runId, repairAttempts: repairAttempt, initialExitCode, initialParseError, repairExitCodes, finalParseError: parsed.error };
 }

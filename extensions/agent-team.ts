@@ -45,7 +45,7 @@ import { padRight, wordWrap, sideBySide, displayName } from "./lib/ui-helpers.ts
 import { beginPanel, formatRow, sectionHeader } from "./lib/tui/panel.ts";
 import { toolResultText } from "./lib/tui/tool-render.ts";
 import { contextBudgetLevel, isContextLossError } from "./lib/context-budget.ts";
-import { boundedOutputPreview, buildWorkerInitialPrompt, composeAgentResult, extractResultBlock, persistFullOutput, resultContractFailure, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
+import { boundedOutputPreview, buildResultFormatRepairPrompt, buildWorkerInitialPrompt, composeAgentResult, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, persistFullOutput, resultFormatRepairReason, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
 import { readLastAssistantText, sessionUsage, countSessionToolCalls, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
 import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
@@ -64,6 +64,7 @@ import { providerModelString } from "./lib/model-inheritance.ts";
 import { projectTeamBatchRecovery } from "./lib/team-batch-recovery.ts";
 import { resumableTeamSessionNames } from "./lib/team-session-cleanup.ts";
 import { registerWorkflowDispatchHook } from "./lib/workflow-dispatch.ts";
+import { withSessionResume } from "./lib/subagent-recovery.ts";
 
 
 // ── Types ────────────────────────────────────────
@@ -665,13 +666,49 @@ export default function(pi: ExtensionAPI) {
    let toolkitUsage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number } | undefined;
    let toolkitModel: string | undefined;
    let finished = false;
-   const finish = (code: number | null, stderrBuf: string, externalFull?: string) => {
+   let formatRepairAttempts = 0;
+   let initialFormatReason = "";
+   const repairExitCodes: Array<number | null> = [];
+   const finish = async (code: number | null, stderrBuf: string, externalFull?: string, failure?: string) => {
     if (finished) return;
+    let full = externalFull ?? textChunks.join("");
+    const formatFailure = isToolkitCliAgent(canonicalName) ? undefined : resultFormatRepairReason(full, canonicalName, {
+     exitCode: code,
+     failure,
+     cancelled: failure === "aborted" || runEpoch !== sessionEpoch || !!signal?.aborted,
+    });
+    if (formatFailure && !formatRepairAttempts && runEpoch === sessionEpoch && !signal?.aborted) {
+     initialFormatReason = formatFailure;
+     formatRepairAttempts++;
+     const repair = await createSubagentRuntime({
+      authorization: currentDispatchAuthorization(),
+      command: withSessionResume(["pi", "--mode", "json", "-p", "--session", agentSessionFile, "--model", model, "--tools", "", buildResultFormatRepairPrompt({ role: canonicalName, reason: formatFailure, outputText: full, exitCode: code, failure })], agentSessionFile),
+      cwd: runCwd,
+      env: spawnEnv,
+      launchDir: sessionDir,
+      launchId: `${journalId}-format-repair-${formatRepairAttempts}`,
+      parentRunId,
+      mode: "TEAM",
+      pollTimeoutMs: DEFAULT_ORCHESTRATION_TIMEOUT_MS,
+      sessionFile: agentSessionFile,
+      herdrDoneExtPath,
+      herdrLabel: paneTitle,
+      herdrPaneKey: `${journalId}-format-repair-${formatRepairAttempts}`,
+      isAborted: () => runEpoch !== sessionEpoch || !!signal?.aborted,
+     });
+     repairExitCodes.push(repair.exitCode);
+     const repaired = repair.outputText || readLastAssistantText(agentSessionFile).text || undefined;
+     await finish(repair.exitCode, repair.stderr, repaired, repair.failure);
+     return;
+    }
+    const terminalFormatFailure = formatFailure;
+    const repairDiagnostic = formatRepairAttempts > 0
+     ? formatResultRepairDiagnostics({ attempts: formatRepairAttempts, initialReason: initialFormatReason, finalReason: formatFailure, exitCodes: repairExitCodes })
+     : "";
     finished = true;
     clearInterval(timer);
     if (state.timer === timer) state.timer = undefined;
 
-    let full = externalFull ?? textChunks.join("");
     if ((code !== 0 && code !== null) && stderrBuf.trim()) {
      if (isContextLossError(stderrBuf)) {
       full = "Context overflow: agent session broke tool_use/tool_result pairing. Clear session and re-dispatch.";
@@ -695,9 +732,9 @@ export default function(pi: ExtensionAPI) {
 
     lifecycle.clearProcess(state.proc);
     state.proc = null;
-    updateHerdrPaneStatus(runCwd, journalId, code === 0 ? "done" : "error");
+    updateHerdrPaneStatus(runCwd, journalId, code === 0 && !terminalFormatFailure ? "done" : "error");
     state.elapsed = elapsed;
-    state.status = code === 0 ? "done" : "error";
+    state.status = code === 0 && !terminalFormatFailure ? "done" : "error";
 
     if (code === 0 && !isToolkitCliAgent(canonicalName)) {
      state.sessionFile = agentSessionFile;
@@ -749,6 +786,7 @@ export default function(pi: ExtensionAPI) {
      model: toolkitModel || (isToolkitCliAgent(canonicalName) ? undefined : model),
      sessionFile: isToolkitCliAgent(canonicalName) ? undefined : (state.sessionFile || undefined),
      outputFile: fullOutputPath || undefined,
+     note: [terminalFormatFailure, repairDiagnostic].filter(Boolean).join("; ") || undefined,
      usage: tu && tu.totalTokens > 0 ? {
       input: tu.input, output: tu.output, cacheRead: tu.cacheRead, cacheWrite: tu.cacheWrite,
       totalTokens: tu.totalTokens, budgetTokens: tu.input + tu.output + tu.cacheWrite, costUsd: Math.round(tu.costUsd * 1e6) / 1e6,
@@ -894,7 +932,7 @@ export default function(pi: ExtensionAPI) {
      } catch { }
     },
    }).then((result) => {
-    finish(result.exitCode, result.stderr, result.outputText);
+    finish(result.exitCode, result.stderr, result.outputText, result.failure);
    }).catch((error) => {
     finish(1, error instanceof Error ? error.message : String(error));
    });
@@ -932,7 +970,7 @@ export default function(pi: ExtensionAPI) {
 
     // result.output is already the composed, precision-preserving index
     // (canonical RESULT block plus full-output path).
-    const contractFailure = resultContractFailure(result.fullOutput, undefined, agent, result.exitCode);
+    const contractFailure = resultFormatRepairReason(result.fullOutput, agent, { exitCode: result.exitCode });
     const status = result.exitCode === 0 && !contractFailure ? "done" : "error";
     const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
@@ -1051,7 +1089,7 @@ export default function(pi: ExtensionAPI) {
      orchestrationRun.consumeStep();
      try {
       const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-      const contractFailure = resultContractFailure(result.fullOutput, undefined, job.agent, result.exitCode);
+      const contractFailure = resultFormatRepairReason(result.fullOutput, job.agent, { exitCode: result.exitCode });
       results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 && !contractFailure ? "done" : "error", ...(contractFailure ? { contractFailure } : {}), ...result };
      } catch (error: any) {
       results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };

@@ -35,7 +35,7 @@ import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolk
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import type { DispatchOrigin } from "./lib/dispatch-gate.ts";
-import { buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, extractResultBlock, normalizeResultContract, persistFullOutput, resultContractFailure, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildResultFormatRepairPrompt, buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, normalizeResultContract, persistFullOutput, resultContractFailure, resultFormatRepairReason, runBaseName } from "./lib/agent-result-contract.ts";
 import { decideScopeDispatch } from "./lib/subagent-scope.ts";
 import { decideTypeDispatch } from "./lib/subagent-type-gate.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";
@@ -54,8 +54,6 @@ import { providerModelString } from "./lib/model-inheritance.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
 import { listOrchestrationRuns, readOrchestrationEvents } from "./lib/orchestration-query.ts";
 import { reviewerDecision } from "./lib/reviewer-decision.ts";
-
-const MAX_RESULT_FORMAT_REPAIRS = 1;
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -545,20 +543,33 @@ export default function(pi: ExtensionAPI) {
 
    let finished = false;
    let formatRepairAttempts = 0;
-   let formatRepair: ((reason?: string) => Promise<void>) | undefined;
+   let formatRepair: ((reason?: string, exitCode?: number | null, failure?: DispatchFailure) => Promise<void>) | undefined;
+   let initialFormatReason = "";
+   const repairExitCodes: Array<number | null> = [];
    const finish = async (code: number | null, externalFull?: string, externalUsage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; costUsd: number }, failure?: DispatchFailure) => {
     if (finished) return;
     const result = externalFull ?? state.textChunks.join("");
     const toolkitRun = isToolkitCliAgent(state.name);
     const canonicalResult = normalizeResultContract(result, state.name, { allowUnstructured: true, exitCode: code })?.text || result;
     const contractFailure = resultContractFailure(result, toolkitRun, state.name, code);
+    const formatFailure = resultFormatRepairReason(result, state.name, {
+     exitCode: code,
+     failure,
+     cancelled: failure === "aborted" || spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
+    });
+    if (formatFailure && !initialFormatReason) initialFormatReason = formatFailure;
     const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(canonicalResult) : "APPROVED";
     const reviewerFailure = reviewerOutcome === "UNKNOWN" ? "reviewer decision gate: UNKNOWN; the word APPROVED or NEEDS CHANGES is required" : "";
-    if (code === 0 && !failure && !toolkitRun && (contractFailure || reviewerFailure) && result.trim() && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
+    const cancelled = failure === "aborted" || spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted;
+    if (!cancelled && !toolkitRun && (formatFailure || reviewerFailure) && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
      formatRepairAttempts++;
-     void formatRepair(reviewerFailure || contractFailure || undefined).catch(() => finish(1, undefined, undefined, "process_error"));
+     void formatRepair(reviewerFailure || formatFailure || undefined, code, failure).catch(() => finish(1, undefined, undefined, "process_error"));
      return;
     }
+    const repairDiagnostics = formatRepairAttempts > 0
+     ? formatResultRepairDiagnostics({ attempts: formatRepairAttempts, initialReason: initialFormatReason, finalReason: formatFailure || undefined, exitCodes: repairExitCodes })
+     : "";
+    const terminalFormatFailure = formatFailure;
     finished = true;
     lifecycle.clearTimer(timer);
     if (state.elapsedTimer === timer) state.elapsedTimer = undefined;
@@ -585,7 +596,7 @@ export default function(pi: ExtensionAPI) {
      return;
     }
     state.elapsed = Date.now() - startTime;
-    state.status = code === 0 && !failure && !contractFailure && !reviewerFailure ? "done" : "error";
+    state.status = code === 0 && !failure && !contractFailure && !terminalFormatFailure && !reviewerFailure ? "done" : "error";
     if (state.status === "done" && !options.orchestrationRun && coordinationState().mode === "NORMAL" && state.scope !== "autonomous-repair" && process.env.PI_AGENT_NAME?.toLowerCase() !== "verifier") {
      try {
       const admission = await autonomousFinalize({ cwd: spawnCwd, mode: "NORMAL", taskText: state.task, risk: "low", dispatchRepair: builderRepairDispatcher(ctx) });
@@ -649,7 +660,7 @@ export default function(pi: ExtensionAPI) {
      agent: state.name,
      exitCode: code ?? 1,
      failure,
-     ...(contractFailure ? { contractFailure } : {}),
+     ...((terminalFormatFailure || contractFailure) ? { contractFailure: terminalFormatFailure || contractFailure } : {}),
      outputFile: fullOutputPath || undefined,
      usage: measuredUsage,
     });
@@ -660,6 +671,8 @@ export default function(pi: ExtensionAPI) {
       contractProblems = compliance.ok ? [] : compliance.problems;
      } catch { }
     }
+    if (terminalFormatFailure) contractProblems.push(terminalFormatFailure);
+    if (repairDiagnostics) contractProblems.push(repairDiagnostics);
     state.contractProblems = contractProblems;
     try {
      journalUpdate(saOutDir, state.saRunId ?? "", {
@@ -692,9 +705,9 @@ export default function(pi: ExtensionAPI) {
     state.result = compactResult.content;
     // Empty or otherwise unrecoverable output stays blocked at parent boundary;
     // non-empty worker reports are canonically wrapped before handoff.
-    const parentOutput = compactResult.usedResult && !reviewerFailure
+    const parentOutput = compactResult.usedResult && !reviewerFailure && !terminalFormatFailure
      ? compactResult.content
-     : `[${state.name}] result blocked before parent handoff: ${reviewerFailure || compactResult.contractProblems.join("; ") || "missing ## RESULT contract"}. Read the archived transcript only for recovery.`;
+     : `[${state.name}] result blocked before parent handoff: ${reviewerFailure || terminalFormatFailure || compactResult.contractProblems.join("; ") || "missing ## RESULT contract"}. Read the archived transcript only for recovery.`;
     if (state.dispatchReceiptId) {
      finishDispatchReceipt(spawnCwd, state.dispatchReceiptId, {
       status: state.status as WorkflowDispatchResult["status"],
@@ -801,8 +814,16 @@ export default function(pi: ExtensionAPI) {
    // Standard Pi transport is shared with team, chain, and pipeline. The
    // Keep watchdog, epoch, and follow-up policies local to this widget.
    const launch = applyWorkerLaunchPolicy(["pi", ...argv], state.name);
-   formatRepair = async (repairReason?: string) => {
-    const repairPrompt = `Your previous response did not pass the result format gate: ${repairReason || resultContractFailure(state.textChunks.join("")) || "missing required result contract"}. Do not continue the task or add prose. Return exactly one final English Markdown result block with the required role, done, status, summary, findings, files, key_errors, verification, remaining fields, closed by ## END.${state.name.toLowerCase() === "reviewer" ? " For a reviewer the summary MUST contain the literal word APPROVED or NEEDS CHANGES (e.g. \"decision: APPROVED\" on its own line) — a narrative verdict without that word is treated as UNKNOWN and blocked." : ""} The format gate must pass before this worker can return to its parent.`;
+   formatRepair = async (repairReason?: string, repairExitCode?: number | null, repairFailure?: DispatchFailure) => {
+    const repairPrompt = buildResultFormatRepairPrompt({
+     role: state.name,
+     reason: repairReason,
+     outputText: state.textChunks.join(""),
+     exitCode: repairExitCode,
+     failure: repairFailure,
+    }) + (state.name.toLowerCase() === "reviewer"
+     ? "\nReviewer summary must also contain the literal word APPROVED or NEEDS CHANGES."
+     : "");
     const repairResult = await createSubagentRuntime({
      authorization: currentDispatchAuthorization(),
      command: withSessionResume(["pi", "--mode", "json", "-p", "--session", state.sessionFile, "--model", model, "--tools", "", repairPrompt], state.sessionFile),
@@ -818,7 +839,9 @@ export default function(pi: ExtensionAPI) {
      mode: coordinationState().mode,
      isAborted: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted,
     });
-    finish(repairResult.exitCode, repairResult.outputText, undefined, repairResult.failure);
+    repairExitCodes.push(repairResult.exitCode);
+    const repairedOutput = repairResult.outputText || readLastAssistantText(state.sessionFile).text || undefined;
+    finish(repairResult.exitCode, repairedOutput, undefined, repairResult.failure);
    };
    createSubagentRuntime({
     authorization: currentDispatchAuthorization(),
