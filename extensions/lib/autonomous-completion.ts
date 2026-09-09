@@ -195,8 +195,9 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			}
 			if (iteration.action === "COMPLETE") return withRunId({ allowed: true, status: "PASS", receipt: result.receipt, attempts, iteration });
 			if (iteration.action === "REPAIR") {
-				const feedback = result.receipt.verifier?.summary || result.receipt.results.filter((r) => r.status !== "pass").map((r) => `${r.raw}: ${r.note || r.status}`).join("; ") || "verifier reported failure";
-				if (!await input.dispatchRepair!(`${contract.objective}\n\nVerifier feedback:\n${feedback}\n\nFix workspace until contract passes, then report RESULT status.`, input.signal)) return withRunId({ allowed: false, status: "FAIL", receipt: result.receipt, reason: "repair worker failed", attempts, iteration });
+				const report = result.receipt.verifier?.report;
+				const feedback = report ? JSON.stringify(report, null, 2) : result.receipt.verifier?.summary || result.receipt.results.filter((r) => r.status !== "pass").map((r) => `${r.raw}: ${r.note || r.status}`).join("; ") || "verifier reported failure";
+				if (!await input.dispatchRepair!(`${contract.objective}\n\nComplete verifier report:\n${feedback}\n\nRepair every actionable finding in this report in one pass, prioritizing all CRITICAL/HIGH findings and then MEDIUM findings. Do not fix only first item. Preserve accepted contract, run local checks, and return RESULT listing each finding addressed. Do not request verify_execution again unless workspace changed.`, input.signal)) return withRunId({ allowed: false, status: "FAIL", receipt: result.receipt, reason: "repair worker failed", attempts, iteration });
 				continue;
 			}
 			return withRunId({ allowed: false, status: iteration.action === "ESCALATE" ? "ESCALATE" : "BLOCKED", receipt: result.receipt, reason: iteration.reason, attempts, iteration });
