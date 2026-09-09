@@ -180,6 +180,10 @@ export default function(pi: ExtensionAPI) {
 					details: { status: "PASS", completionAllowed: true, receipt: previousReceipt, reused: true, reason: "same contract and unchanged workspace" },
 				};
 			}
+			if (previousReceipt && previousReceipt.status !== "PASS" && previousReceipt.workspaceManifestHash === currentManifest.hash) {
+				syncVerifierWorkflowRun(cwd, "BLOCKED");
+				return { content: [{ type: "text", text: "Verification blocked: previous findings remain and workspace is unchanged. Repair all actionable findings before retrying verify_execution." }], details: { status: "BLOCKED", completionAllowed: false, reason: "workspace unchanged since previous non-PASS verification", receipt: previousReceipt } };
+			}
 			const previousAttempt = getVerifierAttempt(scope);
 			if (previousAttempt >= DEFAULT_VERIFIER_ATTEMPTS) {
 				syncVerifierWorkflowRun(cwd, "BLOCKED");
