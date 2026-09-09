@@ -225,7 +225,7 @@ function writeHerdrPaneRegistry(cwd: string, records: HerdrPaneRecord[]): void {
 		const file = herdrPaneRegistryPath(cwd);
 		mkdirSync(dirname(file), { recursive: true });
 		writeFileSync(file, JSON.stringify(records, null, "\t") + "\n", "utf8");
-	} catch {}
+	} catch { }
 }
 
 export function registerHerdrPane(cwd: string, record: Omit<HerdrPaneRecord, "updatedAt">): void {
@@ -278,7 +278,7 @@ export function watchHerdrPane(ref: HerdrTabRef, onClosed: () => void, intervalM
 		}
 	};
 	timer = setInterval(check, intervalMs);
-	try { (timer as any).unref?.(); } catch {}
+	try { (timer as any).unref?.(); } catch { }
 	return stop;
 }
 
@@ -386,7 +386,7 @@ function writeWorkspaceLedger(cwd: string, ledger: Record<string, string>): void
 	try {
 		mkdirSync(dirname(workspaceLedgerPath(cwd)), { recursive: true });
 		writeFileSync(workspaceLedgerPath(cwd), JSON.stringify(ledger, null, "\t") + "\n", "utf8");
-	} catch {}
+	} catch { }
 }
 
 /**
@@ -405,7 +405,7 @@ export function ensureHerdrWorkspace(label: string, cwd: string): string | null 
 			try {
 				const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string }>;
 				if (ws.some((w) => w.workspace_id === remembered)) return remembered;
-			} catch {}
+			} catch { }
 		}
 	}
 	const created = herdrCli(["workspace", "create", "--label", label, "--cwd", cwd]);
@@ -585,7 +585,7 @@ export function scheduleHerdrPaneClose(tab: HerdrTabRef, ms: number, onClosed?: 
 		lingeringPanes.delete(key);
 		void closeHerdrTabAsync(tab).finally(() => onClosed?.());
 	}, ms);
-	try { (timer as any).unref?.(); } catch {}
+	try { (timer as any).unref?.(); } catch { }
 	lingeringPanes.set(key, { tab, timer, onClosed });
 }
 
@@ -688,7 +688,7 @@ export function ensureHerdrWorkspaceAsync(label: string, cwd: string): Promise<s
 				try {
 					const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string }>;
 					if (ws.some((w) => w.workspace_id === remembered)) return remembered;
-				} catch {}
+				} catch { }
 			}
 		}
 		const created = await herdrCliAsync(["workspace", "create", "--label", label, "--cwd", cwd]);
@@ -903,7 +903,7 @@ export function pollDoneFile(donePath: string, timeoutMs: number, aborted?: () =
 				const code = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
 				if (Number.isFinite(code)) return code;
 			}
-		} catch {}
+		} catch { }
 		tickSleep();
 	}
 	return null;
@@ -926,16 +926,16 @@ export async function pollDoneFileAsync(
 				const code = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
 				if (Number.isFinite(code)) return code;
 			}
-		} catch {}
+		} catch { }
 		await new Promise<void>((res) => setTimeout(res, 1000));
 	}
 	return null;
 }
 
 export function cleanupLaunchFiles(refs: LaunchScriptRefs): void {
-	try { rmSync(refs.scriptPath, { force: true }); } catch {}
-	try { rmSync(refs.donePath, { force: true }); } catch {}
-	try { rmSync(refs.startedPath, { force: true }); } catch {}
+	try { rmSync(refs.scriptPath, { force: true }); } catch { }
+	try { rmSync(refs.donePath, { force: true }); } catch { }
+	try { rmSync(refs.startedPath, { force: true }); } catch { }
 }
 
 /** Wait briefly for the launch script to prove that the pane accepted it. */
@@ -945,7 +945,7 @@ export async function waitForLaunchStart(startedPath: string, timeoutMs = 5_000,
 		if (aborted?.()) return false;
 		try {
 			if (existsSync(startedPath) && readFileSync(startedPath, "utf8").trim() === "started") return true;
-		} catch {}
+		} catch { }
 		await new Promise<void>((resolve) => setTimeout(resolve, 100));
 	}
 	return false;
@@ -987,9 +987,9 @@ export function countSessionToolCalls(sessionFile: string): number {
 						if (c?.type === "toolCall" || c?.type === "tool_use") n++;
 					}
 				}
-			} catch {}
+			} catch { }
 		}
-	} catch {}
+	} catch { }
 	return n;
 }
 
@@ -1035,9 +1035,9 @@ export function sessionUsage(sessionFile: string): SessionUsage {
 				const c = u.cost;
 				if (c && typeof c === "object") out.costUsd += Number(c.total) || 0;
 				out.assistantMessages += 1;
-			} catch {}
+			} catch { }
 		}
-	} catch {}
+	} catch { }
 	return out;
 }
 
@@ -1089,8 +1089,8 @@ export function readLastAssistantText(sessionFile: string): SessionTextResult {
 						}
 					}
 				}
-			} catch {}
+			} catch { }
 		}
-	} catch {}
+	} catch { }
 	return { text: last || "", found: last !== undefined };
 }

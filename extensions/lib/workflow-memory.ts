@@ -128,6 +128,29 @@ export function listRetrospectives(cwd: string, limit = 20): Array<{ run_id: str
 	return listed.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, Math.max(1, Math.min(50, limit)));
 }
 
+/** Return only explicitly adopted, bounded experience for a future request. */
+export function searchAdoptedInsights(cwd: string, objective: string, limit = 5): Array<{ text: string; evidence_refs: string[]; run_id: string }> {
+	const relative = ".pi/workflow/retrospectives";
+	let names: string[];
+	try { names = readdirSync(safeWorkspacePath(cwd, relative)).filter(name => /^[a-zA-Z0-9-]+\\.json$/.test(name)).slice(-500); }
+	catch (error: any) { if (error?.code === "ENOENT") return []; throw error; }
+	const queryTerms = objective.toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/i).filter(term => term.length > 2).slice(0, 12);
+	const matches: Array<{ text: string; evidence_refs: string[]; run_id: string }> = [];
+	for (const name of names) {
+		try {
+			const record = JSON.parse(readBounded(cwd, join(relative, name)));
+			if (record?.schema_version !== 1 || record.scope !== "workspace") continue;
+			for (const insight of (record.insights ?? []).filter((item: RetrospectiveInsight) => item.status === "adopted")) {
+				const haystack = JSON.stringify({ task_text: record.task_text, text: insight.text }).toLowerCase();
+				if (queryTerms.length && !queryTerms.some(term => haystack.includes(term))) continue;
+				matches.push({ text: redactEvidence(insight.text).slice(0, INSIGHT_TEXT_LIMIT), evidence_refs: insight.evidence_refs.slice(0, 10), run_id: record.run_id });
+				if (matches.length >= Math.max(1, Math.min(5, limit))) return matches;
+			}
+		} catch { /* Corrupt entries never become context. */ }
+	}
+	return matches;
+}
+
 /** User-explicit deletion via `/workflow retrospective clear`; nothing auto-deletes. */
 export function clearRetrospectives(cwd: string, runId?: string): number {
 	const path = safeWorkspacePath(cwd, ".pi/workflow/retrospectives");

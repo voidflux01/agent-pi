@@ -1,4 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { buildWorkspaceManifest } from "../lib/workspace-manifest.ts";
 import { resetExecutionVerification } from "../lib/coordination-state.ts";
@@ -8,10 +11,9 @@ import { DEFAULT_VERIFIER_ATTEMPTS } from "../lib/verification-policy.ts";
 const { runVerifier } = vi.hoisted(() => ({ runVerifier: vi.fn() }));
 vi.mock("../lib/isolated-verifier.ts", () => ({ runAcceptanceVerifier: runVerifier }));
 
-const cwd = process.cwd();
 const contract = bindAcceptanceContract("## Objective\nShip the bounded completion loop.", "task");
 
-function receipt(status: "PASS" | "FAIL", attempt: number) {
+function receipt(cwd: string, status: "PASS" | "FAIL", attempt: number) {
 	if ("error" in contract) throw new Error("expected contract");
 	return {
 		version: 3 as const,
@@ -38,9 +40,10 @@ afterEach(() => {
 describe("autonomous completion loop", () => {
 	it("repairs after FAIL and admits only the following PASS", async () => {
 		if ("error" in contract) throw new Error("expected contract");
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
 		runVerifier
-			.mockResolvedValueOnce({ receipt: receipt("FAIL", 1) })
-			.mockResolvedValueOnce({ receipt: receipt("PASS", 2) });
+			.mockResolvedValueOnce({ receipt: receipt(cwd, "FAIL", 1) })
+			.mockResolvedValueOnce({ receipt: receipt(cwd, "PASS", 2) });
 		let repairs = 0;
 		const result = await runAutonomousCompletion({
 			contract,
@@ -54,9 +57,10 @@ describe("autonomous completion loop", () => {
 		expect(runVerifier).toHaveBeenCalledTimes(2);
 	});
 
-	it("blocks after bounded FAIL attempts", async () => {
+	it("replans after repeated FAIL attempts", async () => {
 		if ("error" in contract) throw new Error("expected contract");
-		runVerifier.mockImplementation(async ({ attempt }: { attempt: number }) => ({ receipt: receipt("FAIL", attempt) }));
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
+		runVerifier.mockImplementation(async ({ attempt }: { attempt: number }) => ({ receipt: receipt(cwd, "FAIL", attempt) }));
 		let repairs = 0;
 		const result = await runAutonomousCompletion({
 			contract,
@@ -65,11 +69,24 @@ describe("autonomous completion loop", () => {
 			dispatchRepair: async () => { repairs++; return true; },
 		});
 		expect(result.allowed).toBe(false);
-		expect(result.attempts).toBe(DEFAULT_VERIFIER_ATTEMPTS);
-		expect(repairs).toBe(DEFAULT_VERIFIER_ATTEMPTS - 1);
+		expect(result.attempts).toBe(2);
+		expect(result.iteration?.action).toBe("REPLAN");
+		expect(repairs).toBe(1);
+	});
+
+	it("returns REPLAN for requirements failure without repair", async () => {
+		if ("error" in contract) throw new Error("expected contract");
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
+		runVerifier.mockResolvedValueOnce({ receipt: receipt(cwd, "FAIL", 1) });
+		let repairs = 0;
+		const result = await runAutonomousCompletion({ contract, cwd, mode: "NORMAL", failure: "requirements", dispatchRepair: async () => { repairs++; return true; } });
+		expect(result.allowed).toBe(false);
+		expect(result.iteration).toMatchObject({ action: "REPLAN", nextMode: "SPEC", requiresApproval: true });
+		expect(repairs).toBe(0);
 	});
 
 	it("dispatches repair through joined canonical builder scope", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
 		const executor = vi.fn().mockResolvedValue({ details: { status: "done" } });
 		(globalThis as any).__piRegisteredToolExecutors = { subagent_create: executor };
 		const dispatched = await builderRepairDispatcher({ cwd } as any)("fix verifier failure");

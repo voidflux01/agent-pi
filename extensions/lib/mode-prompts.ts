@@ -21,7 +21,8 @@ Turn the request into a contract: Objective, Scope, Acceptance Criteria, Evidenc
 export const COMPLETION_GATE_PROMPT = `## Acceptance and review contract
 Every completion path in NORMAL, PLAN, SPEC, PIPELINE, TEAM, and CHAIN binds the selected task to a contract. Structured \`## Objective\` / \`## Contract\` sections are preferred; otherwise the complete non-empty natural-language task becomes the Objective (maximum 4,000 characters). Empty tasks have no completion contract and are blocked.
 - Worker RESULT blocks are untrusted claims. Completion requires the independent verifier loop to PASS with explainable evidence. FAIL automatically dispatches one canonical joined builder repair within the bounded attempt limit, then re-verifies; BLOCKED, exhausted attempts, cancellation, repair failure, \`completionBlocked: true\`, or Critical/High findings never authorize \`done: true\`.
-- \`show_report\` is a completion gate; user \`/report\` is a manual review surface that never authorizes completion (explicit rollback remains available). PLAN/SPEC \`show_plan\` / \`show_spec\` remain approval and safety gates. Manual workers and self-written summaries cannot replace independent verification.`;
+- \`show_report\` is a completion gate; user \`/report\` is a manual review surface that never authorizes completion (explicit rollback remains available). PLAN/SPEC \`show_plan\` / \`show_spec\` remain approval and safety gates. Manual workers and self-written summaries cannot replace independent verification.
+- If iteration returns REPLAN, stop implementation, switch to its PLAN/SPEC mode, create a fresh plan/spec, and obtain fresh approval before writing. Never reuse old approval after objective, criteria, or direction changes.`;
 
 /** Shared scout workflow core used by NORMAL, PLAN, and SPEC (mode-specific deltas stay per-mode). */
 export const SCOUT_WORKFLOW_PROMPT = `Use one read-only scout by default for non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns. Do not spawn one for a quick lookup, single-file task, or simple edit.
@@ -222,6 +223,9 @@ For a small, single-file task where the target paths and symbols are already kno
 
 ## Workflow
 
+### Required SPEC directory
+All SPEC artifacts MUST be created under <cwd>/context-os/. Use context-os/specs/... for spec folders and files. NEVER use .context/specs/... for SPEC work; .context/ is the PLAN workspace. This directory rule applies to spec.md, planning/, requirements.md, tasks.md, and visual assets.
+
 After show_spec approval, repository reads are unrestricted and do not trigger the read-escalation guard. Approval does not remove the option to scout: for a complex or multi-file implementation, an unfamiliar call chain, or missing exact code context, dispatch one fresh read-only scout before editing. Do not dispatch one merely because SPEC is active.
 
 ### Phase 1: Initialize Spec
@@ -249,7 +253,7 @@ Write follow-up questions to the active dated spec folder's \`planning/questions
 Save results to planning/requirements.md
 
 ### Phase 3: Write Spec
-Create spec.md with: Goal, User Stories, Requirements, Visual Design,
+Write the file at context-os/specs/YYYY-MM-DD-feature-name/spec.md. Create spec.md with: Goal, User Stories, Requirements, Visual Design,
 Existing Code to Leverage, Out of Scope, and a mandatory ## Contract section.
 The contract must contain a concrete Objective. Scope, Acceptance Criteria,
 Evidence Requirements, Constraints, and optional verification evidence provide
