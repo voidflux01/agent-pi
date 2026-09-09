@@ -100,7 +100,10 @@ export async function runAcceptanceVerifier(input: {
 		signal: input.signal,
 	});
 	const rawReport = subagent.report || fallbackVerifierReport({
-		status: deterministic.status,
+		// A deterministic PASS cannot compensate for a missing independent
+		// verifier report; represent this as BLOCKED instead of minting a PASS
+		// receipt with a hard blocker attached.
+		status: subagent.error ? "BLOCKED" : deterministic.status,
 		objective: input.contract.objective,
 		reason: subagent.error || "独立 verifier 未返回有效 Markdown ## RESULT。",
 	});

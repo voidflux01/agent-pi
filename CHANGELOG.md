@@ -6,6 +6,11 @@ All notable changes to agent-pi will be documented in this file.
 
 ### Dogfood campaign fixes (real-machine driven, 2026-09)
 
+- **Universal RESULT recovery**: all standard worker handoffs reapply the
+  canonical output prompt on resumed turns and synthesize a valid RESULT block
+  for non-empty plain or mechanically drifted output. Empty output still blocks;
+  independent semantic verification remains mandatory. Rich verifier reports may
+  omit only outer markers, but incomplete verifier schemas remain BLOCKED.
 - **Viewer waits are bounded** (wedge family): `show_report`, `show_plan`, and
   `show_spec` no longer await a browser viewer forever when nobody acts.
   `PI_REPORT_WAIT_MS` / `PI_VIEWER_WAIT_MS` (default 5 min) close the server and
@@ -128,8 +133,9 @@ like `scout-sa1`. Opt out of first-turn tool pinning with
 
 Parent-visible sub-agent results still archive the full transcript, but a
 usable `## RESULT` no longer says `Use the read tool on that path`. The
-parent is told not to read the file unless RESULT is missing a path or
-quote. Missing or broken RESULT still points at the archive.
+orchestrator re-emits canonical RESULT fields for non-empty plain or
+mechanically drifted worker output, while empty output remains blocked. The
+parent is told not to read the archive unless it needs omitted evidence.
 
 ### Subagent elapsed as `Nm Ns`
 

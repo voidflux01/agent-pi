@@ -486,8 +486,9 @@ export default function(pi: ExtensionAPI) {
   // after finishing its task.
   const herdrDoneExtPath = path.join(extDir, "herdr-done.ts");
 
-  const resumed = fs.existsSync(state.sessionFile);
-  const workerPrompt = resumed
+  // Resume preserves useful context, not reporting protocol. Re-append the
+  // canonical wrapper every turn so retries and resumed workers cannot drift.
+  const workerPrompt = isToolkitCliAgent(state.name)
    ? prompt
    : buildWorkerInitialPrompt({
     role: state.name,
@@ -549,8 +550,9 @@ export default function(pi: ExtensionAPI) {
     if (finished) return;
     const result = externalFull ?? state.textChunks.join("");
     const toolkitRun = isToolkitCliAgent(state.name);
-    const contractFailure = resultContractFailure(result, toolkitRun, state.name);
-    const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(result) : "APPROVED";
+    const canonicalResult = normalizeResultContract(result, state.name, { allowUnstructured: true, exitCode: code })?.text || result;
+    const contractFailure = resultContractFailure(result, toolkitRun, state.name, code);
+    const reviewerOutcome = state.name.toLowerCase() === "reviewer" ? reviewerDecision(canonicalResult) : "APPROVED";
     const reviewerFailure = reviewerOutcome === "UNKNOWN" ? "reviewer decision gate: UNKNOWN; the word APPROVED or NEEDS CHANGES is required" : "";
     if (code === 0 && !failure && !toolkitRun && (contractFailure || reviewerFailure) && result.trim() && formatRepair && formatRepairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
      formatRepairAttempts++;
@@ -599,7 +601,7 @@ export default function(pi: ExtensionAPI) {
     // Capture the terminal RESULT status (PASS/FAIL/BLOCKED) so same-scope
     // dispatches can dedup successes and allow retries after failures.
     if (state.status === "done") {
-     const extracted = extractResultBlock(result);
+     const extracted = extractResultBlock(canonicalResult);
      const parsedStatus = extracted.found
       ? extracted.result.match(/^status:\s*(.+)$/im)?.[1]?.trim().toUpperCase()
       : undefined;
@@ -654,7 +656,7 @@ export default function(pi: ExtensionAPI) {
     let contractProblems: string[] = [];
     if (!toolkitRun) {
      try {
-      const compliance = checkResultCompliance(normalizeResultContract(result, state.name)?.text || result);
+      const compliance = checkResultCompliance(canonicalResult);
       contractProblems = compliance.ok ? [] : compliance.problems;
      } catch { }
     }
@@ -688,9 +690,8 @@ export default function(pi: ExtensionAPI) {
      skipContract: toolkitRun,
     });
     state.result = compactResult.content;
-    // The format gate is a hard parent-boundary: malformed worker output
-    // may be archived for inspection, but must never be handed off as a
-    // usable result to workflow/team/chain/pipeline consumers.
+    // Empty or otherwise unrecoverable output stays blocked at parent boundary;
+    // non-empty worker reports are canonically wrapped before handoff.
     const parentOutput = compactResult.usedResult && !reviewerFailure
      ? compactResult.content
      : `[${state.name}] result blocked before parent handoff: ${reviewerFailure || compactResult.contractProblems.join("; ") || "missing ## RESULT contract"}. Read the archived transcript only for recovery.`;

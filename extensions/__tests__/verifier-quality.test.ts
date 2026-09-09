@@ -174,11 +174,17 @@ describe("acceptance contract quality", () => {
 		expect(report.error).toBeUndefined();
 	});
 
-	it("distinguishes a missing result from an invalid result", () => {
+	it("distinguishes an empty result from an invalid rich report", () => {
+		expect(parseVerifierReportDetailed("").error).toContain("empty verifier result");
 		expect(parseVerifierReportDetailed("verifier stopped before reporting").error)
-			.toContain("missing or empty ## RESULT block");
+			.toContain("role must be verifier");
 		expect(parseVerifierReportDetailed("## RESULT\nrole: verifier\ndone: true\nstatus: PASS\nsummary: incomplete\n## END").error)
 			.toContain("missing section(s)");
+	});
+
+	it("accepts a complete rich report when only outer markers are missing", () => {
+		const unwrapped = validVerifierResult.replace(/^## RESULT\n/, "").replace(/\n## END$/, "");
+		expect(parseVerifierReport(unwrapped)).toMatchObject({ status: "PASS", summary: "clean" });
 	});
 
 	it("parses persisted transcript output before process exit is considered", () => {

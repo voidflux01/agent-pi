@@ -30,9 +30,10 @@ describe("checkResultCompliance", () => {
 		expect(c.problems).toEqual([]);
 	});
 
-	test("exposes contract failure for orchestration success gates", () => {
+	test("exposes contract failure for strict callers and recovers process output", () => {
 		expect(resultContractFailure(GOOD)).toBeUndefined();
 		expect(resultContractFailure("worker stopped without a result")).toContain("no ## RESULT block");
+		expect(resultContractFailure("worker returned a report", false, "scout", 0)).toBeUndefined();
 		expect(resultContractFailure("PONG", true)).toBeUndefined();
 	});
 
@@ -83,7 +84,7 @@ describe("checkResultCompliance", () => {
 		expect(resultContractFailure(localized)).toBeUndefined();
 	});
 
-	test("rejects localized result and end markers", () => {
+	test("normalizes localized result and end markers", () => {
 		const localized = [
 			"## 结果",
 			"角色: SCOUT",
@@ -92,8 +93,10 @@ describe("checkResultCompliance", () => {
 			"总结: 已完成只读侦察",
 			"## 结束",
 		].join("\n");
-		expect(normalizeResultContract(localized)).toBeUndefined();
-		expect(resultContractFailure(localized)).toContain("no ## RESULT block");
+		const normalized = normalizeResultContract(localized);
+		expect(normalized?.text).toContain("## RESULT");
+		expect(normalized?.text).toContain("## END");
+		expect(resultContractFailure(localized)).toBeUndefined();
 	});
 
 	test("flags an unclosed block", () => {
@@ -175,19 +178,31 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content.includes("⚠️")).toBe(false);
 	});
 
-	test("broken result gets a warning suffix + problems array", () => {
+	test("recovers an unstructured report without a format warning", () => {
 		const out = composeAgentResult({ ...base, outputText: "rambled output, no marker" });
-		expect(out.contractProblems.length).toBeGreaterThan(0);
-		expect(out.content.includes("⚠️ RESULT contract violated")).toBe(true);
+		expect(out.contractProblems).toEqual([]);
+		expect(out.usedResult).toBe(true);
+		expect(out.recovered).toBe(true);
+		expect(out.content).not.toContain("RESULT contract violated");
+		expect(out.content).toContain("role: tester");
 	});
 
-	test("rejects malformed result blocks before they reach the parent", () => {
+	test("repairs malformed result fields before parent handoff", () => {
 		const malformed = "## RESULT\n角色: tester\n完成: 是\n## END";
 		const out = composeAgentResult({ ...base, outputText: malformed });
-		expect(out.usedResult).toBe(false);
-		expect(out.content).toContain("[RESULT contract rejected]");
-		expect(out.content).toContain("Use the read tool on that path");
-		expect(out.content).not.toContain("角色: tester");
+		expect(out.usedResult).toBe(true);
+		expect(out.contractProblems).toEqual([]);
+		expect(out.content).toContain("role: tester");
+		expect(out.content).toContain("status: PASS");
+		expect(out.content).not.toContain("RESULT contract rejected");
+	});
+
+	test("preserves failed process outcomes while recovering their wrapper", () => {
+		const out = composeAgentResult({ ...base, exitCode: 1, outputText: "worker crashed after inspection" });
+		expect(out.usedResult).toBe(true);
+		expect(out.contractProblems).toEqual([]);
+		expect(out.content).toContain("done: false");
+		expect(out.content).toContain("status: FAIL");
 	});
 
 	test("keeps parent-visible results compact while preserving a transcript pointer", () => {
@@ -200,18 +215,17 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content).not.toContain("Use the read tool on that path");
 	});
 
-	test("asks the parent to read the archive when RESULT is missing", () => {
+	test("does not ask parent to recover a repaired archive", () => {
 		const out = composeAgentResult({ ...base, outputText: "rambled output, no marker" });
-		expect(out.content).toContain("Use the read tool on that path");
-		expect(out.content).not.toContain("Do not read this file unless");
+		expect(out.content).toContain("Do not read this file unless");
+		expect(out.content).not.toContain("Use the read tool on that path");
 	});
 
-	test("keeps an unstructured worker fallback out of the next handoff", () => {
-		const composed = composeAgentResult({ ...base, outputText: "git diff help noise" });
+	test("keeps empty worker output blocked", () => {
+		const composed = composeAgentResult({ ...base, outputText: "" });
 		const handoff = compactHandoff({ ...base, composed });
 		expect(handoff).toContain("RESULT contract missing");
 		expect(handoff).toContain("/tmp/x.txt");
-		expect(handoff).not.toContain("git diff help noise");
 	});
 
 	test("skipContract treats raw toolkit output as the result", () => {
@@ -224,13 +238,14 @@ describe("composeAgentResult contract gate", () => {
 		expect(out.content).toContain("Do not read this file unless");
 	});
 
-	test("PI_RESULT_CONTRACT_GATE=0 silences the line but keeps problems", () => {
+	test("PI_RESULT_CONTRACT_GATE=0 does not disable recovery", () => {
 		process.env.PI_RESULT_CONTRACT_GATE = "0";
 		try {
 			expect(contractGateEnabled()).toBe(false);
 			const out = composeAgentResult({ ...base, outputText: "no marker here" });
 			expect(out.content.includes("⚠️")).toBe(false);
-			expect(out.contractProblems.length).toBeGreaterThan(0);
+			expect(out.contractProblems).toEqual([]);
+			expect(out.usedResult).toBe(true);
 		} finally {
 			delete process.env.PI_RESULT_CONTRACT_GATE;
 		}

@@ -599,12 +599,14 @@ export default function(pi: ExtensionAPI) {
    for (const name of discoverResearchTools(pi.getAllTools())) tools = ensurePiTool(tools, name);
   }
   if (!isToolkitCliAgent(canonicalName)) tools = ensurePiTool(tools, "ask_parent");
-  const workerTask = state.sessionFile
+  // Resume preserves context, not reporting protocol. Every standard worker
+  // receives canonical output instructions on every turn.
+  const workerTask = isToolkitCliAgent(canonicalName)
    ? task
    : buildWorkerInitialPrompt({
     role: canonicalName,
     task,
-    rolePrompt: isToolkitCliAgent(canonicalName) ? undefined : state.def.systemPrompt,
+    rolePrompt: state.def.systemPrompt,
     additionalInstructions: isExecutionWorker(canonicalName) ? implementationWorkerPrompt() : undefined,
    });
 
@@ -929,8 +931,8 @@ export default function(pi: ExtensionAPI) {
     const result = await dispatchAgent(agent, task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
 
     // result.output is already the composed, precision-preserving index
-    // (status + ## RESULT block or tail/head fallback + full-output path).
-    const contractFailure = resultContractFailure(result.fullOutput, undefined, agent);
+    // (canonical RESULT block plus full-output path).
+    const contractFailure = resultContractFailure(result.fullOutput, undefined, agent, result.exitCode);
     const status = result.exitCode === 0 && !contractFailure ? "done" : "error";
     const summary = `[${agent}] ${status} in ${Math.round(result.elapsed / 1000)}s`;
 
@@ -1049,7 +1051,7 @@ export default function(pi: ExtensionAPI) {
      orchestrationRun.consumeStep();
      try {
       const result = await dispatchAgent(job.agent, job.task, ctx, orchestrationRun.runId, orchestrationRun.signal, orchestrationRun);
-      const contractFailure = resultContractFailure(result.fullOutput, undefined, job.agent);
+      const contractFailure = resultContractFailure(result.fullOutput, undefined, job.agent, result.exitCode);
       results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: result.exitCode === 0 && !contractFailure ? "done" : "error", ...(contractFailure ? { contractFailure } : {}), ...result };
      } catch (error: any) {
       results[index] = { agent: job.agent, task: job.task, resources: job.resources, status: "error", output: error?.message || String(error), fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0, model: "" };

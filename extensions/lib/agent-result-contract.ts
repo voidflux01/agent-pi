@@ -19,9 +19,9 @@ export function boundedHandoff(text: string, _maxChars?: number): string {
 
 /**
  * Build the next-step handoff without replaying an unstructured transcript.
- * A worker that omitted ## RESULT still has a complete archive for recovery,
- * but its noisy fallback (tool help, repeated logs, and raw diffs) must not
- * become instructions for the next worker.
+ * Empty or unrecoverable output still has a complete archive for recovery,
+ * but noisy fallback (tool help, repeated logs, and raw diffs) must not become
+ * instructions for the next worker.
  */
 export function compactHandoff(opts: {
 	agent: string;
@@ -62,7 +62,7 @@ export function buildWorkerInitialPrompt(opts: {
 		"",
 		opts.additionalInstructions?.trim(),
 		"",
-		"Return one English RESULT block at the end; put evidence and file:line references under findings. Do not emit another result block or prose after END.",
+		"Before stopping, emit exactly one plain-text RESULT block at the end; put evidence and file:line references under findings. If you already wrote a prose report, keep it inside findings and still emit the block. Do not emit another result block or prose after END.",
 		"## RESULT",
 		`role: ${resultRole}`,
 		"done: true|false",
@@ -129,18 +129,29 @@ export interface ExtractedResult {
 
 /**
  * Normalize common model formatting drift without spending another model turn.
- * Only a RESULT block is normalized; report content is preserved verbatim.
- * Deterministic repairs cover the frequent mechanical drifts: localized field
- * labels, status/done value aliases, a missing role line (injected from the
- * spawn identity where available), a missing summary (taken from the first
- * findings bullet), and a missing ## END closer (re-emitted canonically).
+ * Report content is preserved verbatim. Orchestrator callers may also recover
+ * a non-empty plain-text report; this repairs transport syntax only and never
+ * replaces independent semantic verification.
+ * Deterministic repairs cover localized field labels, status/done aliases, a
+ * missing role, missing summary, missing ## END, and a missing outer block.
  */
+export interface ResultNormalizationOptions {
+	/** Allow orchestrator to wrap a non-empty plain-text worker report. */
+	allowUnstructured?: boolean;
+	/** Process outcome used only to fill omitted mechanical fields. */
+	exitCode?: number | null;
+}
+
 export function normalizeResultContract(
 	text: string,
 	role?: string,
-): { text: string; changed: boolean } | undefined {
+	options: ResultNormalizationOptions = {},
+): { text: string; changed: boolean; recovered?: boolean } | undefined {
 	const extracted = extractResultBlock(text);
-	if (!extracted.found) return undefined;
+	if (!extracted.found) {
+		if (!options.allowUnstructured || !text.trim()) return undefined;
+		return synthesizeResultContract(text, role, options.exitCode);
+	}
 	const lines = extracted.result.split(/\r?\n/);
 	// Workers may translate protocol field labels to match the task language.
 	// Canonicalize common localized labels before applying the strict validator.
@@ -164,6 +175,9 @@ export function normalizeResultContract(
 	let done: string | undefined;
 	let summary = "";
 	let doneIndex = -1;
+	let doneFieldIndex = -1;
+	let statusFieldIndex = -1;
+	let hasValidStatus = false;
 	const normalized = [...lines];
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i].trim();
@@ -173,6 +187,7 @@ export function normalizeResultContract(
 		const canonicalLine = normalized[i].trim();
 		const doneMatch = canonicalLine.match(/^done:\s*([^\s]+)(?:\s*[—–-]\s*(.+))?$/i);
 		if (doneMatch) {
+			doneFieldIndex = i;
 			const mapped = doneAliases[doneMatch[1].toLowerCase()];
 			if (mapped) {
 				done = mapped;
@@ -182,14 +197,34 @@ export function normalizeResultContract(
 		}
 		const statusMatch = canonicalLine.match(/^status:\s*(\S+)/i);
 		if (statusMatch) {
+			statusFieldIndex = i;
 			const mapped = statusAliases[statusMatch[1].toLowerCase()];
-			if (mapped) normalized[i] = `status: ${mapped}`;
+			if (mapped) {
+				normalized[i] = `status: ${mapped}`;
+				hasValidStatus = true;
+			}
 		}
 		const summaryMatch = canonicalLine.match(/^summary:\s*(.*)$/i);
 		if (summaryMatch?.[1]?.trim()) summary = summaryMatch[1].trim();
 	}
-	if (!done) return undefined;
-	if (doneIndex >= 0) normalized[doneIndex] = `done: ${done}`;
+	if (!done) {
+		if (options.exitCode === undefined) return undefined;
+		done = options.exitCode === 0 ? "true" : "false";
+		if (doneFieldIndex >= 0) {
+			doneIndex = doneFieldIndex;
+			normalized[doneIndex] = `done: ${done}`;
+		} else {
+			doneIndex = normalized.length;
+			normalized.push(`done: ${done}`);
+		}
+	} else {
+		normalized[doneIndex] = `done: ${done}`;
+	}
+	if (!hasValidStatus && options.exitCode !== undefined) {
+		const inferred = options.exitCode === 0 ? "PASS" : "FAIL";
+		if (statusFieldIndex >= 0) normalized[statusFieldIndex] = `status: ${inferred}`;
+		else normalized.splice(doneIndex + 1, 0, `status: ${inferred}`);
+	}
 	// Inject the spawn identity when the worker dropped the role line.
 	const hasRole = normalized.some((line) => /^\s*role:\s*\S/i.test(line));
 	const roleLine = role ? `role: ${role.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "";
@@ -205,6 +240,39 @@ export function normalizeResultContract(
 	return { text: canonical, changed: canonical !== text.trim() };
 }
 
+/**
+ * Wrap a non-empty worker report when model ignored the protocol entirely.
+ * Process success supplies only mechanical fields; semantic completion still
+ * belongs to the independent workflow verifier.
+ */
+function synthesizeResultContract(
+	text: string,
+	role: string | undefined,
+	exitCode: number | null | undefined,
+): { text: string; changed: boolean; recovered: true } {
+	const resultRole = role?.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-") || "worker";
+	const done = exitCode === 0 ? "true" : "false";
+	const status = exitCode === 0 ? "PASS" : "FAIL";
+	const report = text.trim().replace(/\s+/g, " ").slice(0, 2_000);
+	const summary = fallbackSummary([text]);
+	const canonical = [
+		"## RESULT",
+		`role: ${resultRole}`,
+		`done: ${done}`,
+		`status: ${status}`,
+		`summary: ${summary}`,
+		"findings:",
+		"- Orchestrator recovered a missing worker RESULT wrapper; semantic completion remains independently verified.",
+		`- worker report: ${report}`,
+		"files: none",
+		"key_errors: none",
+		"verification: not supplied in canonical worker format",
+		"remaining: none",
+		"## END",
+	].join("\n");
+	return { text: canonical, changed: true, recovered: true };
+}
+
 /** First findings bullet as a zero-token summary fallback. */
 function fallbackSummary(lines: string[]): string {
 	for (const line of lines) {
@@ -217,25 +285,30 @@ function fallbackSummary(lines: string[]): string {
 }
 
 /**
- * Extract the LAST ## RESULT block from a transcript.
- * The block runs from the marker to a line equal to ## END, or to EOF.
- * Returns the block text (marker and END line stripped), trimmed.
+ * Extract the LAST result block from a transcript. Models frequently add a
+ * heading level, a colon, code-fence ticks, or translate the two markers.
+ * Normalize those mechanical variants at this boundary; semantic fields are
+ * still validated by checkResultCompliance.
  */
+function isResultMarkerLine(line: string): boolean {
+	return /^`{0,3}\s*#{1,6}\s*(?:RESULT|结果)\s*:?[`\s]*$/i.test(line.trim());
+}
+
+function isResultEndLine(line: string): boolean {
+	return /^`{0,3}\s*#{1,6}\s*(?:END|结束)\s*[`\s]*$/i.test(line.trim());
+}
+
 export function extractResultBlock(text: string): ExtractedResult {
-	if (!text || !text.includes(RESULT_MARKER)) {
-		return { found: false, result: "" };
-	}
+	if (!text) return { found: false, result: "" };
 	const lines = text.split(/\r?\n/);
 	let lastStart = -1;
 	for (let i = 0; i < lines.length; i++) {
-		if (lines[i].trim() === RESULT_MARKER) {
-			lastStart = i;
-		}
+		if (isResultMarkerLine(lines[i])) lastStart = i;
 	}
 	if (lastStart === -1) return { found: false, result: "" };
 	const body: string[] = [];
 	for (let i = lastStart + 1; i < lines.length; i++) {
-		if (lines[i].trim() === RESULT_END_MARKER) break;
+		if (isResultEndLine(lines[i])) break;
 		body.push(lines[i]);
 	}
 	const result = body.join("\n").trim();
@@ -287,21 +360,23 @@ export interface ComposeAgentResultOptions {
 export interface ComposedAgentResult {
 	/** Compact but complete tool-result text for the parent context. */
 	content: string;
-	/** True when a ## RESULT block was found and used. */
+	/** True when a canonical RESULT block was used for the handoff. */
 	usedResult: boolean;
+	/** True when the orchestrator repaired a plain or mechanically drifted report. */
+	recovered: boolean;
 	fullChars: number;
 	resultChars: number;
-	/** Non-empty when the transcript broke the ## RESULT contract. */
+	/** Non-empty only when deterministic recovery was impossible. */
 	contractProblems: string[];
 }
 
 /**
  * Build the parent-visible tool result. Guarantees:
  * 1. The exact status + timing are always present.
- * 2. A ## RESULT block is used when present; otherwise a tail+head fallback
- *    with an explicit marker — never an empty result.
- * 3. The path to the FULL transcript is always included. When ## RESULT is
- *    usable, the parent is told not to read it; otherwise it is told to.
+ * 2. A canonical ## RESULT block is used when present or synthesized from a
+ *    non-empty process result; empty output remains blocked.
+ * 3. The path to the FULL transcript is always included. Recovered results
+ *    remain independently subject to semantic workflow verification.
  */
 export function composeAgentResult(
 	opts: ComposeAgentResultOptions,
@@ -309,7 +384,9 @@ export function composeAgentResult(
 	const fullText = opts.outputText || "";
 	const header = `[${opts.agent}] ${opts.status} in ${formatDuration(opts.elapsedMs)}${opts.model ? ` (${opts.model})` : ""}`;
 
-	const normalized = opts.skipContract ? undefined : normalizeResultContract(fullText, opts.agent);
+	const normalized = opts.skipContract
+		? undefined
+		: normalizeResultContract(fullText, opts.agent, { allowUnstructured: true, exitCode: opts.exitCode });
 	const contractText = normalized?.text || fullText;
 	const { found, result } = extractResultBlock(contractText);
 
@@ -348,6 +425,7 @@ export function composeAgentResult(
 	return {
 		content,
 		usedResult,
+		recovered: !!normalized?.recovered,
 		fullChars,
 		resultChars: body.length,
 		contractProblems: compliance.problems,
@@ -386,36 +464,42 @@ export interface ResultCompliance {
 export function checkResultCompliance(fullText: string): ResultCompliance {
 	const text = fullText ?? "";
 	if (!text.trim()) return { ok: false, problems: ["empty transcript"] };
-	const { found } = extractResultBlock(text);
-	if (!found) return { ok: false, problems: ["no ## RESULT block"] };
+	const extracted = extractResultBlock(text);
+	if (!extracted.found) return { ok: false, problems: ["no ## RESULT block"] };
 	const problems: string[] = [];
 	const lines = text.split(/\r?\n/);
 	let start = -1;
 	for (let i = 0; i < lines.length; i++) {
-		if (lines[i].trim() === RESULT_MARKER) start = i;
+		if (isResultMarkerLine(lines[i])) start = i;
 	}
 	let closed = false;
 	for (let i = start + 1; i < lines.length; i++) {
-		if (lines[i].trim() === RESULT_END_MARKER) {
+		if (isResultEndLine(lines[i])) {
 			closed = true;
 			break;
 		}
 	}
 	if (!closed) problems.push("block not closed with ## END");
-	if (!/(^|\n)\s*role:\s*[a-z0-9_-]+\s*($|\n)/i.test(text))
+	const block = extracted.result;
+	if (!/(^|\n)\s*role:\s*[a-z0-9_-]+\s*($|\n)/i.test(block))
 		problems.push('missing "role:" line');
-	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(text))
+	if (!/(^|\n)\s*done:\s*(true|false)\s*($|\n)/i.test(block))
 		problems.push('missing "done:" line');
-	if (!/(^|\n)\s*status:\s*(PASS|FAIL|BLOCKED)\s*($|\n)/i.test(text))
+	if (!/(^|\n)\s*status:\s*(PASS|FAIL|BLOCKED)\s*($|\n)/i.test(block))
 		problems.push('missing or invalid "status:" line');
-	if (!/(^|\n)\s*summary:\s*\S/i.test(text)) problems.push('missing "summary:"');
+	if (!/(^|\n)\s*summary:\s*\S/i.test(block)) problems.push('missing "summary:"');
 	return { ok: problems.length === 0, problems };
 }
 
-/** A coordinator may advance only when the worker emitted a complete result. */
-export function resultContractFailure(fullText: string, skipContract = false, role?: string): string | undefined {
+/** Return failure only when recovery cannot produce a complete result. */
+export function resultContractFailure(
+	fullText: string,
+	skipContract = false,
+	role?: string,
+	exitCode?: number | null,
+): string | undefined {
 	if (skipContract) return undefined;
-	const normalized = normalizeResultContract(fullText, role);
+	const normalized = normalizeResultContract(fullText, role, { allowUnstructured: exitCode !== undefined, exitCode });
 	const compliance = checkResultCompliance(normalized?.text || fullText);
 	return compliance.ok ? undefined : `worker result contract incomplete: ${compliance.problems.join("; ")}`;
 }

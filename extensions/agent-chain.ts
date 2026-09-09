@@ -348,17 +348,17 @@ export default function(pi: ExtensionAPI) {
    for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
   }
 
-  const workerTask = hasSession
-   ? task
-   : buildWorkerInitialPrompt({
-    role: agentDef.name,
-    task,
-    rolePrompt: agentDef.systemPrompt,
-    additionalInstructions: [
-     isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
-     agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
-    ].filter(Boolean).join("\n\n"),
-   });
+  // Resume preserves context, not reporting protocol. Re-append canonical
+  // instructions so every chain step emits the same handoff shape.
+  const workerTask = buildWorkerInitialPrompt({
+   role: agentDef.name,
+   task,
+   rolePrompt: agentDef.systemPrompt,
+   additionalInstructions: [
+    isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
+    agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
+   ].filter(Boolean).join("\n\n") || undefined,
+  });
   const args = [
    "--mode", "json",
    "-p",
@@ -687,7 +687,7 @@ export default function(pi: ExtensionAPI) {
    orchestrationRun.consumeStep();
    const result = await runCanonicalAgent(agentDef, resolvedPrompt, ctx, orchestrationRun.signal);
 
-   const contractFailure = resultContractFailure(result.fullOutput || "", false, agentDef.name);
+   const contractFailure = resultContractFailure(result.fullOutput || "", false, agentDef.name, result.exitCode);
    if (result.exitCode !== 0 || contractFailure) {
     stepStates[i].status = "error";
     updateWidget();

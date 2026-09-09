@@ -270,8 +270,11 @@ function invalidReport(error: string): VerifierReportParseResult {
 /** Parse report and preserve a concrete reason when the shared block is malformed. */
 export function parseVerifierReportDetailed(output: string): VerifierReportParseResult {
 	const extracted = extractResultBlock(output);
-	if (!extracted.found) return invalidReport("missing or empty ## RESULT block");
-	const body = extracted.result;
+	// Verifier has a richer schema than ordinary workers. If the model emitted
+	// that schema but forgot only the outer markers, parse it directly; semantic
+	// validation below still requires every verifier section and field.
+	const body = extracted.found ? extracted.result : output.trim();
+	if (!body) return invalidReport("empty verifier result");
 	const common = body.split(/^##\s+/m, 1)[0];
 	const role = field(common, "role").toLowerCase();
 	const done = field(common, "done").toLowerCase();

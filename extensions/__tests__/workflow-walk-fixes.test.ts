@@ -44,7 +44,7 @@ describe("worker first-turn prompt", () => {
 		expect(prompt).toContain("Task:\ninspect the repository");
 		expect(prompt).toContain("## RESULT");
 		expect(prompt).toContain("findings:");
-		expect(prompt).toContain("Return one English RESULT block");
+		expect(prompt).toContain("emit exactly one plain-text RESULT block");
 		expect(prompt).toContain("Treat its objective, acceptance criteria");
 		expect(prompt).toContain("never fake green");
 		expect(prompt).toContain("do not invent tracking files");

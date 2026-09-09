@@ -627,17 +627,17 @@ export default function(pi: ExtensionAPI) {
    for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
   }
 
-  const workerTask = hasSession
-   ? task
-   : buildWorkerInitialPrompt({
-    role: agentDef.name,
-    task,
-    rolePrompt: agentDef.systemPrompt,
-    additionalInstructions: [
-     isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
-     agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
-    ].filter(Boolean).join("\n\n"),
-   });
+  // Resume preserves context, not reporting protocol. Re-append canonical
+  // instructions so every pipeline phase emits the same handoff shape.
+  const workerTask = buildWorkerInitialPrompt({
+   role: agentDef.name,
+   task,
+   rolePrompt: agentDef.systemPrompt,
+   additionalInstructions: [
+    isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
+    agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
+   ].filter(Boolean).join("\n\n") || undefined,
+  });
   const args = [
    "--mode", "json",
    "-p",
