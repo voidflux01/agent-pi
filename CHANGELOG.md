@@ -4,6 +4,20 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Verifier verdicts derived, not typed-and-rechecked
+
+- **Overall verifier status is now derived from the reported per-item facts
+  instead of trusting a typed aggregate the model can contradict.** When a
+  worker returns `status: PASS` yet also keeps a failed requirement, a
+  non-PASS section, or a hard blocker, the parser no longer rejects the report
+  as a *format* failure (which could not be fixed by reformatting and burned 2
+  repair rounds before discarding the real content behind a boilerplate
+  BLOCKED). It now derives the verdict fail-closed — an item-level BLOCKED or
+  hard blocker downgrades overall to BLOCKED, any other uncleared item to FAIL —
+  and keeps the real report so the actual failing requirement reaches the
+  reviewer/repair path. A conservative typed FAIL/BLOCKED is never
+  second-guessed; a section at WARN under PASS still stays PASS.
+
 ### Completion report surfaces verifier risk
 
 - **`show_report` reports verifier risk to the reviewer**: any residual risk

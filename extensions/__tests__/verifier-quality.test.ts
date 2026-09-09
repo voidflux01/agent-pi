@@ -204,9 +204,39 @@ describe("acceptance contract quality", () => {
 		expect(parseVerifierReport(legacy)).toBeUndefined();
 	});
 
-	it("rejects a contradictory PASS with hard blockers", () => {
+	it("derives overall status from reported facts instead of rejecting a contradictory PASS", () => {
+		// Worker typed PASS but kept a hard blocker → derived BLOCKED, real report kept.
 		const contradictory = validVerifierResult.replace("## Hard Blockers\n- none", "## Hard Blockers\n- cargo test was not run");
-		expect(parseVerifierReport(contradictory)).toBeUndefined();
+		const report = parseVerifierReport(contradictory);
+		expect(report).not.toBeUndefined();
+		expect(report?.status).toBe("BLOCKED");
+		expect(report?.hard_blockers).toEqual(["cargo test was not run"]);
+		expect(parseVerifierReportDetailed(contradictory).error).toBeUndefined();
+	});
+
+	it("derives FAIL when a PASS report keeps a failed requirement", () => {
+		const report = parseVerifierReport(validVerifierResult.replace("## REQ-001\nstatus: PASS", "## REQ-001\nstatus: FAIL"));
+		expect(report?.status).toBe("FAIL");
+		expect(report?.requirements[0]).toMatchObject({ status: "FAIL", requirement: "requested behavior works" });
+	});
+
+	it("derives FAIL on a FAIL quality section under an overall PASS", () => {
+		const report = parseVerifierReport(validVerifierResult.replace("## Quality\nstatus: PASS", "## Quality\nstatus: FAIL"));
+		expect(report?.status).toBe("FAIL");
+		expect(report?.quality).toMatchObject({ status: "FAIL" });
+	});
+
+	it("keeps PASS when a section only WARNs under an overall PASS", () => {
+		const report = parseVerifierReport(validVerifierResult.replace("## Quality\nstatus: PASS", "## Quality\nstatus: WARN"));
+		expect(report?.status).toBe("PASS");
+		expect(report?.quality).toMatchObject({ status: "WARN" });
+	});
+
+	it("does not second-guess a conservative non-PASS that matches a clean report", () => {
+		const fail = parseVerifierReport(validVerifierResult.replace("status: PASS\nsummary: clean", "status: FAIL\nsummary: needs work"));
+		expect(fail?.status).toBe("FAIL");
+		const blocked = parseVerifierReport(validVerifierResult.replace("status: PASS\nsummary: clean", "status: BLOCKED\nsummary: missing evidence"));
+		expect(blocked?.status).toBe("BLOCKED");
 	});
 
 	it("parses structured Markdown review findings and blocked evidence", () => {

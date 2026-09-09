@@ -304,7 +304,7 @@ export function parseVerifierReportDetailed(output: string): VerifierReportParse
 	const common = body.split(/^##\s+/m, 1)[0];
 	const role = field(common, "role").toLowerCase();
 	const done = field(common, "done").toLowerCase();
-	const status = field(common, "status").toUpperCase();
+	let status = field(common, "status").toUpperCase();
 	const summary = field(common, "summary");
 	if (role !== "verifier") return invalidReport(`role must be verifier, got ${role || "missing"}`);
 	if (done !== "true") return invalidReport(`done must be true, got ${done || "missing"}`);
@@ -367,8 +367,27 @@ export function parseVerifierReportDetailed(output: string): VerifierReportParse
 	if (missingTests.length > 0) return invalidReport(`Behavior test counters must start with integers: ${missingTests.join(", ")}`);
 	const hardBlockers = sectionList(section(body, "Hard Blockers"));
 	const warnings = sectionList(section(body, "Warnings"));
-	if (status === "PASS" && (requirements.some(item => item.status !== "PASS") || hardBlockers.length > 0 || contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS" || qualityStatus === "FAIL" || securityStatus === "FAIL")) {
-		return invalidReport("overall PASS contradicts a failed requirement, blocker, section, quality, or security status");
+	if (status === "PASS") {
+		// The worker's per-item outcomes can contradict its own PASS summary
+		// (e.g. a REQ it marked FAIL, a non-PASS section, or a hard blocker).
+		// Treating that as a *format* failure is wrong: the true report is
+		// internally inconsistent, and the repair loop cannot fix semantics by
+		// reformatting — it just burns 2 LLM calls and discards the real content
+		// behind a boilerplate BLOCKED. Instead derive the verdict from the
+		// reported facts, fail-closed: an item-level BLOCKED or hard blocker
+		// downgrades overall to BLOCKED, any other uncleared item downgrades it
+		// to FAIL. The real report is kept so the actual failing requirement
+		// reaches the reviewer/repair path.
+		const hasBlocked = hardBlockers.length > 0
+			|| requirements.some(item => item.status === "BLOCKED")
+			|| contractStatus === "BLOCKED" || reviewStatus === "BLOCKED" || behaviorStatus === "BLOCKED";
+		const hasFailed = hardBlockers.length > 0
+			|| requirements.some(item => item.status !== "PASS")
+			|| contractStatus !== "PASS" || reviewStatus !== "PASS" || behaviorStatus !== "PASS"
+			|| qualityStatus === "FAIL" || securityStatus === "FAIL";
+		if (hasBlocked || hasFailed) {
+			status = hasBlocked ? "BLOCKED" : "FAIL";
+		}
 	}
 
 	return {
