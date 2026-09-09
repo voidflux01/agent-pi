@@ -8,16 +8,17 @@ import { workflowDirection } from "../lib/workflow-direction.ts";
 import { deploymentGate, inspectLog } from "../lib/workflow-monitor.ts";
 import { redactEvidence, saveArtifact } from "../lib/workflow-artifacts.ts";
 import workflowSupport from "../workflow-support.ts";
-import { saveRetrospective, searchRetrospectives, augmentRetrospective, markInsight, listRetrospectives, clearRetrospectives } from "../lib/workflow-memory.ts";
+import { saveRetrospective, searchRetrospectives, searchAdoptedInsights, augmentRetrospective, markInsight, listRetrospectives, clearRetrospectives } from "../lib/workflow-memory.ts";
 
 describe("workflow support boundaries", () => {
 	test("loads as a Pi extension and registers the complete workflow surface", () => {
 		const tools: string[] = [];
 		const commands: string[] = [];
+		let workflowCommand: any;
 		workflowSupport({
 			registerTool(definition: { name: string }) { tools.push(definition.name); },
-			registerCommand(name: string) { commands.push(name); },
-			on() {},
+			registerCommand(name: string, definition: any) { commands.push(name); if (name === "workflow") workflowCommand = definition; },
+			on() { },
 		} as any);
 
 		expect(tools).toEqual([
@@ -29,6 +30,9 @@ describe("workflow support boundaries", () => {
 			"eval_run",
 		]);
 		expect(commands).toEqual(["workflow"]);
+		expect(workflowCommand.getArgumentCompletions("").map((item: any) => item.value)).toEqual(["run", "resume", "status", "cancel", "iteration", "approvals", "context", "retrospective"]);
+		expect(workflowCommand.getArgumentCompletions("retrospective ").map((item: any) => item.value)).toEqual(["list", "clear", "mark"]);
+		expect(workflowCommand.getArgumentCompletions("").every((item: any) => item.description)).toBe(true);
 	});
 
 	test("rejects malformed eval cases and judge citations", () => {
@@ -114,6 +118,8 @@ describe("workflow support boundaries", () => {
 		expect(searchRetrospectives(cwd, "pinning")[0].insights[0].kind).toBe("rule_draft");
 		markInsight(cwd, "chain-run-2", "rule-1", "adopted");
 		expect(searchRetrospectives(cwd, "pinning")[0].insights[0].status).toBe("adopted");
+		expect(searchAdoptedInsights(cwd, "pinning locks")).toMatchObject([{ run_id: "chain-run-2", text: "Consider pinning resource locks" }]);
+		expect(searchAdoptedInsights(cwd, "serialized conflict")).toEqual([]);
 	});
 
 	test("listing and explicit clear stay bounded and user-driven", () => {

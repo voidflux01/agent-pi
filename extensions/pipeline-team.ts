@@ -67,6 +67,7 @@ import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineS
 import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { registerWorkflowDispatchHook, readDispatchReceipt } from "./lib/workflow-dispatch.ts";
 import { workflowDirection } from "./lib/workflow-direction.ts";
+import { loadLatestWorkflowRun } from "./lib/workflow-run.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -979,10 +980,13 @@ export default function(pi: ExtensionAPI) {
     }
     const repairPhase = phaseStates.find((phase) => /^(execute|build)$/i.test(phase.def.name));
     const repairRole = repairPhase?.def.agents[0]?.role || "builder";
+    const workflowCwd = _ctx.cwd || process.cwd();
+    const workflowRunId = loadLatestWorkflowRun(workflowCwd)?.run_id;
     const autonomous = await runAutonomousCompletion({
      contract: bound,
-     cwd: _ctx.cwd || process.cwd(),
+     cwd: workflowCwd,
      mode: "PIPELINE",
+     runId: workflowRunId,
      signal: _signal,
      parentRunId: process.env.PI_AGENT_PI_RUN_ID,
      risk: "low",
@@ -992,12 +996,13 @@ export default function(pi: ExtensionAPI) {
      phaseStates[currentPhaseIndex].status = "active";
      persistPipelineState();
      updateWidget();
-     return { content: [{ type: "text", text: `Pipeline completion blocked: ${autonomous.reason || autonomous.status}. Do not output done:true.` }], details: { error: true, completionBlocked: true, phase: "verification", status: autonomous.status, attempts: autonomous.attempts, receipt: autonomous.receipt } };
+     const handoff = autonomous.iteration?.action === "REPLAN" ? ` Switch to ${autonomous.iteration.nextMode || "PLAN"}, obtain fresh approval, then resume.` : "";
+     return { content: [{ type: "text", text: `Pipeline completion blocked: ${autonomous.reason || autonomous.status}.${handoff} Do not output done:true.` }], details: { error: true, completionBlocked: true, phase: "verification", status: autonomous.status, attempts: autonomous.attempts, receipt: autonomous.receipt, iteration: autonomous.iteration, ...(autonomous.runId ? { runId: autonomous.runId } : {}), ...(autonomous.iteration?.action === "REPLAN" ? { nextMode: autonomous.iteration.nextMode, approvalInstruction: "Obtain fresh approval for replanned scope before resuming." } : {}) } };
     }
     deactivatePipeline(_ctx);
     return {
      content: [{ type: "text", text: "Pipeline complete! All phases finished." }],
-     details: { phase: "complete", summary, status: "PASS", attempts: autonomous.attempts },
+     details: { phase: "complete", summary, status: "PASS", attempts: autonomous.attempts, ...(autonomous.runId ? { runId: autonomous.runId } : {}) },
     };
    }
 

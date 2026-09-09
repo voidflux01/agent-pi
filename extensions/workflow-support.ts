@@ -1,5 +1,6 @@
 // ABOUTME: Optional workflow advice, context drafts, local log triage and bounded regression evaluations.
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
@@ -16,6 +17,8 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { getEvalGate, getExecutionContract, getVerifierReceipt, verificationScope } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
+import { decideIteration, loadIteration, type IterationObservation } from "./lib/iteration-controller.ts";
+import { createWorkflowRun, formatWorkflowRun, loadLatestWorkflowRun, saveWorkflowRun, updateWorkflowRun } from "./lib/workflow-run.ts";
 
 const result = (value: unknown) => ({ content: [{ type: "text" as const, text: redactEvidence(JSON.stringify(value, null, 2)) }] });
 const text = (maxLength = 1000) => Type.String({ maxLength });
@@ -32,7 +35,10 @@ export default function(pi: ExtensionAPI) {
 			const receipt = scope ? getVerifierReceipt(scope) : undefined;
 			let status = receipt?.status || "UNVERIFIED";
 			if (receipt?.status === "PASS" && (!contract || !scope || !canComplete(receipt, contract, buildWorkspaceManifest(ctx.cwd, contract.fingerprint).hash, getEvalGate(scope)))) status = "UNVERIFIED";
-			return result({ status, ...workflowDirection({ status: status as any, attempt: receipt?.attempt, ...params }) });
+			const history = contract ? loadIteration(ctx.cwd, contract.fingerprint) : [];
+			const latest = history.at(-1);
+			const iteration = latest ? decideIteration({ observation: latest, previous: history.slice(0, -1), maxIterations: 3, repairAvailable: true, risk: params.risk }) : undefined;
+			return result({ status, ...workflowDirection({ status: status as any, attempt: receipt?.attempt, ...params }), iteration });
 		},
 	});
 	if (config.context) registerToolWithExecutor(pi, {
@@ -126,9 +132,83 @@ export default function(pi: ExtensionAPI) {
 		},
 	});
 	pi.registerCommand("workflow", {
-		description: "Show workflow capabilities; /workflow context saves a review-only project draft",
+		description: "Run, resume, inspect or cancel a bounded workflow; /workflow context saves a review-only project draft",
+		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+			const raw = prefix.toLowerCase();
+			const input = raw.trim();
+			const nested = raw.startsWith("retrospective ");
+			const descriptions: Record<string, string> = nested
+				? { list: "List saved retrospectives", clear: "Explicitly remove retrospective records", mark: "Set insight status: adopted, rejected or stale" }
+				: { run: "Start workflow from an objective", resume: "Resume latest non-terminal run", status: "Show latest run state", cancel: "Cancel latest non-terminal run", iteration: "Show verifier iteration history", approvals: "List proposal-bound approvals", context: "Save review-only project context draft", retrospective: "List or manage retrospective records" };
+			const items = Object.keys(descriptions).map(value => ({ value, label: value, description: descriptions[value] }));
+			const token = nested ? raw.slice("retrospective ".length).trim() : input;
+			const matches = items.filter(item => item.value.startsWith(token));
+			return matches.length ? matches : null;
+		},
 		handler: async (args, ctx) => {
-			if (args.startsWith("retrospective") && config.retrospective) {
+			const command = args.trim();
+			const cwd = ctx.cwd || process.cwd();
+			if (command === "status") {
+				ctx.ui.notify(formatWorkflowRun(loadLatestWorkflowRun(cwd)), "info");
+			} else if (command === "cancel") {
+				const run = loadLatestWorkflowRun(cwd);
+				if (!run) ctx.ui.notify("No workflow run", "info");
+				else if (run.status === "COMPLETE" || run.status === "CANCELLED") ctx.ui.notify(`Workflow run ${run.run_id} is already ${run.status}.`, "info");
+				else {
+					try { ctx.ui.notify(formatWorkflowRun(updateWorkflowRun(cwd, { status: "CANCELLED", next_action: "Cancelled by user" })), "info"); }
+					catch (error) { ctx.ui.notify(redactEvidence(String(error)), "error"); }
+				}
+			} else if (command === "resume") {
+				const run = loadLatestWorkflowRun(cwd);
+				if (!run) ctx.ui.notify("No workflow run", "info");
+				else if (run.status === "COMPLETE" || run.status === "CANCELLED") ctx.ui.notify(`Workflow run ${run.run_id} is terminal: ${run.status}.`, "info");
+				else if (typeof (pi as any).sendUserMessage !== "function") ctx.ui.notify("Workflow resume blocked: active Pi runtime cannot start an agent turn.", "error");
+				else {
+					const message = [
+						"Resume this existing workflow run without creating a new contract or resetting approval state.",
+						`run_id: ${run.run_id}`,
+						`objective: ${redactEvidence(run.objective)}`,
+						`status: ${run.status}`,
+						`mode: ${redactEvidence(run.mode || "")}`,
+						`phase: ${redactEvidence(run.phase || "")}`,
+						`contract_fingerprint: ${redactEvidence(run.contract_fingerprint || "")}`,
+						`next_action: ${redactEvidence(run.next_action || "")}`,
+					].join("\n");
+					try { await (pi as any).sendUserMessage(message); ctx.ui.notify(`Resumed workflow run ${run.run_id}.`, "info"); }
+					catch (error) { ctx.ui.notify(redactEvidence(String(error)), "error"); }
+				}
+			} else if (command === "run" || command.startsWith("run ")) {
+				const objective = command.slice(3).trim();
+				if (!objective) ctx.ui.notify("Usage: /workflow run <objective>", "error");
+				else {
+					const current = loadLatestWorkflowRun(cwd);
+					if (current?.status === "RUNNING" || current?.status === "WAITING_APPROVAL") ctx.ui.notify(`Workflow run already active: ${current.run_id} (${current.status}).`, "error");
+					else if (typeof (pi as any).sendUserMessage !== "function") ctx.ui.notify("Workflow run blocked: active Pi runtime cannot start an agent turn.", "error");
+					else {
+						try {
+							const run = createWorkflowRun(cwd, objective);
+							saveWorkflowRun(cwd, run);
+							const message = [
+								"Start this workflow run from its natural-language objective.",
+								`run_id: ${run.run_id}`,
+								`objective: ${redactEvidence(run.objective)}`,
+								"Classify the lightest sufficient path: NORMAL, PLAN, SPEC, TEAM, CHAIN, or PIPELINE.",
+								"Use existing task and approval tools; keep this run state current; finish only after verifier PASS and show_report.",
+								"User approvals remain mandatory. AGENT_PI_AUTOVERIFY=0 disables automatic verification/iteration. Never change rule files automatically.",
+							].join("\n");
+							await (pi as any).sendUserMessage(message);
+							ctx.ui.notify(`Started workflow run ${run.run_id}.`, "info");
+						} catch (error) {
+							try { updateWorkflowRun(cwd, { status: "BLOCKED", next_action: "Agent turn could not start" }); } catch { }
+							ctx.ui.notify(redactEvidence(String(error)), "error");
+						}
+					}
+				}
+			} else if (command === "iteration") {
+				const contract = getExecutionContract();
+				const history = contract ? loadIteration(ctx.cwd, contract.fingerprint) : [];
+				ctx.ui.notify(history.length ? history.map(item => `${item.createdAt} ${item.status} attempt=${item.attempt}${item.failure ? ` failure=${item.failure}` : ""}`).join("\n") : "No iteration history", "info");
+			} else if (args.startsWith("retrospective") && config.retrospective) {
 				const [_, sub, ...rest] = args.trim().split(/\s+/);
 				try {
 					if (sub === "list") {

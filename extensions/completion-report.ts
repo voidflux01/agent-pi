@@ -31,6 +31,7 @@ import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { bindTaskContract, isAutonomousCompletionEnabled } from "./lib/autonomous-policy.ts";
 import { runAutonomousCompletion, builderRepairDispatcher } from "./lib/autonomous-completion.ts";
+import { loadLatestWorkflowRun } from "./lib/workflow-run.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -550,6 +551,7 @@ export default function(pi: ExtensionAPI) {
 			const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
 			const receipt = getVerifierReceipt(scope);
 			const mode = coordinationState().mode;
+			const workflowRunId = loadLatestWorkflowRun(cwd)?.run_id;
 			const surface = mode === "PLAN" ? "plan-show-report" : mode === "SPEC" ? "spec-show-report" : "agent-show-report";
 			const gate = completeDecision({
 				surface,
@@ -560,15 +562,16 @@ export default function(pi: ExtensionAPI) {
 			});
 			if (!gate.allowed && isAutonomousCompletionEnabled()) {
 				const autonomous = await runAutonomousCompletion({
-					contract, cwd, mode, risk: "low",
+					contract, cwd, mode, runId: workflowRunId, risk: "low",
 					dispatchRepair: builderRepairDispatcher(ctx),
 				});
 				if (autonomous.allowed) {
 					// Continue to report viewer after autonomous verification passes.
 				} else {
-					return { content: [{ type: "text" as const, text: `Completion report blocked: ${autonomous.reason || gate.reason} Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: autonomous.reason || gate.reason } };
+					const handoff = autonomous.iteration?.action === "REPLAN" ? ` Switch to ${autonomous.iteration.nextMode || "PLAN"}, obtain fresh approval, then resume.` : "";
+					return { content: [{ type: "text" as const, text: `Completion report blocked: ${autonomous.reason || gate.reason}.${handoff} Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: autonomous.reason || gate.reason, iteration: autonomous.iteration, ...(autonomous.runId ? { runId: autonomous.runId } : {}), ...(autonomous.iteration?.action === "REPLAN" ? { nextMode: autonomous.iteration.nextMode, approvalInstruction: "Obtain fresh approval for replanned scope before resuming." } : {}) } };
 				}
-			} else if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason} Call verify_execution first. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason } };
+			} else if (!gate.allowed) return { content: [{ type: "text" as const, text: `Completion report blocked: ${gate.reason} Call verify_execution first. Do not output done:true; report done:false or continue fixing.` }], details: { error: true, completionBlocked: true, reason: gate.reason, ...(workflowRunId ? { runId: workflowRunId } : {}) } };
 
 			// Check if we're in a git repo
 			if (!isGitRepo(cwd)) {
@@ -618,7 +621,7 @@ export default function(pi: ExtensionAPI) {
 				if (timedOut || !result) {
 					return {
 						content: [{ type: "text" as const, text: `Completion report left open for review (${REPORT_WAIT_MS / 1000}s) with no action; report persisted, no files rolled back. Reopen with /report if you want to roll back.` }],
-						details: { action: "timeout", rolledBackFiles: [], totalFiles: report.files.length, totalAdditions: report.totalAdditions, totalDeletions: report.totalDeletions },
+						details: { action: "timeout", rolledBackFiles: [], totalFiles: report.files.length, totalAdditions: report.totalAdditions, totalDeletions: report.totalDeletions, ...(workflowRunId ? { runId: workflowRunId } : {}) },
 					};
 				}
 
@@ -655,6 +658,7 @@ export default function(pi: ExtensionAPI) {
 						totalFiles: report.files.length,
 						totalAdditions: report.totalAdditions,
 						totalDeletions: report.totalDeletions,
+						...(workflowRunId ? { runId: workflowRunId } : {}),
 					},
 				};
 			} finally {
