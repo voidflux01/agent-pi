@@ -39,7 +39,7 @@ try {
 		const rows: any[] = [];
 		for (const path of files) {
 			for (const line of readFileSync(path, "utf8").split("\n").filter(Boolean)) {
-				try { rows.push(JSON.parse(line)); } catch {}
+				try { rows.push(JSON.parse(line)); } catch { }
 			}
 		}
 		return rows;
@@ -60,7 +60,7 @@ try {
 	send("send-text", paneId, "/budget 8000 0.08");
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
-	send("send-text", paneId, "Use set_mode to switch to TEAM. Then use dispatch_agent exactly once with the REVIEWER role for this read-only task: run `printf team-ok`, report the output, and finish with a valid ## RESULT block. Wait for the worker result, then reply exactly TEAM-TASK-PASS.");
+	send("send-text", paneId, "Use set_mode to switch to TEAM. First create one task with `tasks new-list`, `tasks add`, and `tasks toggle` so it is inprogress. Then use subagent_create exactly once with name `reviewer`, join:true, for this read-only task: run `printf team-ok`, report the output, and finish with a valid ## RESULT block. Wait for the worker result, then reply exactly TEAM-TASK-PASS.");
 	send("send-keys", paneId, "enter");
 	await sleep(2000);
 	send("send-keys", paneId, "enter");

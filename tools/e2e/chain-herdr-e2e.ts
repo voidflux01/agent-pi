@@ -32,7 +32,7 @@ try {
 		const rows: any[] = [];
 		for (const name of readdirSync(root).filter((entry) => entry.endsWith(".jsonl"))) {
 			for (const line of readFileSync(join(root, name), "utf8").split("\n").filter(Boolean)) {
-				try { rows.push(JSON.parse(line)); } catch {}
+				try { rows.push(JSON.parse(line)); } catch { }
 			}
 		}
 		return rows;
@@ -53,7 +53,7 @@ try {
 	send("send-text", paneId, budgetCommand);
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
-	send("send-text", paneId, "Use set_mode to switch to CHAIN. Then execute the active plan-build-review chain through exactly three sequential subagent_create calls (planner, builder, reviewer), passing each result to the next. The disposable task is only to verify that `printf chain-ok` produces chain-ok; do not make repository changes. Wait for all three workers to finish, then reply exactly CHAIN-TASK-PASS.");
+	send("send-text", paneId, "Use set_mode to switch to CHAIN. First create one task with `tasks new-list`, `tasks add`, and `tasks toggle` so it is inprogress. Then execute the active plan-build-review chain through exactly three sequential subagent_create calls (planner, builder, reviewer), passing each result to the next. The disposable task is only to verify that `printf chain-ok` produces chain-ok; do not make repository changes. Wait for all three workers to finish, then reply exactly CHAIN-TASK-PASS.");
 	send("send-keys", paneId, "enter");
 	await sleep(2000);
 	send("send-keys", paneId, "enter");

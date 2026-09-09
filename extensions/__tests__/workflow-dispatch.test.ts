@@ -1,7 +1,7 @@
 // ABOUTME: Durable dispatch receipt contract tests for all workflow modes.
 
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +9,9 @@ import {
 	createDispatchReceipt,
 	finishDispatchReceipt,
 	readDispatchReceipt,
+	registerWorkflowApprovalHook,
 } from "../lib/workflow-dispatch.ts";
+import { markPlanApproved, resetApprovals } from "../lib/approval-gate.ts";
 
 describe("workflow dispatch receipts", () => {
 	it("round-trips a completed receipt and consumes it exactly once", () => {
@@ -64,6 +66,21 @@ describe("workflow dispatch receipts", () => {
 			expect(readDispatchReceipt(cwd, "x".repeat(200))).toBeUndefined();
 			expect(existsSync(join(cwd, ".pi", "agent-sessions", "dispatch-receipts", "escape.json"))).toBe(false);
 		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("publishes PLAN approval through the shared workflow bus", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "agent-pi-approval-"));
+		const events: Array<{ action: string; path?: string }> = [];
+		registerWorkflowApprovalHook("PLAN", { after: (event) => events.push(event) });
+		try {
+			const file = join(cwd, "todo.md");
+			writeFileSync(file, "# Plan");
+			markPlanApproved(file);
+			expect(events.at(-1)).toMatchObject({ action: "approved", path: file });
+		} finally {
+			resetApprovals();
 			rmSync(cwd, { recursive: true, force: true });
 		}
 	});

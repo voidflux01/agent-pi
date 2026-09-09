@@ -19,9 +19,9 @@ Turn the request into a contract: Objective, Scope, Acceptance Criteria, Evidenc
 
 /** Shared task contract appended to every orchestration-mode prompt. */
 export const COMPLETION_GATE_PROMPT = `## Acceptance and review contract
-For medium/high-risk work, bind a contract with a concrete Objective and any useful scope, criteria, evidence, and constraints. Present it for confirmation, then pass the same contract to \`verify_execution\`.
-- Completion requires an independent verifier PASS with concrete, explainable evidence that Objective is satisfied; \`show_report\` never verifies. Never emit \`done: true\` from worker prose or manual checks.
-- FAIL/BLOCKED, \`completionBlocked: true\`, or Critical/High findings stops completion. Manually spawned workers cannot replace \`verify_execution\`; skills remain enabled.`;
+Every completion path in NORMAL, PLAN, SPEC, PIPELINE, TEAM, and CHAIN binds the selected task to a contract. Structured \`## Objective\` / \`## Contract\` sections are preferred; otherwise the complete non-empty natural-language task becomes the Objective (maximum 4,000 characters). Empty tasks have no completion contract and are blocked.
+- Worker RESULT blocks are untrusted claims. Completion requires the independent verifier loop to PASS with explainable evidence. FAIL automatically dispatches one canonical joined builder repair within the bounded attempt limit, then re-verifies; BLOCKED, exhausted attempts, cancellation, repair failure, \`completionBlocked: true\`, or Critical/High findings never authorize \`done: true\`.
+- \`show_report\` is a completion gate; user \`/report\` is a manual review surface that never authorizes completion (explicit rollback remains available). PLAN/SPEC \`show_plan\` / \`show_spec\` remain approval and safety gates. Manual workers and self-written summaries cannot replace independent verification.`;
 
 /** Shared scout workflow core used by NORMAL, PLAN, and SPEC (mode-specific deltas stay per-mode). */
 export const SCOUT_WORKFLOW_PROMPT = `Use one read-only scout by default for non-trivial, multi-file context gathering — mapping a subsystem, tracing a call chain, or finding existing patterns. Do not spawn one for a quick lookup, single-file task, or simple edit.
@@ -66,19 +66,19 @@ ${RESEARCH_HANDOFF_PROMPT}`;
 
 /** Options for building the NORMAL mode prompt. */
 export interface NormalPromptOpts {
-	activeChain: string | null;
-	activePipeline: string | null;
+  activeChain: string | null;
+  activePipeline: string | null;
 }
 
 /** NORMAL mode prompt — teaches the agent to classify tasks and call set_mode. */
 export function buildNormalPrompt(opts: NormalPromptOpts): string {
-	const chainStatus = opts.activeChain
-		? `Active: "${opts.activeChain}"`
-		: "Not active — use /chain only when you choose a chain";
-	const pipelineStatus = opts.activePipeline
-		? `Active: "${opts.activePipeline}"`
-		: "Not active — use /pipeline only when you choose a pipeline";
-	return `You are in NORMAL mode. This is the default, low-ceremony path.
+  const chainStatus = opts.activeChain
+    ? `Active: "${opts.activeChain}"`
+    : "Not active — use set_mode CHAIN only when you choose a predefined chain";
+  const pipelineStatus = opts.activePipeline
+    ? `Active: "${opts.activePipeline}"`
+    : "Not active — use /pipeline only when you choose a pipeline";
+  return `You are in NORMAL mode. This is the default, low-ceremony path.
 
 ## Default behavior
 - Work directly on simple reads, answers, inspection commands, and small edits.
@@ -141,7 +141,7 @@ ${RESEARCH_ROUTING_COMPACT_PROMPT}
 4. After approval, first refresh the task list for implementation: use \`tasks add\` for each concrete implementation step (or \`tasks new-list\` to replace the planning list), then use \`tasks toggle\` to mark the first implementation task inprogress.
 5. Implement phase by phase, keeping task status current and toggling completed tasks to done.
 6. After implementation and local checks, call \`verify_execution\` and require PASS. Do not call \`show_report\` before the verifier receipt exists and is current.
-7. After verifier PASS, call \`show_report\` to present the completion report. For three or more phases this report is mandatory, and it never launches verification itself.
+7. After verifier PASS, call \`show_report\` to present the completion report. For three or more phases this report is mandatory. If its receipt is missing or stale and autonomous verification is enabled, it may run the bounded verifier/repair loop; it never authorizes or deploys changes.
 
 ## Plan format
 \`\`\`markdown
@@ -206,7 +206,7 @@ Do not implement until the user approves. For questions, use show_plan in questi
 `;
 
 export function buildPlanPrompt(): string {
-	return PLAN_PROMPT;
+  return PLAN_PROMPT;
 }
 
 /** Context-os spec-driven workflow: Q&A → spec → implement. */

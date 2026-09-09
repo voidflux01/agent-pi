@@ -5,6 +5,7 @@ import { resolve, relative, sep } from "node:path";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { coordinationState, resetExecutionVerification } from "./coordination-state.ts";
+import { workflowApprovalAfter } from "./workflow-dispatch.ts";
 import { isWithinDirectory } from "./path-safety.ts";
 import { isScoutRecon, READ_ONLY_BYPASS_TOOLS, TASK_EXECUTION_TOOLS } from "./task-gate.ts";
 import { getCapabilityForTool } from "./capability-registry.ts";
@@ -44,13 +45,14 @@ export function fingerprintFile(filePath: string): { fileFingerprint: string; co
 	}
 }
 
-/** Fingerprint all files in a spec folder, including relative names and contents. */
+/** Fingerprint spec documents, excluding review-only comments metadata. */
 export function fingerprintDirectory(folderPath: string): { fileFingerprint: string; contentFingerprint: string } {
 	const root = resolve(folderPath);
 	const entries: Array<[string, string]> = [];
 	const walk = (dir: string) => {
 		let names: string[]; try { names = readdirSync(dir); } catch { return; }
 		for (const name of names.sort()) {
+			if (name === "spec-comments.json") continue;
 			const path = resolve(dir, name); let st; try { st = statSync(path); } catch { continue; }
 			if (st.isDirectory()) walk(path);
 			else if (st.isFile()) { try { entries.push([relative(root, path).split(sep).join("/"), readFileSync(path).toString("base64")]); } catch { } }
@@ -68,6 +70,8 @@ export function resetApprovals(): void {
 	state.planApprovalBinding = undefined;
 	state.specApprovalBinding = undefined;
 	resetExecutionVerification();
+	workflowApprovalAfter({ mode: "PLAN", action: "reset" });
+	workflowApprovalAfter({ mode: "SPEC", action: "reset" });
 }
 
 /** Clear the gate when entering PLAN or SPEC so a prior cycle cannot leak. */
@@ -76,11 +80,13 @@ export function resetApprovalForMode(mode: string): void {
 		coordinationState().planApproved = false;
 		coordinationState().planApprovalBinding = undefined;
 		resetExecutionVerification();
+		workflowApprovalAfter({ mode: "PLAN", action: "reset" });
 	}
 	if (mode === "SPEC") {
 		coordinationState().specApproved = false;
 		coordinationState().specApprovalBinding = undefined;
 		resetExecutionVerification();
+		workflowApprovalAfter({ mode: "SPEC", action: "reset" });
 	}
 }
 
@@ -99,15 +105,27 @@ export function markPlanApproved(filePath?: string, content?: string): void {
 			fileFingerprint: fingerprintContent(`${absolute}\0${Buffer.from(content, "utf8").toString("base64")}`),
 		}
 		: { filePath: absolute, ...fingerprintFile(filePath) };
+	workflowApprovalAfter({ mode: "PLAN", action: "approved", path: absolute, ...state.planApprovalBinding });
 }
 
 export function markSpecApproved(folderPath?: string): void {
 	const state = coordinationState(); state.specApproved = true;
 	state.specApprovalBinding = folderPath ? { folderPath: resolve(folderPath), ...fingerprintDirectory(folderPath) } : undefined;
+	workflowApprovalAfter({ mode: "SPEC", action: "approved", path: folderPath ? resolve(folderPath) : undefined, ...state.specApprovalBinding });
 }
 
 export function isPlanApproved(): boolean { return approvalStateForMode("PLAN"); }
 export function isSpecApproved(): boolean { return approvalStateForMode("SPEC"); }
+
+/** True only when this exact plan file is still the approved snapshot. */
+export function isPlanApprovedFor(filePath: string): boolean {
+	return approvalStateForMode("PLAN") && coordinationState().planApprovalBinding?.filePath === resolve(filePath);
+}
+
+/** True only when this exact spec folder is still the approved snapshot. */
+export function isSpecApprovedFor(folderPath: string): boolean {
+	return approvalStateForMode("SPEC") && coordinationState().specApprovalBinding?.folderPath === resolve(folderPath);
+}
 
 function bindingStillMatches(mode: "PLAN" | "SPEC"): boolean {
 	const state = coordinationState();

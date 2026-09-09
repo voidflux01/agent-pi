@@ -40,5 +40,7 @@ describe("spec viewer boundaries", () => {
 		expect(source).toContain("MAX_SPEC_REQUEST_BODY_BYTES = 256 * 1024");
 		expect(source).toContain("readRequestBody(req, res");
 		expect(source).not.toContain('req.on("data", (chunk) => { body += chunk; });');
+		expect(source).toContain("specApprovalBlockReason");
+		expect(source).toContain("spec.md must contain a ## Contract section");
 	});
 });

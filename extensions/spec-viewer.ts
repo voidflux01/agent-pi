@@ -18,9 +18,9 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen, type ActiveViewerSession } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
 import { isWithinDirectory } from "./lib/path-safety.ts";
-import { markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+import { approvalStateForMode, isSpecApprovedFor, markSpecApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
 import { bindSpecContract } from "./lib/execution-contract.ts";
-import { setExecutionContract } from "./lib/coordination-state.ts";
+import { coordinationState, setExecutionContract } from "./lib/coordination-state.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 // Approval is bound to the reviewed snapshot (markSpecApproved() remains the unbound API).
 
@@ -362,13 +362,38 @@ export default function(pi: ExtensionAPI) {
 	function bindApprovedSpecContract(folderPath: string): void {
 		try {
 			const specPath = join(folderPath, "spec.md");
-			if (!existsSync(specPath)) { setExecutionContract(undefined); return; }
-			const markdown = readFileSync(specPath, "utf8");
+			const markdown = readSafeSpecMarkdown(folderPath, specPath);
+			if (markdown === null) { setExecutionContract(undefined); return; }
 			const bound = bindSpecContract(markdown, specPath);
 			setExecutionContract("error" in bound ? undefined : bound);
 		} catch {
 			setExecutionContract(undefined);
 		}
+	}
+
+	function specApprovalBlockReason(folderPath: string): string | undefined {
+		const specPath = join(folderPath, "spec.md");
+		const markdown = readSafeSpecMarkdown(folderPath, specPath);
+		if (markdown === null) return "Cannot approve spec: spec.md is missing or outside the spec folder.";
+		const lines = markdown.split(/\r?\n/);
+		const contractIndex = lines.findIndex((line) => /^##\s+Contract\s*$/.test(line));
+		if (contractIndex < 0) return "Cannot approve spec: spec.md must contain a ## Contract section.";
+		let objectiveIndex = -1;
+		for (let index = contractIndex + 1; index < lines.length; index++) {
+			if (/^##\s+/.test(lines[index])) break;
+			if (/^###\s+Objective\s*$/.test(lines[index])) {
+				objectiveIndex = index;
+				break;
+			}
+		}
+		if (objectiveIndex < 0) return "Cannot approve spec: ## Contract must contain a ### Objective.";
+		const objective = [] as string[];
+		for (const line of lines.slice(objectiveIndex + 1)) {
+			if (/^#{1,3}\s+/.test(line)) break;
+			objective.push(line);
+		}
+		if (!objective.join("\n").trim()) return "Cannot approve spec: ### Objective must be concrete and non-empty.";
+		return undefined;
 	}
 
 	function cleanupServer() {
@@ -527,12 +552,27 @@ export default function(pi: ExtensionAPI) {
 
 			const displayTitle = titleParam || basename(folderPath);
 
+			if (coordinationState().mode === "SPEC" && isSpecApprovedFor(folderPath)) {
+				return {
+					content: [{ type: "text" as const, text: `Spec already approved for ${folder_path}; proceed with implementation.` }],
+					details: { action: "approved" as const, modified: false, folderPath: folder_path, reused: true },
+				};
+			}
+
 			try {
-				resetApprovalForMode("SPEC");
+				if (!approvalStateForMode("SPEC")) resetApprovalForMode("SPEC");
 				const result = await runSpecViewer(ctx, folderPath, displayTitle);
 
 				// Handle approved
 				if (result.action === "approved") {
+					const approvalError = specApprovalBlockReason(folderPath);
+					if (approvalError) {
+						setExecutionContract(undefined);
+						return {
+							content: [{ type: "text" as const, text: approvalError }],
+							details: { error: true, action: "changes_requested" as const, folderPath: folder_path },
+						};
+					}
 					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
 					markSpecApproved(folderPath);
 					bindApprovedSpecContract(folderPath);
@@ -657,10 +697,16 @@ export default function(pi: ExtensionAPI) {
 			const displayTitle = basename(resolved);
 
 			try {
-				resetApprovalForMode("SPEC");
+				if (!approvalStateForMode("SPEC")) resetApprovalForMode("SPEC");
 				const result = await runSpecViewer(ctx, resolved, displayTitle);
 
 				if (result.action === "approved") {
+					const approvalError = specApprovalBlockReason(resolved);
+					if (approvalError) {
+						setExecutionContract(undefined);
+						ctx.ui.notify(approvalError, "error");
+						return;
+					}
 					// markSpecApproved() compatibility spelling; this approval is fingerprint-bound.
 					markSpecApproved(folderPath);
 					bindApprovedSpecContract(resolved);

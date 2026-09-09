@@ -53,7 +53,7 @@ try {
 	// this TUI; the first option is the configured four-phase smoke pipeline.
 	send("send-keys", paneId, "enter");
 	await sleep(1000);
-	send("send-text", paneId, "Run the active four-phase PIPELINE for this workflow-protocol smoke task: verify that `printf pipeline-ok` outputs pipeline-ok. Do not modify the repository. Treat this as COMPLEX for the purpose of exercising the pipeline: do not skip UNDERSTAND or any configured phase. In PIPELINE mode never call show_plan or show_spec. Follow the exact loop for each phase: call subagent_create with the configured worker name, join:true, and the phase task; wait for its bounded ## RESULT, then immediately call advance_phase with that summary. Repeat for UNDERSTAND, PLAN, BUILD, and REVIEW; after the final phase returns, reply exactly PIPELINE-TASK-PASS.");
+	send("send-text", paneId, "Run the active four-phase PIPELINE for this workflow-protocol smoke task: verify that `printf pipeline-ok` outputs pipeline-ok. Do not modify the repository. First create one task with `tasks new-list`, `tasks add`, and `tasks toggle` so it is inprogress. Treat this as COMPLEX for the purpose of exercising the pipeline: do not skip UNDERSTAND or any configured phase. In PIPELINE mode never call show_plan or show_spec. Complete UNDERSTAND directly by clarifying the task and calling advance_phase. For each configured worker phase, call subagent_create with the configured worker name, join:true, and the phase task; wait for its bounded ## RESULT, then immediately call advance_phase with that summary. Repeat for PLAN, BUILD, and REVIEW; after the final phase returns, reply exactly PIPELINE-TASK-PASS.");
 	send("send-keys", paneId, "enter");
 
 	let finalText = "";

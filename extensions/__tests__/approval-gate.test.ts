@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	approvalStateForMode,
+	isPlanApprovedFor,
+	isSpecApprovedFor,
 	decideApprovalGate,
 	isReadOnlyBash,
 	isPlanningArtifact,
@@ -287,6 +289,8 @@ describe("approval bindings", () => {
 		writeFileSync(file, "original");
 		markPlanApproved(file);
 		expect(approvalStateForMode("PLAN")).toBe(true);
+		expect(isPlanApprovedFor(file)).toBe(true);
+		expect(isPlanApprovedFor(join(root, "other.md"))).toBe(false);
 		writeFileSync(file, "changed");
 		expect(approvalStateForMode("PLAN")).toBe(false);
 	});
@@ -306,7 +310,17 @@ describe("approval bindings", () => {
 		writeFileSync(join(root, "spec.md"), "spec");
 		markSpecApproved(root);
 		expect(approvalStateForMode("SPEC")).toBe(true);
+		expect(isSpecApprovedFor(root)).toBe(true);
+		expect(isSpecApprovedFor(join(root, "sibling"))).toBe(false);
 		writeFileSync(join(root, "requirements.md"), "new requirement");
 		expect(approvalStateForMode("SPEC")).toBe(false);
+	});
+
+	it("ignores review comments when checking SPEC approval", () => {
+		const root = mkdtempSync(join(tmpdir(), "approval-spec-comments-"));
+		writeFileSync(join(root, "spec.md"), "spec");
+		markSpecApproved(root);
+		writeFileSync(join(root, "spec-comments.json"), JSON.stringify({ comments: [{ text: "review" }] }));
+		expect(approvalStateForMode("SPEC")).toBe(true);
 	});
 });

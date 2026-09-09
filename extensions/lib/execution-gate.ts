@@ -7,7 +7,6 @@
 import { bindAcceptanceContract, type AcceptanceContract } from "./execution-contract.ts";
 import type { VerifierReceipt } from "./verifier-runtime.ts";
 import { canComplete } from "./verifier-runtime.ts";
-import { getEvalGate } from "./coordination-state.ts";
 
 export type CompletionSurface = "pipeline-complete" | "plan-show-report" | "spec-show-report" | "agent-show-report" | "user-report";
 
@@ -36,14 +35,15 @@ export function completeDecision(input: {
 	contract?: AcceptanceContract;
 	receipt?: VerifierReceipt;
 	workspaceManifestHash?: string;
+	evalGate?: { ok: boolean };
 }): { allowed: boolean; reason?: string } {
 	if (!verificationRequired({ surface: input.surface, contract: input.contract })) return { allowed: true };
 	if (!input.contract || !input.contract.objective.trim()) {
 		return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	}
 	if (!input.receipt) return { allowed: false, reason: MISSING_RECEIPT_REASON };
-	if (input.contract.requiredEval && getEvalGate()?.ok !== true) return { allowed: false, reason: REQUIRED_EVAL_REASON };
-	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash, getEvalGate())) {
+	if (input.contract.requiredEval && input.evalGate?.ok !== true) return { allowed: false, reason: REQUIRED_EVAL_REASON };
+	if (!canComplete(input.receipt, input.contract, input.workspaceManifestHash, input.evalGate)) {
 		return { allowed: false, reason: STALE_RECEIPT_REASON };
 	}
 	return { allowed: true };
@@ -55,6 +55,7 @@ export function completionDecision(input: {
 	contract?: AcceptanceContract;
 	receipt?: VerifierReceipt;
 	workspaceManifestHash?: string;
+	evalGate?: { ok: boolean };
 }): { allowed: boolean; reason?: string } {
 	return completeDecision(input);
 }
@@ -64,7 +65,9 @@ export function pipelineCompleteDecision(
 	planText: string,
 	receipt: VerifierReceipt | undefined,
 	workspaceManifestHash?: string,
+	evalGate?: { ok: boolean },
 ): { allowed: boolean; reason?: string; contract?: AcceptanceContract } {
+	if (!planText.trim()) return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	const bound = bindAcceptanceContract(planText, "pipeline");
 	if ("error" in bound) return { allowed: false, reason: INCOMPLETE_CONTRACT_REASON };
 	const decision = completeDecision({
@@ -72,6 +75,7 @@ export function pipelineCompleteDecision(
 		contract: bound,
 		receipt,
 		workspaceManifestHash,
+		evalGate,
 	});
 	return { ...decision, contract: bound };
 }

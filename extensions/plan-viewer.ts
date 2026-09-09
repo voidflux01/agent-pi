@@ -18,9 +18,9 @@ import { createPlanStandaloneExport, saveStandaloneExport } from "./lib/viewer-s
 import { upsertPersistedReport } from "./lib/report-index.ts";
 import { registerActiveViewer, clearActiveViewer, notifyViewerOpen } from "./lib/viewer-session.ts";
 import { authorizeLocalServerRequest, createLocalServerAuth, type LocalServerAuth } from "./lib/local-server-auth.ts";
-import { markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
+import { approvalStateForMode, isPlanApprovedFor, markPlanApproved, resetApprovalForMode } from "./lib/approval-gate.ts";
 import { bindAcceptanceContract } from "./lib/execution-contract.ts";
-import { setExecutionContract } from "./lib/coordination-state.ts";
+import { coordinationState, setExecutionContract } from "./lib/coordination-state.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 // Approval is bound to the reviewed snapshot (markPlanApproved() remains the unbound API).
 
@@ -411,8 +411,17 @@ export default function(pi: ExtensionAPI) {
 
 			const displayTitle = title || basename(file_path, ".md");
 
-			// A new plan review cycle re-locks implementation until this viewer is approved.
-			if (purpose === "plan") resetApprovalForMode("PLAN");
+			// Repeated model calls for the same unchanged plan are idempotent: the
+			// prior human approval already covers this exact snapshot.
+			if (purpose === "plan" && coordinationState().mode === "PLAN" && isPlanApprovedFor(file_path)) {
+				return {
+					content: [{ type: "text" as const, text: `Plan already approved for ${file_path}; proceed with implementation.` }],
+					details: { action: "approved" as const, purpose: "plan", modified: false, filePath: file_path, reused: true },
+				};
+			}
+
+			// Re-lock only when approved plan snapshot changed; repeated views stay approved.
+			if (purpose === "plan" && !approvalStateForMode("PLAN")) resetApprovalForMode("PLAN");
 
 			// Open viewer and wait for result
 			const result = await runViewer(ctx, markdown, file_path, displayTitle, purpose, signal);
@@ -567,7 +576,7 @@ export default function(pi: ExtensionAPI) {
 
 			const displayTitle = basename(filePath, ".md");
 
-			resetApprovalForMode("PLAN");
+			if (!approvalStateForMode("PLAN")) resetApprovalForMode("PLAN");
 			const result = await runViewer(ctx, markdown, filePath, displayTitle, "plan");
 
 			if (result.action === "approved") {

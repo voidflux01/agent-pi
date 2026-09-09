@@ -18,7 +18,7 @@ export interface OrchestrationRunSummary {
 	status: "running" | "stale" | "succeeded" | "failed" | "cancelled" | "unknown";
 	recovery?: "active" | "stale" | "terminal" | "unknown";
 	/** Safe, user-facing next action for a stale run; never an executable command. */
-	recoveryAction?: "chain-resume" | "pipeline-resume" | "compose-resume" | "team-batch-recover" | "subagent-resume" | "inspect";
+	recoveryAction?: "pipeline-resume" | "compose-resume" | "team-batch-recover" | "subagent-resume" | "inspect";
 	recoveryDispatchId?: string;
 	failureCause?: "aborted" | "cancelled" | "timeout" | "authentication" | "process_error" | "exit_code";
 	lastEventType?: string;
@@ -85,7 +85,7 @@ function payloadData(event: RunEvent): Record<string, unknown> {
 
 function recoveryForRun(status: OrchestrationRunSummary["status"], mode: unknown, actor: string | undefined, events: RunEvent[]): Pick<OrchestrationRunSummary, "recoveryAction" | "recoveryDispatchId"> {
 	if (status !== "stale") return {};
-	if (mode === "CHAIN") return { recoveryAction: "chain-resume" };
+	if (mode === "CHAIN") return { recoveryAction: "inspect" };
 	if (mode === "PIPELINE") return { recoveryAction: "pipeline-resume" };
 	if (actor === "compose_exec") return { recoveryAction: "compose-resume" };
 	if (actor === "agent-team-batch") return { recoveryAction: "team-batch-recover" };

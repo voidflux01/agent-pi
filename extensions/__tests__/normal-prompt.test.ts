@@ -36,9 +36,9 @@ describe("buildNormalPrompt", () => {
 		expect(result).toContain("plan-build-review");
 	});
 
-	it("with activeChain: null, contains guidance about /chain", () => {
+	it("with activeChain: null, contains CHAIN mode guidance", () => {
 		const result = buildNormalPrompt({ activeChain: null, activePipeline: null });
-		expect(result).toContain("/chain");
+		expect(result).toContain("set_mode CHAIN");
 	});
 
 	it("with activePipeline set, contains pipeline name", () => {

@@ -250,4 +250,10 @@ describe("source wiring", () => {
 		expect(src).toContain("When material context is unfamiliar — multiple files, a call chain, or missing patterns — dispatch one scout");
 		expect(src).toContain("For a small task with known files and symbols, or a verified terminal result, dispatch the appropriate specialist directly");
 	});
+
+	it("hard-blocks TEAM coordinator codebase tools", () => {
+		const src = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
+		expect(src).toContain("TEAM_COORDINATOR_BLOCKED_TOOLS");
+		expect(src).toContain("TEAM coordinator cannot call");
+	});
 });

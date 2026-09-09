@@ -57,10 +57,35 @@ export interface WorkflowDispatchHook {
 	after?: (result: WorkflowDispatchResult) => void;
 }
 
-const hooks = new Map<WorkflowMode, WorkflowDispatchHook>();
+export type ApprovalWorkflowMode = "PLAN" | "SPEC";
+export interface WorkflowApprovalResult {
+	mode: ApprovalWorkflowMode;
+	action: "approved" | "reset";
+	path?: string;
+	fileFingerprint?: string;
+	contentFingerprint?: string;
+}
+export interface WorkflowApprovalHook {
+	after?: (result: WorkflowApprovalResult) => void;
+}
+
+const hookStore = globalThis as typeof globalThis & {
+	__agentPiWorkflowDispatchHooks?: Map<WorkflowMode, WorkflowDispatchHook>;
+	__agentPiWorkflowApprovalHooks?: Map<ApprovalWorkflowMode, WorkflowApprovalHook>;
+};
+const hooks = hookStore.__agentPiWorkflowDispatchHooks ??= new Map<WorkflowMode, WorkflowDispatchHook>();
+const approvalHooks = hookStore.__agentPiWorkflowApprovalHooks ??= new Map<ApprovalWorkflowMode, WorkflowApprovalHook>();
 
 export function registerWorkflowDispatchHook(mode: WorkflowMode, hook: WorkflowDispatchHook): void {
 	hooks.set(mode, hook);
+}
+
+export function registerWorkflowApprovalHook(mode: ApprovalWorkflowMode, hook: WorkflowApprovalHook): void {
+	approvalHooks.set(mode, hook);
+}
+
+export function workflowApprovalAfter(result: WorkflowApprovalResult): void {
+	approvalHooks.get(result.mode)?.after?.(result);
 }
 
 export function workflowDispatchBefore(mode: string, input: { name: string; task: string; batch: boolean }): string | undefined {
@@ -99,7 +124,7 @@ export function createDispatchReceipt(
 	name: string,
 	task: string,
 	batch: boolean,
-	): DispatchReceipt {
+): DispatchReceipt {
 	mkdirSync(receiptDir(cwd), { recursive: true, mode: 0o700 });
 	const now = Date.now();
 	const receipt: DispatchReceipt = {
@@ -122,7 +147,7 @@ export function finishDispatchReceipt(
 	cwd: string,
 	id: string,
 	result: Pick<WorkflowDispatchResult, "status" | "exitCode" | "fullOutputPath" | "elapsedMs" | "evidenceRefs"> & { context?: DispatchContext; error?: string },
-	): DispatchReceipt | undefined {
+): DispatchReceipt | undefined {
 	let path: string;
 	try { path = receiptPath(cwd, id); } catch { return undefined; }
 	if (!existsSync(path)) return undefined;

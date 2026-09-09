@@ -80,6 +80,7 @@ describe("completion gate (contract-bound)", () => {
 	});
 
 	it("rejects pipeline complete without a matching receipt", () => {
+		expect(pipelineCompleteDecision("", undefined, "m1").allowed).toBe(false);
 		expect(pipelineCompleteDecision(PLAN, undefined, "m1").allowed).toBe(false);
 		expect(pipelineCompleteDecision(PLAN, receipt(contract(), "m1"), "m1").allowed).toBe(true);
 	});
@@ -121,9 +122,9 @@ describe("shipped wiring", () => {
 
 	it("gates every pipeline last phase through pipelineCompleteDecision", () => {
 		const src = readFileSync(join(root, "..", "pipeline-team.ts"), "utf8");
-		expect(src).toContain("pipelineCompleteDecision");
-		expect(src).toContain("runAcceptanceVerifier");
-		expect(src).toContain("buildWorkspaceManifest");
+		expect(src).toContain("runAutonomousCompletion");
+		expect(src).toContain("builderRepairDispatcher");
+		expect(src).not.toContain("runAcceptanceVerifier");
 		expect(src).not.toContain("current.def.name.toLowerCase() === \"review\"");
 	});
 

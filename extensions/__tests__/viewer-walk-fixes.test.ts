@@ -41,7 +41,8 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).toContain("refresh the task list");
 		expect(tool).toContain("The updated plan has been saved to");
 		expect(tool).toContain("markPlanApproved()");
-		expect(tool).toContain('if (purpose === "plan") resetApprovalForMode("PLAN")');
+		expect(tool).toContain("isPlanApprovedFor(file_path)");
+		expect(tool).toContain('if (purpose === "plan" && !approvalStateForMode("PLAN")) resetApprovalForMode("PLAN")');
 		expect(command).toContain('customType: "plan-approved"');
 		expect(command).toContain('deliverAs: "followUp"');
 		expect(command).toContain("markPlanApproved()");
@@ -54,8 +55,10 @@ describe("viewer tools do not queue a second approval turn", () => {
 		expect(tool).not.toContain('customType: "spec-changes-requested"');
 		expect(tool).toContain("Proceed with implementation.");
 		expect(tool).toContain("markSpecApproved()");
+		expect(tool).toContain("isSpecApprovedFor(folderPath)");
+		expect(tool).toContain("if (!approvalStateForMode(\"SPEC\")) resetApprovalForMode(\"SPEC\")");
 		expect(tool).toContain("refresh the task list");
-		expect(tool).toContain('resetApprovalForMode("SPEC")');
+		expect(command).toContain("if (!approvalStateForMode(\"SPEC\")) resetApprovalForMode(\"SPEC\")");
 		expect(command).toContain('customType: "spec-approved"');
 		expect(command).toContain('deliverAs: "followUp"');
 		expect(command).toContain("markSpecApproved()");

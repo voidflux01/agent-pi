@@ -32,26 +32,29 @@
 - **强制**（代码，非提示词）：
   - **批准门** `lib/approval-gate.ts`：写工具/bash/委派在计划批准前被拦（`decideApprovalGate`）；批准由**计划文件内容指纹绑定**，字节漂移即撤批（approval-gate.ts:118-127, 159-198）。执行点 mode-cycler tool_call + tool-caller 嵌套门。
   - **task 门** `lib/task-gate.ts`：PLAN 属 TASK_REQUIRED_MODES，委派/bash 需 active task。
+  - **workflow hook** `lib/workflow-dispatch.ts`：批准/重置事件通过 `registerWorkflowApprovalHook("PLAN", ...)` 发布，供统一审计消费。
 - **完成面**：plan 经 viewer 批准；`show_report` 走 completion 门。
 
 ## 3. SPEC（想法→需求→任务→实现工作流）
 
 - **入口/面**：`extensions/tasks.ts`（任务/SPEC 引擎）+ `lib/spec-viewer-html.ts` 多页批准向导。
 - **强制**：同上 approval 门（spec 目录内容指纹绑定）+ task 门。
+- **workflow hook**：批准/重置事件通过 `registerWorkflowApprovalHook("SPEC", ...)` 发布，和 PLAN 共用 approval 事件总线，但不混入 worker dispatch hook。
 - **与 PLAN 差异**：SPEC 把需求固化为任务清单（task-list）再进实现；产物多为任务化规格而非单计划文件。
 
 ## 4. TEAM（向专家委派）
 
 - **入口**：`extensions/agent-team.ts`（1719 行 monolith）。
 - **形态**：父 agent 是**纯调度者**（提示词明言 "you have NO codebase tools"），经 subagent-widget 委派给 specialist；grid widget + 状态/恢复工具。
-- **强制**：mode hook + dispatch 权门 + RESULT/reviewer 门 + task 门。
+- **强制**：TEAM coordinator 不能直接使用 read/write/edit/bash 等代码工具；必须通过 `subagent_create` / `subagent_create_batch` 委派。另有 mode hook + dispatch 权门 + RESULT/reviewer 门 + task 门。
 - **已知死代码**（S2/S4 候选）：`__removed_dispatch_*` handlers（L891/999）与 `dispatchAgent`(L490)/`dispatch_team_batch`——tool-executor-registry 拒注册，唯一入口已收敛到 `subagent_create_batch`。**父进程仍保留自建 spawn 路径**，与 canonical dispatcher 职责重叠，待本 S4 第二项收敛。
 
 ## 5. CHAIN（顺序链）
 
 - **入口**：`extensions/agent-chain.ts`（1150 行）。
 - **形态**：**已退役**——文件自注 "Chain execution is retired"（L1065）；`runAgent`(L303)/`runChain`(L554) 为不可达死代码。`subagent_create` 为唯一入口，顺序由父 agent 显式驱动。
-- **强制**：CHAIN mode hook（L146 前后）——必须 dispatch 配置好的下一步；无 `$INPUT` 自动接力（父 agent 手动串联）。
+- **强制**：CHAIN mode hook——必须 dispatch 配置好的下一步；前一步 RESULT 由父 agent 手动拼入下一步 `$INPUT`。
+- **恢复**：旧 runner 的 snapshot resume 已退役；stale CHAIN 只提供 inspection，不再宣传不存在的 `/chain-resume`。
 - **遗留**：死 `runAgent`/`runChain` 及父自建 spawn（L467 createSubagentRuntime），待本 S4 第二项移除。
 
 ## 6. PIPELINE（分阶段工作流）

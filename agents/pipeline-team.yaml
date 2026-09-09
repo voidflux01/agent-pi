@@ -5,9 +5,7 @@ plan-build-review:
     - name: understand
       description: "Clarify the task and gather context"
       mode: interactive
-      agents:
-        - role: scout
-          task_template: "Explore the codebase and clarify the task. Summarize what needs to be done."
+      agents: []
     - name: plan
       description: "Create an implementation plan"
       mode: interactive
@@ -57,9 +55,7 @@ research-plan-build-review:
     - name: understand
       description: "Inspect the local codebase using the research report"
       mode: interactive
-      agents:
-        - role: scout
-          task_template: "Explore the local codebase for this task. Use the external research below as context and identify reusable patterns and constraints:\n\n$INPUT"
+      agents: []
     - name: plan
       description: "Create an implementation plan"
       mode: interactive

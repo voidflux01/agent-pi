@@ -80,7 +80,7 @@ describe("orchestration query", () => {
 			writeFileSync(join(eventDir, "active.json"), JSON.stringify({ pid: 2147483647 }));
 			return summarizeOrchestrationRun(eventDir)!;
 		};
-		expect(stale("CHAIN")).toMatchObject({ status: "stale", recoveryAction: "chain-resume" });
+		expect(stale("CHAIN")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
 		expect(stale("PIPELINE")).toMatchObject({ status: "stale", recoveryAction: "pipeline-resume" });
 		expect(stale("TEAM", undefined, "agent-team-batch")).toMatchObject({ status: "stale", recoveryAction: "team-batch-recover" });
 		expect(stale("NORMAL")).toMatchObject({ status: "stale", recoveryAction: "inspect" });
