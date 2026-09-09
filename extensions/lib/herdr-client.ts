@@ -190,6 +190,7 @@ export type HerdrPaneRecordStatus = "running" | "done" | "error";
  */
 export interface HerdrPaneRecord {
 	key: string;
+	workflowRunId?: string;
 	label: string;
 	cwd: string;
 	sessionFile?: string;

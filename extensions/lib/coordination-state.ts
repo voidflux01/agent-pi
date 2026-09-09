@@ -12,6 +12,11 @@ export interface VerificationSession {
 	evalGate?: { ok: boolean; checkedAt: string; reason: string };
 }
 
+export interface WorkflowRunLink {
+	cwd: string;
+	runId: string;
+}
+
 export interface CoordinationState {
 	mode: Mode;
 	activeChain: string | null;
@@ -26,6 +31,8 @@ export interface CoordinationState {
 	specApprovalBinding?: { folderPath: string; fileFingerprint: string; contentFingerprint: string };
 	/** Current acceptance checklist bound to an approved plan or pipeline $PLAN. */
 	executionContract?: AcceptanceContract;
+	/** Exact workflow run owned by current Pi turn, scoped by workspace. */
+	workflowRun?: WorkflowRunLink;
 	/** Verifier state isolated by resolved workspace and contract fingerprint. */
 	verificationSessions: Record<string, VerificationSession>;
 }
@@ -46,6 +53,7 @@ function createState(): CoordinationState {
 		planApprovalBinding: undefined,
 		specApprovalBinding: undefined,
 		executionContract: undefined,
+		workflowRun: undefined,
 		verificationSessions: Object.create(null),
 	};
 }
@@ -78,6 +86,21 @@ export function setExecutionContract(contract: AcceptanceContract | undefined): 
 
 export function getExecutionContract(): AcceptanceContract | undefined {
 	return coordinationState().executionContract;
+}
+
+export function setWorkflowRunLink(cwd: string, runId: string | undefined): void {
+	const state = coordinationState();
+	state.workflowRun = runId ? { cwd: resolve(cwd), runId } : undefined;
+}
+
+export function getWorkflowRunLink(cwd: string): WorkflowRunLink | undefined {
+	const link = coordinationState().workflowRun;
+	return link && link.cwd === resolve(cwd) ? link : undefined;
+}
+
+export function resetWorkflowRunLink(runId?: string): void {
+	const state = coordinationState();
+	if (!runId || state.workflowRun?.runId === runId) state.workflowRun = undefined;
 }
 
 export function setVerifierReceipt(receipt: VerifierReceipt | undefined, scope: string): void {

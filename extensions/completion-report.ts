@@ -24,6 +24,7 @@ import {
 	getVerifierReceipt,
 	getEvalGate,
 	verificationScope,
+	getWorkflowRunLink,
 } from "./lib/coordination-state.ts";
 import { completeDecision } from "./lib/execution-gate.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
@@ -31,7 +32,7 @@ import { explicitDispatchHandler } from "./lib/dispatch-runtime.ts";
 import { readBoundedRequestBody } from "./lib/request-body.ts";
 import { bindTaskContract, isAutonomousCompletionEnabled } from "./lib/autonomous-policy.ts";
 import { runAutonomousCompletion, builderRepairDispatcher } from "./lib/autonomous-completion.ts";
-import { loadLatestWorkflowRun } from "./lib/workflow-run.ts";
+import { markWorkflowRunComplete } from "./lib/workflow-run.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -551,7 +552,7 @@ export default function(pi: ExtensionAPI) {
 			const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
 			const receipt = getVerifierReceipt(scope);
 			const mode = coordinationState().mode;
-			const workflowRunId = loadLatestWorkflowRun(cwd)?.run_id;
+			const workflowRunId = getWorkflowRunLink(cwd)?.runId;
 			const surface = mode === "PLAN" ? "plan-show-report" : mode === "SPEC" ? "spec-show-report" : "agent-show-report";
 			const gate = completeDecision({
 				surface,
@@ -585,6 +586,7 @@ export default function(pi: ExtensionAPI) {
 			const report = gatherReportData(cwd, title, summary, base_ref || "");
 
 			if (report.files.length === 0) {
+				try { markWorkflowRunComplete(cwd, workflowRunId); } catch { }
 				return {
 					content: [{ type: "text" as const, text: "No file changes detected. Nothing to report." }],
 				};
@@ -645,6 +647,7 @@ export default function(pi: ExtensionAPI) {
 					});
 				} catch { }
 
+				try { markWorkflowRunComplete(cwd, workflowRunId); } catch { }
 				const rolledBack = result.rolledBackFiles.length;
 				const closedSummary = rolledBack > 0
 					? `Report closed. ${rolledBack} file${rolledBack > 1 ? "s" : ""} rolled back: ${result.rolledBackFiles.join(", ")}`

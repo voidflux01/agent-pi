@@ -11,7 +11,8 @@ import { bumpVerifierAttempt, getEvalGate, getVerifierReceipt, setEvalGate, setV
 import { checkApproval, recordApproval, type ApprovalProposal } from "./workflow-approval-gate.ts";
 import { upsertPersistedReport } from "./report-index.ts";
 import { getRegisteredToolExecutors } from "./tool-executor-registry.ts";
-import { loadLatestWorkflowRun, updateWorkflowRun, type WorkflowRunStatus } from "./workflow-run.ts";
+import { getWorkflowRunLink } from "./coordination-state.ts";
+import { loadLatestWorkflowRun, markWorkflowRunBlocked, updateWorkflowRun, type WorkflowRunStatus } from "./workflow-run.ts";
 
 export interface AutonomousCompletionOptions {
 	contract: AcceptanceContract;
@@ -24,6 +25,8 @@ export interface AutonomousCompletionOptions {
 	failure?: IterationFailure;
 	onHumanDecision?: (proposal: ApprovalProposal) => Promise<boolean>;
 	dispatchRepair?: (task: string, signal?: AbortSignal) => Promise<boolean>;
+	/** True only after caller's report/pipeline completion gate passes. */
+	completionGatePassed?: boolean;
 }
 
 /** Shared builder repair dispatcher: use canonical joined subagent_create only. */
@@ -56,32 +59,39 @@ export interface AutonomousCompletionResult {
 	runId?: string;
 }
 
-function workflowRunStatus(iteration: IterationDecision): WorkflowRunStatus {
-	if (iteration.action === "COMPLETE") return "COMPLETE";
+function workflowRunStatus(input: AutonomousCompletionOptions, iteration: IterationDecision): WorkflowRunStatus {
+	if (iteration.action === "COMPLETE" && input.completionGatePassed) return "COMPLETE";
 	if (iteration.action === "BLOCKED") return "BLOCKED";
 	if (iteration.requiresApproval || iteration.action === "REPLAN" || iteration.action === "ESCALATE") return "WAITING_APPROVAL";
 	return "RUNNING";
 }
 
-function workflowNextAction(iteration: IterationDecision): string {
-	if (iteration.action === "COMPLETE") return "Verifier PASS; call show_report";
+function workflowNextAction(input: AutonomousCompletionOptions, iteration: IterationDecision): string {
+	if (iteration.action === "COMPLETE") return input.completionGatePassed ? "Workflow completed" : "Verifier PASS; call show_report";
 	const handoff = iteration.action === "REPLAN" ? ` Switch to ${iteration.nextMode || "PLAN"}, obtain fresh approval, then resume.` : "";
 	return `${iteration.reason}${handoff}`;
 }
 
 function syncWorkflowRun(input: AutonomousCompletionOptions, receipt: VerifierReceipt, iteration: IterationDecision, runId?: string): void {
-	const current = loadLatestWorkflowRun(input.cwd);
-	const linkedRunId = runId || input.runId || current?.run_id;
-	if (!current || !linkedRunId || current.run_id !== linkedRunId) return;
+	const link = getWorkflowRunLink(input.cwd);
+	const linkedRunId = runId || input.runId || link?.runId || (!link ? loadLatestWorkflowRun(input.cwd)?.run_id : undefined);
+	if (!linkedRunId) return;
 	try {
 		updateWorkflowRun(input.cwd, {
 			run_id: linkedRunId,
 			contract_fingerprint: receipt.contractFingerprint,
 			mode: input.mode,
-			status: workflowRunStatus(iteration),
-			next_action: workflowNextAction(iteration),
+			status: workflowRunStatus(input, iteration),
+			next_action: workflowNextAction(input, iteration),
 		});
 	} catch { /* Status is observational; verifier authority remains unchanged. */ }
+}
+
+function blockWorkflowRun(input: AutonomousCompletionOptions, runId: string | undefined, reason: string): void {
+	const link = getWorkflowRunLink(input.cwd);
+	const linkedRunId = runId || input.runId || link?.runId || (!link ? loadLatestWorkflowRun(input.cwd)?.run_id : undefined);
+	if (!linkedRunId) return;
+	try { markWorkflowRunBlocked(input.cwd, linkedRunId, reason); } catch { }
 }
 
 function classifyFailure(receipt: VerifierReceipt, input: AutonomousCompletionOptions): IterationFailure | undefined {
@@ -135,14 +145,18 @@ async function withVerificationLock<T>(scope: string, run: () => Promise<T>): Pr
 
 export async function runAutonomousCompletion(input: AutonomousCompletionOptions): Promise<AutonomousCompletionResult> {
 	const { contract, cwd } = input;
-	const runId = input.runId || loadLatestWorkflowRun(cwd)?.run_id;
+	const link = getWorkflowRunLink(cwd);
+	const runId = input.runId || link?.runId || (!link ? loadLatestWorkflowRun(cwd)?.run_id : undefined);
 	const withRunId = (value: AutonomousCompletionResult): AutonomousCompletionResult => runId ? { ...value, runId } : value;
 	const scope = verificationScope(cwd, contract.fingerprint);
 	return withVerificationLock(scope, async () => {
 		if (contract.requiredEval) {
 			const gate = checkRequiredEvalBinding(cwd, contract.requiredEval);
 			setEvalGate(gate, scope);
-			if (!gate.ok) return withRunId({ allowed: false, status: "BLOCKED", reason: gate.reason, attempts: 0 });
+			if (!gate.ok) {
+				blockWorkflowRun(input, runId, gate.reason);
+				return withRunId({ allowed: false, status: "BLOCKED", reason: gate.reason, attempts: 0 });
+			}
 		} else setEvalGate(undefined, scope);
 		const evalGate = getEvalGate(scope);
 		const manifest = buildWorkspaceManifest(cwd, contract.fingerprint);
@@ -158,10 +172,16 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 		let attempts = getVerifierAttempt(scope);
 		let previousReport = existing?.verifier?.report;
 		while (attempts < DEFAULT_VERIFIER_ATTEMPTS) {
-			if (input.signal?.aborted) return withRunId({ allowed: false, status: "BLOCKED", reason: "verification cancelled", attempts });
+			if (input.signal?.aborted) {
+				blockWorkflowRun(input, runId, "Verification cancelled; resume workflow to retry");
+				return withRunId({ allowed: false, status: "BLOCKED", reason: "verification cancelled", attempts });
+			}
 			attempts = bumpVerifierAttempt(scope);
 			const result = await runAcceptanceVerifier({ cwd, contract, attempt: attempts, mode: input.mode, parentRunId: input.parentRunId, signal: input.signal, previousReport });
-			if (!result.receipt) return withRunId({ allowed: false, status: "BLOCKED", reason: result.error || "verifier failed to return receipt", attempts });
+			if (!result.receipt) {
+				blockWorkflowRun(input, runId, result.error || "Verifier failed to return receipt");
+				return withRunId({ allowed: false, status: "BLOCKED", reason: result.error || "verifier failed to return receipt", attempts });
+			}
 			setVerifierReceipt(result.receipt, scope);
 			previousReport = result.receipt.verifier?.report;
 			try { upsertPersistedReport({ category: "eval", title: `Verifier attempt ${attempts}: ${result.receipt.status}`, summary: result.receipt.verifier?.summary || result.receipt.status, metadata: { mode: input.mode, contract: contract.fingerprint, scope, ...(runId ? { runId } : {}) } }); } catch { }
@@ -169,7 +189,10 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			const previous = loadIteration(cwd, contract.fingerprint);
 			const iteration = decideIteration({ observation, previous, maxIterations: DEFAULT_VERIFIER_ATTEMPTS, repairAvailable: !!input.dispatchRepair, risk: input.risk });
 			syncWorkflowRun(input, result.receipt, iteration, runId);
-			if (!persistObservation(observation, cwd)) return withRunId({ allowed: false, status: "BLOCKED", receipt: result.receipt, reason: "iteration history unavailable", attempts, iteration });
+			if (!persistObservation(observation, cwd)) {
+				blockWorkflowRun(input, runId, "Iteration history unavailable; resume workflow to retry");
+				return withRunId({ allowed: false, status: "BLOCKED", receipt: result.receipt, reason: "iteration history unavailable", attempts, iteration });
+			}
 			if (iteration.action === "COMPLETE") return withRunId({ allowed: true, status: "PASS", receipt: result.receipt, attempts, iteration });
 			if (iteration.action === "REPAIR") {
 				const feedback = result.receipt.verifier?.summary || result.receipt.results.filter((r) => r.status !== "pass").map((r) => `${r.raw}: ${r.note || r.status}`).join("; ") || "verifier reported failure";

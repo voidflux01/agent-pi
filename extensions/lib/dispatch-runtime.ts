@@ -28,6 +28,8 @@ import {
 import { journalUpdate } from "./agent-task-journal.ts";
 import { activeOrchestrationBudget, budgetBlockReason, defaultBudgetReservation, reserveBudget } from "./orchestration-budget.ts";
 import { createOrchestrationRun } from "./orchestration-run.ts";
+import { getWorkflowRunLink } from "./coordination-state.ts";
+import { markWorkflowRunBlocked } from "./workflow-run.ts";
 
 export {
 	explicitDispatchHandler,
@@ -77,10 +79,14 @@ export interface DispatchRuntimeSpec {
 	onStderr?: (chunk: string) => void;
 	onHerdrUpdate?: () => void;
 	onTransport?: (transport: Exclude<DispatchTransport, "auto">) => void;
+	/** Exact workflow run owning this dispatch; defaults to current linked run. */
+	workflowRunId?: string;
 	/** Receives the visible Herdr pane owned by this dispatch. */
 	onHerdrPane?: (ref: HerdrTabRef) => void;
 	/** Called after this dispatch's Herdr pane has been closed. */
-	onHerdrClosed?: () => void;
+	onHerdrClosed?: (unexpected?: boolean) => void;
+	/** Called when owning worker ends before a terminal workflow report. */
+	onUnexpectedTermination?: (reason: string) => void;
 	/** Injected in tests; defaults to node's spawn. */
 	spawnProcess?: typeof spawn;
 }
@@ -127,6 +133,23 @@ function isAborted(spec: DispatchRuntimeSpec): boolean {
 	try { return !!spec.isAborted?.(); } catch { return true; }
 }
 
+function workflowRunId(spec: DispatchRuntimeSpec): string | undefined {
+	return spec.workflowRunId || getWorkflowRunLink(spec.cwd)?.runId;
+}
+
+function unexpectedTermination(spec: DispatchRuntimeSpec, reason: string): void {
+	const runId = workflowRunId(spec);
+	if (runId) {
+		try { markWorkflowRunBlocked(spec.cwd, runId, `Owning agent ended unexpectedly: ${reason}`); } catch { }
+	}
+	try { spec.onUnexpectedTermination?.(reason); } catch { }
+}
+
+function childEnv(spec: DispatchRuntimeSpec): NodeJS.ProcessEnv {
+	const runId = workflowRunId(spec);
+	return runId ? { ...(spec.env || childEnvironment()), PI_WORKFLOW_RUN_ID: runId } : (spec.env || childEnvironment());
+}
+
 function classifyFailure(stderr: string, kind: "timeout" | "process_error" | "exit_code" | "aborted"): DispatchFailure {
 	if (kind === "aborted") return "aborted";
 	if (kind === "timeout") return "timeout";
@@ -151,6 +174,7 @@ function processLike(child: ChildProcess): DispatchProcess {
 async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResult> {
 	const executable = spec.command[0];
 	if (!executable) {
+		unexpectedTermination(spec, "No child command supplied");
 		return { exitCode: 1, stderr: "No child command supplied", transport: "headless" };
 	}
 	if (isAborted(spec)) {
@@ -164,11 +188,12 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 		try {
 			child = spawnProcess(executable, spec.command.slice(1), {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: spec.env || childEnvironment(),
+				env: childEnv(spec),
 				cwd: spec.cwd,
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			unexpectedTermination(spec, message);
 			updateJournal(spec, { status: "error", exitCode: 1, note: "process_error" });
 			spec.onStderr?.(message);
 			resolve({ exitCode: 1, stderr: message, failure: "process_error", transport: "headless" });
@@ -213,6 +238,7 @@ async function runHeadless(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeRe
 			if (abortTimer) clearInterval(abortTimer);
 			if (forceKillTimer) clearTimeout(forceKillTimer);
 			if (buffer.trim()) spec.onStdoutLine?.(buffer);
+			if (exitCode !== 0 && failure !== "aborted") unexpectedTermination(spec, failure || "exit_code");
 			updateJournal(spec, {
 				status: exitCode === 0 ? "done" : "error",
 				runStatus: failure === "aborted" ? "cancelled" : undefined,
@@ -271,15 +297,16 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 	let terminalStatus: "done" | "error" = "error";
 	let herdrClosedNotified = false;
 	let stopPaneWatch: (() => void) | undefined;
-	const notifyHerdrClosed = () => {
+	const notifyHerdrClosed = (unexpected = true) => {
 		stopPaneWatch?.();
 		stopPaneWatch = undefined;
 		if (herdrClosedNotified) return;
 		herdrClosedNotified = true;
-		spec.onHerdrClosed?.();
+		if (unexpected) unexpectedTermination(spec, "Herdr pane closed before dispatch completion");
+		spec.onHerdrClosed?.(unexpected);
 	};
 	const closePane = (ref: HerdrTabRef) => {
-		void closeHerdrTabAsync(ref).finally(notifyHerdrClosed);
+		void closeHerdrTabAsync(ref).finally(() => notifyHerdrClosed(false));
 	};
 	const abort = () => {
 		aborted = true;
@@ -303,7 +330,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			cwd: spec.cwd,
 			command: visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath),
 			env: {
-				...(spec.env || childEnvironment()),
+				...childEnv(spec),
 				HERDR_DONE_PATH: launchDonePath(spec.launchDir, spec.launchId),
 				PI_WORKER_QUIET: "1",
 			},
@@ -333,6 +360,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 		spec.onTransport?.("herdr");
 		registerHerdrPane(spec.cwd, {
 			key: spec.herdrPaneKey || spec.launchId,
+			workflowRunId: workflowRunId(spec),
 			label: spec.herdrLabel || `ap-${spec.launchId}`,
 			cwd: spec.cwd,
 			sessionFile: spec.sessionFile,
@@ -357,6 +385,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			return { exitCode: 130, stderr: "Dispatch aborted", failure: "aborted", transport: "herdr" };
 		}
 		if (exitCode === null) {
+			unexpectedTermination(spec, "Herdr dispatch timed out");
 			abort();
 			updateJournal(spec, { status: "error", exitCode: 1, note: "timeout" });
 			return { exitCode: 1, stderr: "Timed out waiting for Herdr output", failure: "timeout", transport: "herdr" };
@@ -375,11 +404,13 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			: classifyFailure("", "exit_code");
 		terminalStatus = exitCode === 0 && !failure ? "done" : "error";
 		const effectiveExitCode = failure ? 1 : exitCode;
+		if (failure) unexpectedTermination(spec, failure);
 		updateJournal(spec, { status: terminalStatus, exitCode: effectiveExitCode, ...(failure ? { failure } : {}) });
 		return { exitCode: effectiveExitCode, stderr: "", ...(failure ? { failure } : {}), outputText, transport: "herdr" };
 	} catch (error) {
 		if (updateTimer) clearInterval(updateTimer);
 		if (ownedByHerdr) {
+			if (!aborted) unexpectedTermination(spec, error instanceof Error ? error.message : String(error));
 			updateJournal(spec, { status: "error", runStatus: aborted ? "cancelled" : undefined, exitCode: 1 });
 			return {
 				exitCode: 1,
@@ -398,7 +429,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 			if (!ownedByHerdr) closePane(tab);
 			else if (terminalStatus === "done") {
 				const linger = herdrPaneAutoCloseMs("success");
-				if (linger !== null) scheduleHerdrPaneClose(tab, linger, notifyHerdrClosed);
+				if (linger !== null) scheduleHerdrPaneClose(tab, linger, () => notifyHerdrClosed(false));
 			}
 		}
 	}

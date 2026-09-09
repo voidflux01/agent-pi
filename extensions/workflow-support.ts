@@ -14,11 +14,11 @@ import { checkApproval, listApprovals, recordApproval, type ApprovalProposal } f
 import { aggregateEvalStatus } from "./lib/eval-engine.ts";
 import { checkRequiredEvalBinding, loadEvalSet, runUserEvalSet } from "./lib/eval-sets.ts";
 import { upsertPersistedReport } from "./lib/report-index.ts";
-import { getEvalGate, getExecutionContract, getVerifierReceipt, verificationScope } from "./lib/coordination-state.ts";
+import { getEvalGate, getExecutionContract, getVerifierReceipt, verificationScope, getWorkflowRunLink, resetWorkflowRunLink, setWorkflowRunLink } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
 import { decideIteration, loadIteration, type IterationObservation } from "./lib/iteration-controller.ts";
-import { createWorkflowRun, formatWorkflowRun, loadLatestWorkflowRun, saveWorkflowRun, updateWorkflowRun } from "./lib/workflow-run.ts";
+import { createWorkflowRun, formatWorkflowRun, loadLatestWorkflowRun, reconcileLatestWorkflowRun, saveWorkflowRun, updateWorkflowRun, markWorkflowRunBlocked } from "./lib/workflow-run.ts";
 
 const result = (value: unknown) => ({ content: [{ type: "text" as const, text: redactEvidence(JSON.stringify(value, null, 2)) }] });
 const text = (maxLength = 1000) => Type.String({ maxLength });
@@ -26,6 +26,14 @@ const text = (maxLength = 1000) => Type.String({ maxLength });
 export default function(pi: ExtensionAPI) {
 	const config = AGENT_PI_CONFIG.workflowSupport;
 	if (!config?.enabled || process.env.PI_WORKFLOW_SUPPORT === "0") return;
+	const markUnexpectedEnd = (ctx?: { cwd?: string }) => {
+		const cwd = ctx?.cwd || process.cwd();
+		const link = getWorkflowRunLink(cwd);
+		if (!link) return;
+		try { markWorkflowRunBlocked(cwd, link.runId, "Owning agent session ended before reaching a terminal report"); } catch { }
+	};
+	pi.on("session_shutdown", async (_event, ctx) => { markUnexpectedEnd(ctx as any); });
+	pi.on("session_before_switch", async (_event, ctx) => { markUnexpectedEnd(ctx as any); });
 	registerToolWithExecutor(pi, {
 		name: "workflow_advice", label: "Workflow advice", description: "Inspect the actual acceptance receipt and suggest verify, repair, replan or human intervention; never changes permissions or completion state.",
 		parameters: Type.Object({ failure: Type.Optional(Type.Union([Type.Literal("implementation"), Type.Literal("assumption"), Type.Literal("requirements"), Type.Literal("environment")])), risk: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])) }),
@@ -149,21 +157,28 @@ export default function(pi: ExtensionAPI) {
 			const command = args.trim();
 			const cwd = ctx.cwd || process.cwd();
 			if (command === "status") {
-				ctx.ui.notify(formatWorkflowRun(loadLatestWorkflowRun(cwd)), "info");
+				ctx.ui.notify(formatWorkflowRun(await reconcileLatestWorkflowRun(cwd)), "info");
 			} else if (command === "cancel") {
 				const run = loadLatestWorkflowRun(cwd);
 				if (!run) ctx.ui.notify("No workflow run", "info");
 				else if (run.status === "COMPLETE" || run.status === "CANCELLED") ctx.ui.notify(`Workflow run ${run.run_id} is already ${run.status}.`, "info");
 				else {
-					try { ctx.ui.notify(formatWorkflowRun(updateWorkflowRun(cwd, { status: "CANCELLED", next_action: "Cancelled by user" })), "info"); }
-					catch (error) { ctx.ui.notify(redactEvidence(String(error)), "error"); }
+					try {
+						const cancelled = updateWorkflowRun(cwd, { run_id: run.run_id, status: "CANCELLED", next_action: "Cancelled by user" });
+						resetWorkflowRunLink(run.run_id);
+						ctx.ui.notify(formatWorkflowRun(cancelled), "info");
+					} catch (error) { ctx.ui.notify(redactEvidence(String(error)), "error"); }
 				}
 			} else if (command === "resume") {
 				const run = loadLatestWorkflowRun(cwd);
 				if (!run) ctx.ui.notify("No workflow run", "info");
 				else if (run.status === "COMPLETE" || run.status === "CANCELLED") ctx.ui.notify(`Workflow run ${run.run_id} is terminal: ${run.status}.`, "info");
-				else if (typeof (pi as any).sendUserMessage !== "function") ctx.ui.notify("Workflow resume blocked: active Pi runtime cannot start an agent turn.", "error");
+				else if (typeof (pi as any).sendUserMessage !== "function") {
+					try { markWorkflowRunBlocked(cwd, run.run_id, "Active Pi runtime cannot start an agent turn"); } catch { }
+					ctx.ui.notify("Workflow resume blocked: active Pi runtime cannot start an agent turn.", "error");
+				}
 				else {
+					setWorkflowRunLink(cwd, run.run_id);
 					const message = [
 						"Resume this existing workflow run without creating a new contract or resetting approval state.",
 						`run_id: ${run.run_id}`,
@@ -175,19 +190,25 @@ export default function(pi: ExtensionAPI) {
 						`next_action: ${redactEvidence(run.next_action || "")}`,
 					].join("\n");
 					try { await (pi as any).sendUserMessage(message); ctx.ui.notify(`Resumed workflow run ${run.run_id}.`, "info"); }
-					catch (error) { ctx.ui.notify(redactEvidence(String(error)), "error"); }
+					catch (error) {
+						try { markWorkflowRunBlocked(cwd, run.run_id, "Agent turn could not resume"); } catch { }
+						ctx.ui.notify(redactEvidence(String(error)), "error");
+					}
 				}
 			} else if (command === "run" || command.startsWith("run ")) {
 				const objective = command.slice(3).trim();
 				if (!objective) ctx.ui.notify("Usage: /workflow run <objective>", "error");
 				else {
-					const current = loadLatestWorkflowRun(cwd);
+					const current = await reconcileLatestWorkflowRun(cwd);
 					if (current?.status === "RUNNING" || current?.status === "WAITING_APPROVAL") ctx.ui.notify(`Workflow run already active: ${current.run_id} (${current.status}).`, "error");
 					else if (typeof (pi as any).sendUserMessage !== "function") ctx.ui.notify("Workflow run blocked: active Pi runtime cannot start an agent turn.", "error");
 					else {
+						let runId: string | undefined;
 						try {
 							const run = createWorkflowRun(cwd, objective);
+							runId = run.run_id;
 							saveWorkflowRun(cwd, run);
+							setWorkflowRunLink(cwd, run.run_id);
 							const message = [
 								"Start this workflow run from its natural-language objective.",
 								`run_id: ${run.run_id}`,
@@ -199,7 +220,7 @@ export default function(pi: ExtensionAPI) {
 							await (pi as any).sendUserMessage(message);
 							ctx.ui.notify(`Started workflow run ${run.run_id}.`, "info");
 						} catch (error) {
-							try { updateWorkflowRun(cwd, { status: "BLOCKED", next_action: "Agent turn could not start" }); } catch { }
+							try { markWorkflowRunBlocked(cwd, runId, "Agent turn could not start"); } catch { }
 							ctx.ui.notify(redactEvidence(String(error)), "error");
 						}
 					}

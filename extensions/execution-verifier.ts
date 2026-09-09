@@ -26,11 +26,30 @@ import { coordinationState } from "./lib/coordination-state.ts";
 import { setEvalGate } from "./lib/coordination-state.ts";
 import { workflowDirection } from "./lib/workflow-direction.ts";
 import { checkRequiredEvalBinding } from "./lib/eval-sets.ts";
+import { getWorkflowRunLink } from "./lib/coordination-state.ts";
+import { markWorkflowRunBlocked, updateWorkflowRun } from "./lib/workflow-run.ts";
 
 const Params = Type.Object({
 	contract: Type.Optional(Type.String({ description: "The exact user-confirmed acceptance contract in Markdown, including an Objective and any optional context or explicit eval binding" })),
 	objective: Type.Optional(Type.String({ description: "Optional short objective when contract is supplied separately" })),
 });
+
+function syncVerifierWorkflowRun(cwd: string, status: "PASS" | "FAIL" | "BLOCKED", receipt?: { contractFingerprint: string; results: Array<{ status: string }> }): void {
+	const runId = getWorkflowRunLink(cwd)?.runId;
+	if (!runId) return;
+	try {
+		if (status === "BLOCKED" || receipt?.results.some((result) => result.status === "blocked")) {
+			markWorkflowRunBlocked(cwd, runId, "Verification blocked; resolve verifier prerequisites and retry");
+			return;
+		}
+		updateWorkflowRun(cwd, {
+			run_id: runId,
+			contract_fingerprint: receipt?.contractFingerprint,
+			status: "RUNNING",
+			next_action: status === "PASS" ? "Verifier PASS; call show_report" : "Verifier FAIL; repair workspace and retry verification",
+		});
+	} catch { }
+}
 
 export default function(pi: ExtensionAPI) {
 	pi.registerCommand("execution-status", {
@@ -65,6 +84,7 @@ export default function(pi: ExtensionAPI) {
 			if (suppliedContract) {
 				const bound = bindAcceptanceContract(suppliedContract, "plan");
 				if ("error" in bound) {
+					syncVerifierWorkflowRun(ctx.cwd || process.cwd(), "BLOCKED");
 					return {
 						content: [{ type: "text", text: "Verification blocked: the supplied acceptance contract is incomplete. It must state a non-empty Objective. Ask the user to confirm the corrected contract before retrying." }],
 						details: { status: "BLOCKED", completionAllowed: false, reason: "incomplete supplied acceptance contract" },
@@ -74,6 +94,7 @@ export default function(pi: ExtensionAPI) {
 				contract = bound;
 			}
 			if (!contract) {
+				syncVerifierWorkflowRun(ctx.cwd || process.cwd(), "BLOCKED");
 				return {
 					content: [{ type: "text", text: "Verification blocked: no user-confirmed acceptance contract was supplied or bound. The parent agent must create the contract covering scope and acceptance conditions, get user confirmation, and pass that exact contract to verify_execution. show_plan/show_spec are optional; do not output done:true." }],
 					details: { status: "BLOCKED", completionAllowed: false, reason: "no approved acceptance contract" },
@@ -87,6 +108,7 @@ export default function(pi: ExtensionAPI) {
 				const gate = checkRequiredEvalBinding(cwd, contract.requiredEval);
 				setEvalGate(gate, scope);
 				if (!gate.ok) {
+					syncVerifierWorkflowRun(cwd, "BLOCKED");
 					return { content: [{ type: "text", text: `Verification blocked: ${gate.reason} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false, reason: "required eval gate not satisfied" } };
 				}
 			} else setEvalGate(undefined, scope);
@@ -96,6 +118,7 @@ export default function(pi: ExtensionAPI) {
 			const previousReceipt = getVerifierReceipt(scope);
 			const currentManifest = buildWorkspaceManifest(cwd, contract.fingerprint);
 			if (canComplete(previousReceipt, contract, currentManifest.hash, contract.requiredEval ? { ok: true } : undefined)) {
+				syncVerifierWorkflowRun(cwd, "PASS", previousReceipt);
 				const summary = previousReceipt?.verifier?.summary || "existing PASS receipt is still current";
 				return {
 					content: [{ type: "text", text: `Verifier: PASS — reused current receipt; ${summary}` }],
@@ -104,6 +127,7 @@ export default function(pi: ExtensionAPI) {
 			}
 			const previousAttempt = getVerifierAttempt(scope);
 			if (previousAttempt >= DEFAULT_VERIFIER_ATTEMPTS) {
+				syncVerifierWorkflowRun(cwd, "BLOCKED");
 				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt: previousAttempt } };
 			}
 			const attempt = bumpVerifierAttempt(scope);
@@ -134,11 +158,13 @@ export default function(pi: ExtensionAPI) {
 				signal,
 			});
 			if (!verification.receipt) {
+				syncVerifierWorkflowRun(cwd, "BLOCKED");
 				orchestrationRun.record("verification.completed", { status: "BLOCKED", error: verification.error });
 				orchestrationRun.finish("failed", { verificationStatus: "BLOCKED", error: verification.error });
 				return { content: [{ type: "text", text: `${verification.error || "Verifier could not complete."} Do not output done:true.` }], details: { status: "BLOCKED", completionAllowed: false } };
 			}
 			setVerifierReceipt(verification.receipt, scope);
+			syncVerifierWorkflowRun(cwd, verification.receipt.status, verification.receipt);
 			orchestrationRun.record("verification.completed", {
 				status: verification.receipt.status,
 				passed: verification.receipt.results.filter(result => result.status === "pass").length,

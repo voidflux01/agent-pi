@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { redactEvidence, safeWorkspacePath } from "./workflow-artifacts.ts";
+import { getWorkflowRunLink, resetWorkflowRunLink } from "./coordination-state.ts";
+import { inspectHerdrPanesAsync } from "./herdr-client.ts";
 
 export type WorkflowRunStatus = "RUNNING" | "WAITING_APPROVAL" | "BLOCKED" | "COMPLETE" | "CANCELLED";
 
@@ -93,13 +95,19 @@ export function saveWorkflowRun(cwd: string, record: WorkflowRunRecord): string 
 	return path;
 }
 
+export function loadWorkflowRun(cwd: string, runId: string): WorkflowRunRecord | undefined {
+	try {
+		return normalize(JSON.parse(readFileSync(runPath(cwd, runId), "utf8")), runId);
+	} catch { return undefined; }
+}
+
 export function loadLatestWorkflowRun(cwd: string): WorkflowRunRecord | undefined {
 	const records: WorkflowRunRecord[] = [];
 	const seen = new Set<string>();
 	for (const name of runFiles(cwd)) {
 		try {
 			const runId = name.slice(0, -5);
-			const record = normalize(JSON.parse(readFileSync(safeWorkspacePath(cwd, join(RUNS_DIR, name)), "utf8")), runId);
+			const record = loadWorkflowRun(cwd, runId);
 			if (!record || seen.has(record.run_id)) return undefined;
 			seen.add(record.run_id);
 			records.push(record);
@@ -109,12 +117,49 @@ export function loadLatestWorkflowRun(cwd: string): WorkflowRunRecord | undefine
 }
 
 export function updateWorkflowRun(cwd: string, patch: Partial<WorkflowRunRecord>): WorkflowRunRecord | undefined {
-	const current = loadLatestWorkflowRun(cwd);
-	if (!current || (patch.run_id && patch.run_id !== current.run_id)) return undefined;
+	const current = patch.run_id ? loadWorkflowRun(cwd, patch.run_id) : loadLatestWorkflowRun(cwd);
+	if (!current) return undefined;
 	const next = { ...current, ...patch, run_id: current.run_id, schema_version: 1 as const, updated_at: new Date().toISOString() };
 	saveWorkflowRun(cwd, next);
 	return next;
 }
+
+export function markWorkflowRunBlocked(cwd: string, runId: string | undefined, nextAction: string): WorkflowRunRecord | undefined {
+	if (!runId) return undefined;
+	const current = loadWorkflowRun(cwd, runId);
+	if (!current || current.status === "COMPLETE" || current.status === "CANCELLED" || current.status === "BLOCKED" || current.status === "WAITING_APPROVAL") return current;
+	const blocked = updateWorkflowRun(cwd, { run_id: runId, status: "BLOCKED", next_action: nextAction });
+	resetWorkflowRunLink(runId);
+	return blocked;
+}
+
+export function markWorkflowRunComplete(cwd: string, runId: string | undefined): WorkflowRunRecord | undefined {
+	if (!runId) return undefined;
+	const current = loadWorkflowRun(cwd, runId);
+	if (!current || current.status === "COMPLETE" || current.status === "CANCELLED") return current;
+	const complete = updateWorkflowRun(cwd, { run_id: runId, status: "COMPLETE", next_action: "Workflow completed" });
+	resetWorkflowRunLink(runId);
+	return complete;
+}
+
+const ORPHANED_WORKFLOW_ACTION = "Previous workflow execution ended before reaching a terminal report";
+
+export async function reconcileLatestWorkflowRun(cwd: string): Promise<WorkflowRunRecord | undefined> {
+	const current = loadLatestWorkflowRun(cwd);
+	if (!current || current.status !== "RUNNING") return current;
+	const link = getWorkflowRunLink(cwd);
+	if (link?.runId === current.run_id) return current;
+	let livePane = false;
+	try {
+		const panes = await inspectHerdrPanesAsync(cwd);
+		const ownerPanes = panes.filter((pane) => pane.workflowRunId === current.run_id);
+		if (ownerPanes.some((pane) => pane.health === "unknown")) return current;
+		livePane = ownerPanes.some((pane) => pane.health === "alive");
+	} catch { return current; }
+	return livePane ? current : updateWorkflowRun(cwd, { run_id: current.run_id, status: "BLOCKED", next_action: ORPHANED_WORKFLOW_ACTION });
+}
+
+export { ORPHANED_WORKFLOW_ACTION };
 
 export function formatWorkflowRun(record: WorkflowRunRecord | undefined): string {
 	if (!record) return "No workflow run";
