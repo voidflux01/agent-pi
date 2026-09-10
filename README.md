@@ -116,6 +116,7 @@ Teams are named groups of agents from `agents/teams.yaml`:
 
 ```yaml
 plan-build:
+  - scout
   - planner
   - builder
   - reviewer

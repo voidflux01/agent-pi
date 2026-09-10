@@ -192,13 +192,23 @@ export default function(pi: ExtensionAPI) {
  let contextWindow = 0;
  let widgetCompact = true;
  let selectedAgentIndex = -1; // -1 = no selection
+ const rosterAgents = new Set<string>();
  registerWorkflowDispatchHook("TEAM", {
-  before: ({ name }) => {
-   if (agentStates.size === 0) return "TEAM dispatch blocked: no active team roster is loaded.";
-   const key = name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
-   return agentStates.has(key)
-    ? undefined
-    : `TEAM dispatch blocked: ${name} is not in the active team roster.`;
+  context: ({ name, task }) => {
+   const state = ensureDispatchState(name);
+   if (!state) return undefined;
+   state.status = "running";
+   state.task = task;
+   state.toolCount = 0;
+   state.elapsed = 0;
+   state.lastWork = "";
+   state.textChunks = [];
+   state.summary = undefined;
+   state.summaryLines = undefined;
+   state.runCount++;
+   registerAgentWidget(state);
+   updateWidget();
+   return undefined;
   },
   after: (result) => {
    const key = result.name.trim().toLowerCase().replace(/[\s_-]+/g, "-");
@@ -208,6 +218,7 @@ export default function(pi: ExtensionAPI) {
    state.task = result.task;
    state.lastWork = result.output.slice(0, 500);
    state.summary = result.output.split("\n").find(Boolean)?.slice(0, 160) || "";
+   invalidateAgentWidget(state);
    updateWidget();
   },
  });
@@ -338,6 +349,7 @@ export default function(pi: ExtensionAPI) {
    }
   }
   agentStates.clear();
+  rosterAgents.clear();
   selectedAgentIndex = -1; // Reset selection when team changes
   for (const member of members) {
    const def = defsByName.get(member.toLowerCase());
@@ -360,11 +372,40 @@ export default function(pi: ExtensionAPI) {
     summary: undefined,
     summaryLines: undefined,
    });
+   rosterAgents.add(def.name.toLowerCase());
   }
 
   // Auto-size grid columns based on team size
   const size = agentStates.size;
   gridCols = size <= 3 ? size : size === 4 ? 2 : 3;
+ }
+
+ function ensureDispatchState(name: string): AgentState | undefined {
+  const key = name.trim().toLowerCase();
+  const existing = agentStates.get(key);
+  if (existing) return existing;
+  const def = allAgentDefs.find((candidate) => candidate.name.toLowerCase() === key);
+  if (!def) return undefined;
+  const sessionKey = key.replace(/\s+/g, "-");
+  const state: AgentState = {
+   def,
+   status: "idle",
+   task: "",
+   toolCount: 0,
+   elapsed: 0,
+   lastWork: "",
+   contextPct: 0,
+   sessionFile: existsSync(join(sessionDir, `${sessionKey}.json`)) ? join(sessionDir, `${sessionKey}.json`) : null,
+   runCount: 0,
+   resolvedModel: "",
+   widgetId: nextWidgetId++,
+   textChunks: [],
+   summary: undefined,
+   summaryLines: undefined,
+  };
+  agentStates.set(key, state);
+  gridCols = agentStates.size <= 3 ? agentStates.size : agentStates.size === 4 ? 2 : 3;
+  return state;
  }
 
  // ── Per-Agent Widget Rendering (subagent-style) ──────────────────
@@ -1456,6 +1497,11 @@ export default function(pi: ExtensionAPI) {
    .map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}` + (s.def.model ? `\n**Model:** ${s.def.model}` : ""))
    .join("\n\n");
   const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
+  const rosterNames = new Set(Array.from(agentStates.values()).map(s => s.def.name.toLowerCase()));
+  const otherAgentNames = allAgentDefs
+   .map(s => s.name)
+   .filter(name => !rosterNames.has(name.toLowerCase()))
+   .sort();
   const scoutSection = agentStates.has("scout") ? `
 
 ## Context gathering
@@ -1479,7 +1525,8 @@ ${GRILL_ME_SECTION}
 
 ## Active Team
 Members: ${teamMembers}
-You can dispatch only to the agents listed below.
+Roster members are the default team for this session. Dispatch is not restricted
+to them: any loaded specialist may be dispatched by name —${otherAgentNames.length > 0 ? ` including ${otherAgentNames.join(", ")} —` : ""} whenever the task calls for it. The agent catalog below details the active roster; for any other specialist, dispatch it by exact name and state the outcome you need.
 ${scoutSection}
 
 ## Dispatch rules
@@ -1488,8 +1535,7 @@ ${scoutSection}
 - When two or more tasks have independent owners and do not need each other's
   intermediate result, use \`subagent_create_batch\` to run them concurrently in
   one bounded call. Keep dependent work sequential with \`subagent_create\`.
-- Use Builder agents for changes and Reviewer agents for verification/testing; the
-  current TEAM roster has no separate Tester role.
+- Use Builder agents for changes and Reviewer agents for verification/testing; dispatch a Tester specialist by name when the task needs it.
 - Do not dispatch merely to add ceremony.
 - After a specialist returns ## RESULT, toggle that task to done before stopping.
 - Report the result and next decision to the user.
@@ -1528,12 +1574,16 @@ ${agentCatalog}`,
  pi.on("input", () => {
   // When user sends a new message, reset completed/error agents to idle
   // and remove their individual widgets so boxes display cleanly for the new task
-  for (const state of agentStates.values()) {
-   if (state.status === "done" || state.status === "error") {
+  for (const [key, state] of agentStates) {
+   if (!rosterAgents.has(key)) {
+    removeAgentWidget(state);
+    agentStates.delete(key);
+   } else if (state.status === "done" || state.status === "error") {
     removeAgentWidget(state);
     resetAgentState(state);
    }
   }
+  gridCols = agentStates.size <= 3 ? agentStates.size : agentStates.size === 4 ? 2 : 3;
   updateWidget();
  });
 

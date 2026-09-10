@@ -50,6 +50,7 @@ full:
   - documenter
 
 plan-build:
+  - scout
   - planner
   - builder
   - reviewer
