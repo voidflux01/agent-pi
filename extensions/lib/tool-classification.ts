@@ -19,7 +19,7 @@ const NETWORK_READ_TOOLS = new Set(["fetch_content", "get_search_content", "secu
 const NETWORK_EXECUTE_TOOLS = new Set(["agent_browser", "mcp", "mcpscript"]);
 const MEMORY_READ_TOOLS = new Set(["memory_search", "recall", "retrospective_search", "context_draft", "log_watch", "deployment_checklist", "workflow_advice"]);
 const MEMORY_WRITE_TOOLS = new Set(["memory_correct", "memory_feedback", "memory_store_result", "save_research"]);
-const READ_WORKFLOW_TOOLS = new Set(["orchestration_recover", "orchestration_status", "pipeline_status", "subagent_batch_recover", "team_batch_recover"]);
+const READ_WORKFLOW_TOOLS = new Set(["pipeline_status", "subagent_batch_recover", "team_batch_recover"]);
 const UI_TOOLS_EXTENDED = new Set(["ask_user_question", "close_viewer", "preview_export", "show_board", "show_cleanup", "show_reports", "show_research", "show_security_report", "show_sounds"]);
 
 const LABELS: Record<ToolIntent, string> = {
@@ -48,7 +48,7 @@ export function classifyTool(name: string, description = ""): ToolClassification
 	if (UI_TOOLS_EXTENDED.has(normalized)) return { intent: "ui", readOnly: true, label: LABELS.ui };
 	if (normalized === "debug_capture") return { intent: "ui", readOnly: false, label: LABELS.ui };
 	if (normalized === "advisor" || normalized === "ask_parent" || normalized.startsWith("subagent_")) return { intent: "agent", readOnly: false, label: LABELS.agent };
-	if (["orchestration_status", "pipeline_status"].includes(normalized)) return { intent: "workflow", readOnly: true, label: LABELS.workflow };
+	if (["pipeline_status"].includes(normalized)) return { intent: "workflow", readOnly: true, label: LABELS.workflow };
 	if (["powershell", "verify_execution"].includes(normalized)) return { intent: "execute", readOnly: false, label: LABELS.execute };
 	if (AGENT_TOOLS.has(normalized) || /agent|subagent|dispatch|spawn|worker/.test(normalized)) return { intent: "agent", readOnly: false, label: LABELS.agent };
 	if (WORKFLOW_TOOLS.has(normalized) || /pipeline|workflow|phase|chain/.test(normalized)) return { intent: "workflow", readOnly: false, label: LABELS.workflow };

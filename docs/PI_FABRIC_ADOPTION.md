@@ -5,6 +5,13 @@ extension-first architecture. The goal is to improve composition and
 observability without replacing the existing task, approval, security, and
 worker lifecycle boundaries.
 
+> **2026-09-10 移除**：on-disk orchestration composition 账本（`events.jsonl`/
+> `active.json`/workspace 指纹、`/orchestration-status`、`orchestration_recover`、
+> `compose_exec resume_run_id`）已随 D23 移除——写侧（session 根目录）与读侧
+> （工作区根目录）劈叉，实读为 0 且永不清理。RunContext 保留为纯内存
+> （runId/abort/budget/usage），task-journal `orchestrationRunId` 链接保留。
+> 本文档中相关条目为当时的采纳记录。
+
 ## Phase 1 — confirmed design decisions
 
 第一阶段已完成。本阶段确认借鉴的是设计原则和边界，不是直接搬运

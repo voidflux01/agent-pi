@@ -1,12 +1,11 @@
-// ABOUTME: Shared lightweight run context for Fabric-inspired compositions.
-// ABOUTME: Gives each execution an identity, bounded step budget, and optional
-// session-backed event trail without replacing the existing worker journal.
+// ABOUTME: In-memory run context for orchestrated executions.
+// ABOUTME: Gives each execution an identity, bounded step budget, and an abort
+// signal — without any disk persistence. The on-disk composition ledger was
+// removed: it wrote git workspace fingerprints + events.jsonl per run that no
+// read surface consumed (workspace-rooted readers could not see session-rooted
+// writes), and the home-ledger dirs were never swept.
 
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { recordRunEvent } from "./evidence-store.ts";
-import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 import { budgetUsageExceededReason } from "./orchestration-budget.ts";
 import { AGENT_PI_CONFIG } from "./agent-pi-config.ts";
 import { saveRetrospective } from "./workflow-memory.ts";
@@ -35,7 +34,6 @@ export interface OrchestrationRun {
 	stepsUsed: number;
 	usage: RunUsage;
 	budgetExceeded: boolean;
-	eventDir?: string;
 	events: RunEventRecord[];
 	signal: AbortSignal;
 	cancel(reason?: string): void;
@@ -55,49 +53,17 @@ export interface RunEventRecord {
 	payload?: unknown;
 }
 
-export function activeRunMarkerPath(eventDir: string): string { return join(eventDir, "active.json"); }
-
 export class RunBudgetError extends Error {
 	readonly code = "RUN_BUDGET_EXCEEDED";
 }
 
-function eventDirFromContext(context: any, runId: string, explicitSessionFile?: string, explicitEventDir?: string): string | undefined {
-	if (explicitEventDir) return explicitEventDir;
-	const sessionFile = explicitSessionFile || context?.sessionManager?.getSessionFile?.() || process.env.PI_SESSION_FILE;
-	if (typeof sessionFile === "string" && sessionFile) return join(dirname(sessionFile), "compositions", runId);
-	const cwd = context?.cwd;
-	return typeof cwd === "string" && cwd ? join(cwd, ".pi", "agent-sessions", "compositions", runId) : undefined;
-}
-
-function workspaceSnapshot(cwd: string | undefined): WorkspaceManifest | undefined {
-	if (!cwd) return undefined;
-	try { return buildWorkspaceManifest(cwd, ""); } catch { return undefined; }
-}
-
-function changedWorkspaceFiles(before: WorkspaceManifest, after: WorkspaceManifest): string[] {
-	const dirtyRow = (m: WorkspaceManifest, path: string) => m.dirty.find(line => line.slice(3) === path) || "";
-	const paths = new Set([...before.files.map(file => file.path), ...after.files.map(file => file.path), ...before.staged, ...after.staged, ...before.untracked, ...after.untracked]);
-	return [...paths].sort().filter(path => {
-		const beforeFile = before.files.find(file => file.path === path);
-		const afterFile = after.files.find(file => file.path === path);
-		return (beforeFile?.oid ?? "missing") !== (afterFile?.oid ?? "missing")
-			|| before.staged.includes(path) !== after.staged.includes(path)
-			|| before.untracked.includes(path) !== after.untracked.includes(path)
-			|| dirtyRow(before, path) !== dirtyRow(after, path);
-	});
-}
-
 export function createOrchestrationRun(options: {
 	context?: any;
-	sessionFile?: string;
-	eventDir?: string;
 	parentRunId?: string;
 	budget?: Partial<RunBudget>;
 	actor?: string;
 	/** Operational mode that initiated this run, when known. */
 	mode?: string;
-	/** Capture a bounded before/after workspace delta in the run event trail. */
-	workspaceCwd?: string;
 	/** External cancellation boundary inherited by this run. */
 	signal?: AbortSignal;
 } = {}): OrchestrationRun {
@@ -109,9 +75,6 @@ export function createOrchestrationRun(options: {
 		...(options.budget?.maxTokens === undefined ? {} : { maxTokens: Math.max(1, options.budget.maxTokens) }),
 		...(options.budget?.maxCostUsd === undefined ? {} : { maxCostUsd: Math.max(0, options.budget.maxCostUsd) }),
 	};
-	const eventDir = eventDirFromContext(options.context, runId, options.sessionFile, options.eventDir);
-	const workspaceBefore = workspaceSnapshot(options.workspaceCwd);
-	const activeMarker = eventDir ? activeRunMarkerPath(eventDir) : undefined;
 	const events: RunEventRecord[] = [];
 	const usage: RunUsage = { totalTokens: 0, costUsd: 0 };
 	let finished = false;
@@ -122,9 +85,7 @@ export function createOrchestrationRun(options: {
 	else options.signal?.addEventListener("abort", onExternalAbort, { once: true });
 	const actor = options.actor ?? "orchestration";
 	const record = (type: string, payload?: unknown): void => {
-		const event: RunEventRecord = { id: randomUUID(), runId, type, actor, timestamp: new Date().toISOString(), ...(payload === undefined ? {} : { payload }) };
-		events.push(event);
-		if (eventDir) recordRunEvent(eventDir, { id: event.id, type: event.type, actor: event.actor, timestamp: event.timestamp, payload: { runId: event.runId, ...(event.payload === undefined ? {} : { data: event.payload }) } });
+		events.push({ id: randomUUID(), runId, type, actor, timestamp: new Date().toISOString(), ...(payload === undefined ? {} : { payload }) });
 	};
 	const run: OrchestrationRun = {
 		runId,
@@ -135,7 +96,6 @@ export function createOrchestrationRun(options: {
 		stepsUsed: 0,
 		usage,
 		budgetExceeded: false,
-		...(eventDir ? { eventDir } : {}),
 		events,
 		signal: abortController.signal,
 		cancel(reason = "cancelled") {
@@ -185,14 +145,6 @@ export function createOrchestrationRun(options: {
 				this.budgetExceeded = true;
 				record("budget.exceeded", { reason: "maxDurationMs", durationMs, budget });
 			}
-			if (workspaceBefore) {
-				const workspaceAfter = workspaceSnapshot(options.workspaceCwd);
-				if (workspaceAfter) record("workspace.changed", {
-					beforeHash: workspaceBefore.hash,
-					afterHash: workspaceAfter.hash,
-					changedFiles: changedWorkspaceFiles(workspaceBefore, workspaceAfter),
-				});
-			}
 			const terminalStatus = status === "succeeded" && budgetExceeded ? "failed" : status;
 			record(`run.${terminalStatus}`, {
 				stepsUsed: this.stepsUsed,
@@ -201,8 +153,7 @@ export function createOrchestrationRun(options: {
 				...(budgetExceeded ? { budgetExceeded: true } : {}),
 				...(payload === undefined ? {} : { result: payload }),
 			});
-			if (activeMarker) { try { unlinkSync(activeMarker); } catch {} }
-			const retrospectiveCwd = options.workspaceCwd || options.context?.cwd;
+			const retrospectiveCwd = options.context?.cwd;
 			if (AGENT_PI_CONFIG.workflowSupport?.enabled && AGENT_PI_CONFIG.workflowSupport.retrospective
 				&& typeof retrospectiveCwd === "string" && /^(subagent|team|chain|pipeline)/i.test(actor)) {
 				try {
@@ -214,12 +165,6 @@ export function createOrchestrationRun(options: {
 			options.signal?.removeEventListener("abort", onExternalAbort);
 		},
 	};
-	if (activeMarker) {
-		try {
-			mkdirSync(eventDir!, { recursive: true });
-			writeFileSync(activeMarker, JSON.stringify({ pid: process.pid, startedAt, runId }), { mode: 0o600 });
-		} catch {}
-	}
 	record("run.started", { parentRunId: options.parentRunId, mode: options.mode, budget });
 	return run;
 }

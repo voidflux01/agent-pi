@@ -129,10 +129,6 @@
 **场景**：这次要跑 `team-b-builders` 8 个 builder 并行的重批，怕烧穿额度。先 `/budget 500000 5.0` 设 token 与美元上限，跑超自动停。
 **真实性**：只有真跑 compose/编排重批才用；功能接线真实。你批量跑模型对比就高频 → **悬置**
 
-### `/orchestration-status` — compose 运行状态
-**场景**：`compose_exec` 编排跑 12 步，你想看每步 complete/failed/blocked 明细和 run 记录。查 run id 或 events。
-**真实性**：compose 批处理的仪表。你用 compose_exec 编排就留，只用 pipeline 就不碰 → **悬置**
-
 ### `/execution-status` — acceptance contract / verifier 状态
 **场景**：开发验收机制：看当前 acceptance contract 绑没绑、verifier 收没收据。这是**验收链路调试**——驾驶时验收由 agent/自动化跑，人不看契约内部。
 **真实性**：开发/验收框架的自检面，非驾驶者仪表 → **删**

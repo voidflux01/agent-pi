@@ -25,7 +25,8 @@
 | oauth-provider / session-replay / debug-capture / memory-cycle | 专项工具 | 保留（有真实用途的专项），无新投入 |
 | board-viewer / research-viewer / reports-viewer / cleanup-viewer / file-viewer / security-report | 本地浏览器 viewer | 真机未用（需 GUI 会话）；**试用一次再定**：无感则降级可选 |
 | security_news | 网络 allowlist 抓取 | 未驱动（需外网/策略）；低风险保留 |
-| network-inspect / tool-search / compose-exec / toolkit-cli / toolkit-commands / orchestration-status / orchestration-tool-audit | 专项工具 | 未命中；**登记观察**，等真实任务出现再验证 |
+| network-inspect / tool-search / compose-exec / toolkit-cli / toolkit-commands / orchestration-tool-audit | 专项工具 | 未命中；**登记观察**，等真实任务出现再验证 |
+| orchestration-status / orchestration_recover（`/orchestration-status`） | 专项工具 | **已于 2026-09-10 随 composition 账本一并移除** |
 | tex 应用 | 独立文本工具 | 无关驾驶舱核心，未测；维持现状 |
 
 ## 3. 环境受限（非冗余，降级已工作）

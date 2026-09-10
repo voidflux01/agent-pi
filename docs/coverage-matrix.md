@@ -20,7 +20,7 @@
 | orchestration_run/budget | 委派轮 |
 | eval_run + .pi/workflow/evals 落盘 | M-G |
 | workflow_advice | M-G |
-| orchestration_status / compose_exec / tool_search | 补试轮 |
+| orchestration_status / compose_exec / tool_search | 补试轮（orchestration_status 已随账本于 2026-09-10 移除） |
 | security-guard tool_call 门 | 全程隐式 |
 | secure-engine runSweep | 真扫自身（143 误报分析） |
 | ask_parent/fleet（部分）/herdr-done -e | M2a + 传输 |

@@ -4,18 +4,21 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Removed
+
+- **On-disk orchestration composition ledger.** [`createOrchestrationRun`](extensions/lib/orchestration-run.ts) no longer persists `events.jsonl` / `active.json` or computes git workspace fingerprints; run contexts are now strictly in-memory (identity, abort signal, step budget, usage accounting). The removed read surfaces were `orchestration-query.ts`, `orchestration-status.ts` (`/orchestration-status`, `orchestration_status` / `orchestration_recover` tools), `compose_exec resume_run_id`, and the terminal-run cleanup paths. Rationale: every tool call wrote a run directory plus two git subprocess fingerprints, and the session-rooted writes were invisible to the workspace-rooted readers (real interactive use produced 2,100+ runs ~8MB with zero reads; the home ledger was never swept). Survivors keep working: subagent cancellation (abort signal), step budgets, the shared token/cost budget admission, the task journal (with its `orchestrationRunId` link), dispatch receipts, and verifier transcripts. Legacy `compositions` directories already on disk are left untouched for manual cleanup.
+
 ### Changed
 
 - **Runtime artifact cleanup (`.pi`/`.context`).** A new lifecycle extension
   keeps workspace runtime debris bounded. At session start it sweeps with
   7-day retention, throttled to once per 12h so frequently-touched
-  workspaces are not re-walked every session (orchestration run ledgers,
-  verifier transcripts, dispatch receipts, evidence, research sessions,
-  generated images, security audit log); at session shutdown it deletes what is provably dead immediately:
-  pure capture artifacts (debug/web captures, grill bookkeeping), verifier
-  transcripts (the verdict lives in the persisted receipt), and orchestration
-  runs that reached a terminal state (no `active.json` — in-flight runs are
-  kept for crash recovery). User data and durable state are untouched:
+  workspaces are not re-walked every session (verifier transcripts, dispatch
+  receipts, evidence, research sessions, generated images, security audit
+  log); at session shutdown it deletes what is provably dead immediately:
+  pure capture artifacts (debug/web captures, grill bookkeeping) and verifier
+  transcripts (the verdict lives in the persisted receipt). User data and
+  durable state are untouched:
   `.context/todo.md`, session state, `.context/reports` (own pruner) and
   `.pi/workflow` (approvals, memory, retrospectives).
 

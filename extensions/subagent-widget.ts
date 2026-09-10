@@ -52,7 +52,6 @@ import { workflowDispatchBefore, workflowDispatchAfter, workflowDispatchContext,
 import { AGENT_PI_CONFIG, configuredModelForAgent } from "./lib/agent-pi-config.ts";
 import { providerModelString } from "./lib/model-inheritance.ts";
 import { withSessionResume } from "./lib/subagent-recovery.ts";
-import { listOrchestrationRuns, readOrchestrationEvents } from "./lib/orchestration-query.ts";
 import { reviewerDecision } from "./lib/reviewer-decision.ts";
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
@@ -268,9 +267,12 @@ export default function(pi: ExtensionAPI) {
  }
 
  /**
-  * Recoverable view of a persisted batch. This is deliberately read-only:
-  * after a restart the volatile SA ids are gone, so the caller must inspect
-  * the candidates and explicitly resume only the workers it still wants.
+  * Recoverable view of a persisted batch, rebuilt from the task journal.
+  * The on-disk orchestration ledger was removed, so batch identity persists
+  * via the shared journal: every child dispatch records its batch run id in
+  * the `orchestrationRunId` link. This is deliberately read-only: after a
+  * restart the volatile SA ids are gone, so the caller must inspect the
+  * candidates and explicitly resume only the workers it still wants.
   */
  function inspectPersistedBatch(cwd: string, runId: string): {
   runId: string;
@@ -278,32 +280,21 @@ export default function(pi: ExtensionAPI) {
   mode?: string;
   children: Array<{ dispatchId: string; status: string; canResume: boolean; task?: string; resumePrompt?: string; sessionFile?: string }>;
  } | undefined {
-  const run = listOrchestrationRuns(cwd, { runId, limit: 1 })[0];
-  if (!run || run.actor !== "subagent_batch") return undefined;
-  const started = new Map<string, string>();
-  const completed = new Map<string, string>();
-  for (const event of readOrchestrationEvents(run.eventDir, 200)) {
-   const raw = event.payload && typeof event.payload === "object" ? event.payload as Record<string, unknown> : {};
-   const data = raw.data && typeof raw.data === "object" ? raw.data as Record<string, unknown> : raw;
-   if (typeof data.dispatchId !== "string" || !/^[A-Za-z0-9_.-]{1,160}$/.test(data.dispatchId)) continue;
-   if (event.type === "subagent.started") started.set(data.dispatchId, "running");
-   if (event.type === "subagent.completed") completed.set(data.dispatchId, typeof data.status === "string" ? data.status : "done");
-  }
-  const entries = new Map(journalList(path.join(cwd, ".pi", "agent-sessions")).map((entry) => [entry.id, entry]));
-  const children = [...started.keys()].map((dispatchId) => {
-   const entry = entries.get(dispatchId);
-   const status = completed.get(dispatchId) || entry?.status || "unknown";
-   const task = entry?.task?.slice(0, 800);
-   const canResume = !completed.has(dispatchId) && !!resumableJournalEntry(cwd, dispatchId);
+  const entries = journalList(path.join(cwd, ".pi", "agent-sessions")).filter((entry) => entry.kind === "sa" && entry.orchestrationRunId === runId);
+  if (entries.length === 0) return undefined;
+  const children = entries.map((entry) => {
+   const canResume = !!resumableJournalEntry(cwd, entry.id);
+   const task = entry.task?.slice(0, 800);
    return {
-    dispatchId,
-    status,
+    dispatchId: entry.id,
+    status: entry.status ?? "unknown",
     canResume,
     ...(task ? { task, ...(canResume ? { resumePrompt: `Resume the prior task. Re-check the current workspace state, then continue from the unfinished point:\n\n${task}` } : {}) } : {}),
-    ...(entry?.sessionFile ? { sessionFile: entry.sessionFile } : {}),
+    ...(entry.sessionFile ? { sessionFile: entry.sessionFile } : {}),
    };
   });
-  return { runId: run.runId, status: run.status, ...(run.mode ? { mode: run.mode } : {}), children };
+  const inProgress = children.some((child) => child.status !== "done" && child.status !== "error");
+  return { runId, status: inProgress ? "running" : "succeeded", ...(entries[0]?.mode ? { mode: entries[0].mode } : {}), children };
  }
 
  // ── Widget rendering ──────────────────────────────────────────────────────
@@ -450,7 +441,6 @@ export default function(pi: ExtensionAPI) {
    actor: `subagent:${state.name.toLowerCase()}`,
    mode: coordinationState().mode,
    budget: { maxSteps: 1, maxDurationMs: state.maxDurationMs > 0 ? state.maxDurationMs : 15 * 60_000 },
-   workspaceCwd: spawnCwd,
   });
   state.workflowContext = { ...(state.workflowContext || { mode: coordinationState().mode as WorkflowDispatchResult["mode"] }), runId: orchestrationRun.runId };
   state.orchestrationRunId = orchestrationRun.runId;
@@ -1124,7 +1114,6 @@ export default function(pi: ExtensionAPI) {
     actor: "subagent_batch",
     mode: coordinationState().mode,
     budget: { maxSteps: states.length, maxDurationMs: args.timeout && args.timeout > 0 ? args.timeout : 15 * 60_000 },
-    workspaceCwd: contextCwd(ctx),
    });
    const batchContext = { ...workflowDispatchContext(coordinationState().mode, { name: "batch", task: defs.map((def: any) => def.task).join("\n").slice(0, 4_000), batch: true }), runId: batchRun.runId };
    const batchReceiptId = createDispatchReceipt(contextCwd(ctx), batchContext, "batch", defs.map((def: any) => def.task).join("\n"), true).id;

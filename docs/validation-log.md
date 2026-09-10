@@ -5,6 +5,11 @@ Fixtures are isolated temporary Git projects driven through real Pi sessions in
 Herdr. External RTK `npm test` behavior was excluded from product conclusions;
 the authoritative fixture command is `node --test`.
 
+### [2026-09-10] D23 composition 账本移除（磁盘零写入）
+- 现象：`.pi/agent-sessions/verifier/compositions` 与 home 侧 `~/.pi/agent/sessions/<编码cwd>/compositions` 持续膨胀（本工作区 2116 run / 8.3MB），而所有读取面（`/orchestration-status`、`orchestration_recover`、batch 恢复）只读 `cwd/.pi/agent-sessions/compositions` → 实测 0 命中，即写入侧与读取侧根目录劈叉，账本纯写无读且从不清扫。
+- 处置：`createOrchestrationRun` 保留对象 API（runId/signal/consumeStep/budget/recordUsage）但去掉 eventDir、events.jsonl、active.json 与 git 工作区指纹；删除 `orchestration-query.ts`、`orchestration-status.ts`；`compose_exec` 移除 `resume_run_id` 断点分支；runtime-cleanup 去掉 compositions 清理路径。取消信号、步数预算、共享 token/cost 预算准入、task-journal `orchestrationRunId` 链接、dispatch-receipts、verifier transcripts 均保留。
+- 验证：`npm run typecheck` 通过；`npm test` 在本工作区 exit 0（全部通过）。注：`mode-turn-boundary`（×3）与 `tasks-softgate`（×8）在部分 headless/严格环境下为既有基线失败（在未含本改动的 HEAD 基线上同样复现，与本 diff 无关）；每次 tool/subagent 调用不再产生任何 compositions 目录。历史账本目录留给用户手动清理。
+
 ### [2026-09-08] D22 ask_parent content-less result crash（已修复）
 - 现象：用户驾驶 pi 时进程退出 `TypeError: Cannot read properties of undefined (reading 'filter')` @ `ToolExecutionComponent.getTextOutput`。
 - 根因：宿主 `getTextOutput(result){ if(!result)return''; let t=result.content.filter(...) }` 对 truthy 但**缺 `content` 数组**的 tool result 无守卫 → fallback 渲染崩 → 进程退出。

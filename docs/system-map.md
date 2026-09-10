@@ -57,8 +57,7 @@ model-inheritance | L1 | optional | - | N | 链 worker 模型解析：explicit >
 named-pick | L1 | optional | - | Y | 按精确/唯一前缀把命令参数匹配到配置
 normal-escalation | L1 | optional | - | Y | 拦重复只读侦察；把卡死循环轻推向有界 SCOUT（启发式非硬门）
 orchestration-budget | L2 | core | F | Y | 跨进程 token/成本预算台账 + 预留（dispatch-runtime 用）
-orchestration-query | L2 | optional | F | Y | 只读编排运行摘要/拓扑/恢复（自持久事件）
-orchestration-run | L2 | core | F | Y | 运行身份 + 有界 step/token 预算 + 会话事件轨迹（worker 生命周期）
+orchestration-run | L2 | core | F | Y | 运行身份 + 有界 step/token 预算 + 纯内存事件轨迹（无磁盘账本，自 D23 起）
 output-box | L1 | optional | - | Y | 输出行 + TOOLBOX 摘要格式化（outputLine/outputBox 为 no-op stub）
 panel-backdrop | L1 | optional | - | Y | 深色底上居中面板，限高截断
 parse-chain-yaml | L1 | optional | - | N | 手写 YAML 解析→chain step/def 结构（与 parse-pipeline-yaml 重复）
@@ -170,7 +169,7 @@ delegation-guard | 嵌套 pi 探测入口 | 委托 lib | delegation-guard.test
 
 **Viewer / UX（optional）**
 ```
-board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-viewer · sounds · theme-cycler · footer · agent-banner · agent-nav · system-select · escape-cancel · user-question · session-replay · debug-capture · ask-parent · compose-exec · lean-tools · nudge-listener · inbox-notify · oauth-provider · tool-search · toolkit-commands · mode-persist · model-persist · orchestration-status · orchestration-tool-audit · orchestration-budget · memory-cycle
+board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-viewer · sounds · theme-cycler · footer · agent-banner · agent-nav · system-select · escape-cancel · user-question · session-replay · debug-capture · ask-parent · compose-exec · lean-tools · nudge-listener · inbox-notify · oauth-provider · tool-search · toolkit-commands · mode-persist · model-persist · orchestration-tool-audit · orchestration-budget · memory-cycle
 ```
 
 ## 3. 底座零件（§7 substrate，21 个 F）
@@ -178,7 +177,7 @@ board-viewer · cleanup-viewer · file-viewer · research-viewer · reports-view
 按"渲染已算的，不新采集"原则，这些模块已算出状态但未聚合成一块可读 run 仪表：
 
 - **context**：context-budget、context-gate
-- **run 身份/轨迹/预算**：orchestration-run、orchestration-budget、orchestration-query、execution-run
+- **run 身份/轨迹/预算**：orchestration-run（纯内存）、orchestration-budget、execution-run
 - **协调/运行状态**：coordination-state、run-state、chain-state、pipeline-state
 - **证据/收据/契约/manifest**：agent-result-contract、agent-task-journal、evidence-store、execution-contract、isolated-verifier、verifier-runtime、workspace-manifest、workflow-artifacts
 - **worker 生命周期/完整性**：worker-lifecycle、workflow-dispatch、workflow-approval-gate

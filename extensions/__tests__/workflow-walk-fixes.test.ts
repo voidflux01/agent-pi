@@ -153,7 +153,6 @@ describe("source wiring", () => {
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).not.toContain("--append-system-prompt");
 		expect(team).toContain(".slice(0, 8_000)");
 		expect(team).toContain('name: "team_batch_recover"');
-		expect(readFileSync(join(root, "orchestration-status.ts"), "utf8")).toContain("team_batch_recover");
 		expect(team).toContain("projectTeamBatchRecovery(entries, sessionRoot)");
 		expect(readFileSync(join(root, "lib/task-gate.ts"), "utf8")).toContain('"subagent_create_batch"');
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("budgetUsageExceededReason");

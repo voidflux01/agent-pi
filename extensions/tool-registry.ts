@@ -58,7 +58,7 @@ const CATEGORY_RULES: { category: string; names: string[]; keywords: string[] }[
 	},
 	{
 		category: "workflow",
-		names: ["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "orchestration_recover", "orchestration_status", "subagent_batch_recover", "team_batch_recover"],
+		names: ["tasks", "set_mode", "advance_phase", "pipeline_status", "cycle_memory", "compose_exec", "call_tool", "subagent_batch_recover", "team_batch_recover"],
 		keywords: ["task", "mode", "pipeline", "phase", "workflow", "chain"],
 	},
 	{

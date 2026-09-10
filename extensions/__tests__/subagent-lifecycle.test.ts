@@ -2,10 +2,11 @@
 // ABOUTME: Validates watchdog timeout resolution, stale cleanup, and duplicate batch prevention
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { renderSubagentWidget, type SubRenderState } from "../lib/subagent-render.ts";
-import { resolveTimeout } from "../subagent-widget.ts";
+import { resolveTimeout, default as subagentWidget } from "../subagent-widget.ts";
 
 // ── Timeout resolution tests ─────────────────────────────────────────────────
 // We can't import resolveTimeout directly (it's a module-scoped function inside
@@ -104,11 +105,55 @@ describe("stale session lifecycle protection", () => {
 		expect(src).toContain("inspectPersistedBatch(contextCwd(ctx), args.run_id)");
 		expect(src).toContain("never re-dispatches workers automatically");
 		expect(src).toContain("bounded resumePrompt as the explicit subagent_resume prompt");
-		expect(src).toContain("const task = entry?.task?.slice(0, 800)");
+		expect(src).toContain("const task = entry.task?.slice(0, 800)");
 		expect(src).toContain("resumePrompt: `Resume the prior task");
 		expect(src).toContain("child.task.replace(/\\s+/g, \" \")");
 	});
 });
+
+describe("persisted batch reconstruction", () => {
+		it("rebuilds a batch from journal orchestrationRunId links and projects resume candidates", async () => {
+			const registered: any[] = [];
+			const pi: any = {
+				registerTool(def: any) { registered.push(def); },
+				getAllTools: () => registered,
+				registerCommand() {},
+				registerShortcut() {},
+				on() {},
+			};
+			subagentWidget(pi);
+			const tool = registered.find((def: any) => def.name === "subagent_batch_recover");
+			expect(tool).toBeTruthy();
+			const cwd = mkdtempSync(join(tmpdir(), "batch-recover-role-"));
+			try {
+				const runId = "batch-run-0001";
+				const stamp = Date.now();
+				mkdirSync(join(cwd, ".pi", "agent-sessions"), { recursive: true });
+				writeFileSync(
+					join(cwd, ".pi", "agent-sessions", "task-journal.jsonl"),
+					[
+						JSON.stringify({ version: 1, id: "builder-sa1", kind: "sa", agent: "builder", task: "first task", status: "dispatched", orchestrationRunId: runId, startedAt: stamp - 1000, updatedAt: stamp - 500 }),
+						JSON.stringify({ version: 1, id: "scout-sa2", kind: "sa", agent: "scout", task: "second task", status: "done", orchestrationRunId: runId, startedAt: stamp - 900, updatedAt: stamp - 400 }),
+						JSON.stringify({ version: 1, id: "unrelated-sa3", kind: "sa", agent: "builder", task: "other batch", status: "dispatched", orchestrationRunId: "some-other-run", startedAt: stamp - 800, updatedAt: stamp - 300 }),
+					].join("\n") + "\n",
+					"utf8",
+				);
+				const result = await tool.execute("recover-1", { run_id: runId }, undefined, undefined, { cwd });
+				expect(result.details).toMatchObject({ found: true, runId, status: "running" });
+				// Only the two children linked to this run id are projected; the
+				// third entry belongs to another batch run and is filtered out.
+				expect(result.details.children.map((c: any) => c.dispatchId)).toEqual(["builder-sa1", "scout-sa2"]);
+				expect(result.details.children[0]).toMatchObject({ status: "dispatched", canResume: false, task: "first task" });
+				expect(result.details.children[1]).toMatchObject({ status: "done", canResume: false });
+				expect(result.details.resumableDispatchIds).toEqual([]);
+
+				const missing = await tool.execute("recover-2", { run_id: "never-existed" }, undefined, undefined, { cwd });
+				expect(missing.details).toMatchObject({ found: false, runId: "never-existed" });
+			} finally {
+				rmSync(cwd, { recursive: true, force: true });
+			}
+		});
+	});
 
 describe("timeout resolution", () => {
 	it("uses the shared safety deadline by default", () => {
@@ -229,3 +274,4 @@ describe("PLAN prompt complexity guidance", () => {
 		expect(PLAN_PROMPT).not.toContain("Scout lifecycle management");
 	});
 });
+

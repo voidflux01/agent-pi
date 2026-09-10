@@ -464,7 +464,6 @@ export async function createSubagentRuntime(spec: DispatchRuntimeSpec): Promise<
 		return { exitCode: 122, stderr: message, failure: "process_error", transport: "headless" };
 	}
 	const orchestrationRun = createOrchestrationRun({
-		sessionFile: spec.sessionFile,
 		parentRunId: spec.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: "dispatch-runtime",
 		mode: spec.mode,

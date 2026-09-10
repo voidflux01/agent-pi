@@ -3,7 +3,7 @@
 // ABOUTME: fixed path table) and an immediate pass for provably-dead artifacts
 // ABOUTME: (session shutdown: verifier transcripts, terminal orchestration runs).
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -19,16 +19,14 @@ export const RUNTIME_CLEANUP_THROTTLE_MS = 12 * 60 * 60 * 1000;
  *  workspace manifest, so cleanup never disturbs receipt bindings). */
 export const LAST_SWEEP_MARKER = join(".pi", "runtime-cleanup.last");
 
-/** Marker an orchestration run writes at creation and removes when it reaches
- *  a terminal state (finish). A composition dir without it is a finished run. */
-export const ACTIVE_RUN_MARKER = "active.json";
-
 /** Repo-relative paths swept recursively by file mtime. State that is user
  *  data or long-lived by design is intentionally absent: .pi/workflow
  *  (approvals/memory/retrospectives), .context/todo.md & session-state.json
- *  (task list), .context/reports (own pruner), chain/team durable snapshots. */
+ *  (task list), .context/reports (own pruner), chain/team durable snapshots.
+ *  The on-disk orchestration composition ledger was removed, so there is no
+ *  longer a `.pi/agent-sessions/compositions` entry (or nested per-session
+ *  ones) to sweep. */
 export const RUNTIME_ARTIFACT_DIRS = [
-	".pi/agent-sessions/compositions",
 	".pi/agent-sessions/verifier",
 	".pi/agent-sessions/dispatch-receipts",
 	".pi/debug-captures",
@@ -50,12 +48,11 @@ export const SESSION_SCRAP_DIRS = [
 ];
 
 /** Subagent worker sessions live under the user's home dir (not the workspace):
- *  their per-tool compositions land in ~/.pi/agent/sessions/subagents/compositions.
- *  Worker exit must NOT clean these (the parent may still want the ledger); the
- *  parent session's shutdown reaps them via cleanupTerminalRuns, and the home
- *  sessions dir is swept on retention as the crash-debris net. */
+ *  their transcripts are swept on retention as the crash-debris net. The
+ *  on-disk orchestration ledger was removed, so nothing new lands under
+ *  `subagents/compositions`; any legacy dirs there are covered by the same
+ *  recursive sweep on the sessions dir. */
 export const HOME_SUBAGENT_SESSIONS = join(homedir(), ".pi", "agent", "sessions", "subagents");
-export const HOME_SUBAGENT_COMPOSITIONS = join(HOME_SUBAGENT_SESSIONS, "compositions");
 
 /** Recursively delete files older than `cutoff`, then remove dirs left empty.
  *  Silent on any filesystem error — cleanup must never break anything. */
@@ -112,45 +109,6 @@ export function cleanupVerifierTranscripts(cwd: string): number {
 	for (const name of names) {
 		if (!name.endsWith(".jsonl")) continue;
 		try { unlinkSync(join(dir, name)); removed++; } catch { }
-	}
-	return removed;
-}
-
-/** Delete orchestration runs that reached a terminal state (no active.json).
- *  Covers the workspace's top-level compositions dir plus per-session nested
- *  ones (event dirs land under the session file's dir, e.g. verifier/compositions),
- *  and the home subagent compositions dir (subagent worker ledgers).
- *  Runs mid-flight are kept: their subagent may still be running in a detached
- *  pane, or be resumed after a crash via dispatch receipts. */
-export function cleanupTerminalRuns(cwd: string, homeCompositions: string = HOME_SUBAGENT_COMPOSITIONS): number {
-	// Home subagent ledger is swept regardless of the workspace layout: a fresh
-	// workspace may have no .pi/agent-sessions at all while workers still left runs.
-	let removed = reapTerminalRuns(homeCompositions);
-	const sessions = join(cwd, ".pi", "agent-sessions");
-	let names: string[];
-	try { names = readdirSync(sessions); } catch { return removed; }
-	for (const name of names) {
-		const base = name === "compositions"
-			? join(sessions, name)
-			: join(sessions, name, "compositions");
-		removed += reapTerminalRuns(base);
-	}
-	return removed;
-}
-
-/** Remove finished run dirs (no active.json) under one compositions base. */
-function reapTerminalRuns(base: string): number {
-	let runDirs: string[];
-	try { runDirs = readdirSync(base); } catch { return 0; }
-	let removed = 0;
-	for (const runId of runDirs) {
-		const dir = join(base, runId);
-		try {
-			if (!existsSync(join(dir, ACTIVE_RUN_MARKER))) {
-				rmSync(dir, { recursive: true, force: true });
-				removed++;
-			}
-		} catch { }
 	}
 	return removed;
 }

@@ -100,7 +100,6 @@ export default function (pi: ExtensionAPI) {
 					actor: "call_tool",
 					mode: coordinationState().mode,
 					budget: { maxSteps: 1 },
-					workspaceCwd: cwd,
 				});
 				run.consumeStep();
 				run.record("tool.blocked", { toolName: tool_name, error, reason });
@@ -149,7 +148,6 @@ export default function (pi: ExtensionAPI) {
 				actor: "call_tool",
 				mode: coordinationState().mode,
 				budget: { maxSteps: 1 },
-				workspaceCwd: cwd,
 			});
 			orchestrationRun.consumeStep();
 			orchestrationRun.record("tool.started", { toolName: tool_name, reason });

@@ -3,7 +3,6 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { coordinationState } from "./lib/coordination-state.ts";
-import { getCapabilityForTool } from "./lib/capability-registry.ts";
 import { createOrchestrationRun, type OrchestrationRun } from "./lib/orchestration-run.ts";
 
 type PendingExecution = { toolName: string; run: OrchestrationRun };
@@ -43,7 +42,6 @@ export function recordBlockedToolCall(input: {
 		actor: "tool-gate",
 		mode: coordinationState().mode,
 		budget: { maxSteps: 1 },
-		workspaceCwd: undefined,
 	});
 	run.consumeStep();
 	run.record("tool.blocked", {
@@ -54,12 +52,6 @@ export function recordBlockedToolCall(input: {
 	});
 	run.finish("failed", { toolName: input.toolName, toolCallId: input.toolCallId, category: input.category });
 	return run.runId;
-}
-
-function shouldCaptureWorkspace(toolName: string): boolean {
-	const capability = getCapabilityForTool(toolName);
-	return toolName === "write" || toolName === "edit" || toolName === "bash"
-		|| capability?.effect.resources?.includes("workspace") === true;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -83,7 +75,6 @@ export default function (pi: ExtensionAPI) {
 			actor: "tool-runtime",
 			mode: coordinationState().mode,
 			budget: { maxSteps: 1 },
-			workspaceCwd: shouldCaptureWorkspace(event.toolName) ? (ctx?.cwd || process.cwd()) : undefined,
 		});
 		run.consumeStep();
 		run.record("tool.started", { toolName: event.toolName, toolCallId: event.toolCallId });

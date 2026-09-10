@@ -41,7 +41,6 @@
 | 流程跑一半断/换了会话，想从快照续跑 | `/pipeline-resume` | `/pipeline-resume` |
 | 理解错了方向，想回到 phase 1 重来（不重启进程） | `/pipeline-reset` | `/pipeline-reset` |
 | 任务完成/要切去干不相关的活，退出流水线态 | `/pipeline-off` | `/pipeline-off` |
-| 用 compose 编排跑批，想知道每步成功/失败/阻塞明细 | `/orchestration-status` | `/orchestration-status <run_id>` |
 
 **可用流程（`agents/pipeline-team.yaml`）**：`plan-build-review` · `plan-build` · `research-plan-build-review` · `auto-build-report`(D21 自动推进)。
 

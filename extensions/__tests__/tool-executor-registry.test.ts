@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
-import { join } from "node:path";
 import toolCaller from "../tool-caller.ts";
 import { getToolRegistry } from "../tool-registry.ts";
 import { getRegisteredToolExecutors, registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
-import { readOrchestrationEvents } from "../lib/orchestration-query.ts";
 
 const EXECUTOR_KEY = "__piRegisteredToolExecutors";
 
@@ -54,10 +51,6 @@ describe("extension tool executor registry", () => {
 		expect(result.content[0].text).toBe("extension executed");
 		expect(result.details).toMatchObject({ tool_name: "registry_call_tool_target", proxied: true, originalDetails: { ok: true } });
 		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
-		const eventDir = join(process.cwd(), ".pi", "agent-sessions", "compositions", result.details.runId);
-		const eventTypes = readOrchestrationEvents(eventDir).map((event) => event.type);
-		expect(eventTypes).toEqual(expect.arrayContaining(["tool.started", "tool.completed", "run.succeeded"]));
-		rmSync(eventDir, { recursive: true, force: true });
 		expect(calls).toHaveLength(1);
 	});
 
@@ -102,10 +95,6 @@ describe("extension tool executor registry", () => {
 		controller.abort();
 		const result = await callTool.execute("outer", { tool_name: "registry_cancel_target", arguments: {} }, controller.signal, undefined, { cwd: process.cwd() });
 		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
-		const eventDir = join(process.cwd(), ".pi", "agent-sessions", "compositions", result.details.runId);
-		const completed = readOrchestrationEvents(eventDir).find((event) => event.type === "tool.completed");
-		expect(completed?.payload).toMatchObject({ data: { status: "cancelled" } });
-		rmSync(eventDir, { recursive: true, force: true });
 	});
 
 	test("audits blocked calls without invoking the target", async () => {
@@ -135,13 +124,6 @@ describe("extension tool executor registry", () => {
 
 		expect(result.details).toMatchObject({ error: "blocked_self_reference", reason: "boundary audit" });
 		expect(result.details.runId).toMatch(/^[A-Za-z0-9-]+$/);
-		const eventDir = join(process.cwd(), ".pi", "agent-sessions", "compositions", result.details.runId);
-		const events = readOrchestrationEvents(eventDir);
-		expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["tool.blocked", "run.failed"]));
-		expect(events.find((event) => event.type === "tool.blocked")?.payload).toMatchObject({
-			data: { toolName: "call_tool", error: "blocked_self_reference", reason: "boundary audit" },
-		});
 		expect(targetCalls).toBe(0);
-		rmSync(eventDir, { recursive: true, force: true });
 	});
 });

@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentDispatchAuthorization, DEFAULT_ABORT_POLL_INTERVAL_MS, DEFAULT_POLL_TIMEOUT_MS, MAX_DISPATCH_STDERR_CHARS, createSubagentRuntime, type DispatchOrigin, type DispatchProcess, explicitDispatchHandler, withSessionLifecycle } from "../lib/dispatch-runtime.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
-import { listRunEvents } from "../lib/evidence-store.ts";
 import { activeOrchestrationBudget, clearOrchestrationBudget, initOrchestrationBudget, recordBudgetUsage } from "../lib/orchestration-budget.ts";
 
 function fakeChild() {
@@ -80,9 +79,8 @@ describe("shared dispatch runtime", () => {
 		expect(journal).toContain('"status":"done"');
 		expect(journal).toContain('"pid":4242');
 		expect(journal).toContain('"orchestrationRunId":"' + result.runId + '"');
-		const events = listRunEvents(join(dir, "compositions", result.runId!));
-		expect(events.map((event) => event.type)).toEqual(["run.started", "dispatch.started", "dispatch.completed", "run.succeeded"]);
-		expect((events[0].payload as any)?.data?.mode).toBe("PLAN");
+		// The on-disk ledger was removed; the journal link above is the only
+		// persisted trace, and the in-memory run records its own event trail.
 	});
 
 	it("reserves dispatch admission and releases it when journal usage settles", async () => {

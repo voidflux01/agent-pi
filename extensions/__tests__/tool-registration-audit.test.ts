@@ -64,7 +64,7 @@ describe("registered tool lifecycle audit", () => {
 		const registrations = files.flatMap((file) => registeredObjects(readFileSync(file, "utf8")).map((object) => ({ file, object })));
 
 		// Keep in sync when adding/removing registerToolWithExecutor call sites.
-		expect(registrations).toHaveLength(47);
+		expect(registrations).toHaveLength(45);
 		for (const { file, object } of registrations) {
 			const hasStaticName = /\bname\s*:\s*["']([^"']+)["']/.test(object);
 			const hasDynamicName = /\bname\s*:\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?/.test(object);

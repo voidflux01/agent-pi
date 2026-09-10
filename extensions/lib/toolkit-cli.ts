@@ -646,7 +646,6 @@ export async function runToolkitDispatch(opts: {
 		return { exitCode: 122, raw: message, transport: "headless", failure: "process_error" };
 	}
 	const orchestrationRun = createOrchestrationRun({
-		eventDir: join(opts.sessionDir, "compositions", opts.runId),
 		parentRunId: opts.parentRunId || process.env.PI_AGENT_PI_RUN_ID,
 		actor: `toolkit:${opts.agentName}`,
 		mode: opts.mode,

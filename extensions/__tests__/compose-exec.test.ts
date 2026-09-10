@@ -2,8 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import composeExec from "../compose-exec.ts";
 import { registerToolWithExecutor } from "../lib/tool-executor-registry.ts";
 import { registerDiscoveredCapability, resetCapabilitiesForTests } from "../lib/capability-registry.ts";
-import { listRunEvents } from "../lib/evidence-store.ts";
-import { activeRunMarkerPath, createOrchestrationRun } from "../lib/orchestration-run.ts";
 import { existsSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -107,8 +105,6 @@ describe("compose_exec", () => {
 		expect(calls).toBe(3);
 		expect(result.details).toMatchObject({ completed: 1, failed: 0 });
 		expect(result.details.results[0].attempts).toBe(3);
-		const retryEvents = listRunEvents(result.details.eventDir).map((event) => event.type);
-		expect(retryEvents.filter((type) => type === "step.retrying")).toHaveLength(2);
 
 		calls = 0;
 		const exhausted = await tool.execute("outer", { steps: [{ tool: "compose_flaky", retry: 1 }] }, undefined, undefined, { cwd: process.cwd() });
@@ -288,44 +284,5 @@ describe("compose_exec", () => {
 		] }, undefined, undefined, { cwd });
 		expect(result.details.failed).toBe(2);
 		expect(result.details.results[0].error).toContain("parallel effect conflict");
-	});
-
-	test("persists a bounded completed-step handoff for restart inspection", async () => {
-		const registered: any[] = [];
-		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
-		const cwd = mkdtempSync(join(tmpdir(), "compose-events-"));
-		writeFileSync(join(cwd, "input.txt"), "recoverable", "utf8");
-		composeExec(fakePi);
-		const tool = registered.find((entry) => entry.name === "compose_exec");
-		const sessionFile = join(cwd, ".pi", "agent-sessions", "parent.jsonl");
-		const result = await tool.execute("outer", { steps: [{ tool: "read", arguments: { path: "input.txt" } }] }, undefined, undefined, {
-			cwd,
-			sessionManager: { getSessionFile: () => sessionFile },
-		});
-		const events = listRunEvents(join(cwd, ".pi", "agent-sessions", "compositions", result.details.runId));
-		const completed = events.find((event) => event.type === "step.completed");
-		expect(completed?.payload).toMatchObject({ data: { result: { text: "recoverable" } } });
-	});
-
-	test("resumes a stale composition and reuses completed step results", async () => {
-		const registered: any[] = [];
-		const fakePi: any = { registerTool(definition: any) { registered.push(definition); }, registerCommand() {}, on() {} };
-		const cwd = mkdtempSync(join(tmpdir(), "compose-resume-"));
-		const sessionFile = join(cwd, ".pi", "agent-sessions", "parent.jsonl");
-		const sourceSeedDir = join(cwd, ".pi", "agent-sessions", "compositions", "source-seed");
-		const source = createOrchestrationRun({ eventDir: sourceSeedDir, actor: "compose_exec", mode: "PLAN" });
-		source.record("composition.started", { steps: [{ tool: "read", arguments: { path: "already.txt" } }] });
-		source.record("step.completed", { index: 0, tool: "read", result: { text: "reused", details: { path: "already.txt" } } });
-		const sourceDir = join(cwd, ".pi", "agent-sessions", "compositions", source.runId);
-		renameSync(sourceSeedDir, sourceDir);
-		writeFileSync(activeRunMarkerPath(sourceDir), JSON.stringify({ pid: 2147483647 }));
-		composeExec(fakePi);
-		const tool = registered.find((entry) => entry.name === "compose_exec");
-		const result = await tool.execute("outer", { resume_run_id: source.runId }, undefined, undefined, {
-			cwd,
-			sessionManager: { getSessionFile: () => sessionFile },
-		});
-		expect(result.details).toMatchObject({ resumeOf: source.runId, reusedSteps: [0], completed: 1, failed: 0 });
-		expect(result.details.results[0].result.text).toBe("reused");
 	});
 });

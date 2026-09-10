@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { currentDispatchAuthorization, explicitDispatchHandler, createSubagentRuntime } from "../lib/dispatch-runtime.ts";
 import { createOrchestrationRun } from "../lib/orchestration-run.ts";
 import { journalAppend } from "../lib/agent-task-journal.ts";
-import { listRunEvents } from "../lib/evidence-store.ts";
 import { withSessionResume } from "../lib/subagent-recovery.ts";
 
 function fakeChild() {
@@ -37,7 +36,7 @@ describe("standalone subagent recovery integration", () => {
 				status: "done", sessionFile, startedAt: Date.now() - 1000, updatedAt: Date.now() - 500,
 			});
 			const parent = createOrchestrationRun({
-				eventDir: join(cwd, "parent-events"), actor: `subagent:${mode.toLowerCase()}`,
+				actor: `subagent:${mode.toLowerCase()}`,
 				mode, budget: { maxSteps: 1 },
 			});
 			const child = fakeChild();
@@ -64,9 +63,10 @@ describe("standalone subagent recovery integration", () => {
 			expect(captured).toContain("-c");
 			expect(captured[captured.length - 1]).toBe("continue task");
 			expect(readFileSync(join(sessionDir, "task-journal.jsonl"), "utf8")).toContain('"status":"done"');
-			const events = listRunEvents(join(cwd, "compositions", result.runId!));
-			expect(events[0]?.payload).toMatchObject({ data: { parentRunId: parent.runId } });
-			expect(events.map(event => event.type)).toContain("run.succeeded");
+			// The on-disk orchestration ledger was removed; topology persists via the
+			// journal's orchestrationRunId link to the resumed dispatch run.
+			expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
+			expect(readFileSync(join(sessionDir, "task-journal.jsonl"), "utf8")).toContain(result.runId!);
 		});
 	}
 });

@@ -202,7 +202,6 @@ export default function(pi: ExtensionAPI) {
 				actor: "verify_execution",
 				mode: coordinationState().mode,
 				budget: { maxSteps: 1 },
-				workspaceCwd: cwd,
 			});
 			orchestrationRun.consumeStep();
 			orchestrationRun.record("verification.started", { attempt, objective: contract.objective });
