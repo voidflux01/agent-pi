@@ -234,7 +234,7 @@ export default function(pi: ExtensionAPI) {
 				attempt,
 			});
 			return {
-				content: [{ type: "text", text: verification.receipt.verifier?.report ? formatVerifierReport(verification.receipt.verifier.report) : `Verifier: ${verification.receipt.status} — ${verification.receipt.results.filter(r => r.status !== "pass").map(r => `${r.raw}${r.note ? ` (${r.note})` : ""}`).join("; ") || "all assertions passed"}` }],
+				content: [{ type: "text", text: verification.receipt.verifier?.report ? formatVerifierReport(verification.receipt.verifier.report) : `Verifier: ${verification.receipt.status} — ${verification.receipt.verifier?.summary || "no verifier summary"}` }],
 				details: {
 					status: verification.receipt.status, completionAllowed: verification.receipt.status === "PASS", receipt: verification.receipt,
 					nextAction: workflowDirection({ status: verification.receipt.status, attempt })

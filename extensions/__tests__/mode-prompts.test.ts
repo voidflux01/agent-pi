@@ -62,7 +62,6 @@ describe("PLAN_PROMPT", () => {
 	it("documents Objective-only explainable acceptance", () => {
 		expect(PLAN_PROMPT).toContain("concrete Objective");
 		expect(PLAN_PROMPT).toContain("Objective review");
-		expect(PLAN_PROMPT).not.toContain("at least one executable [cmd]");
 	});
 
 	it("keeps scout-then-plan steps, with grill as enhancement only", () => {

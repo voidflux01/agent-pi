@@ -16,6 +16,7 @@ const PASS_RECEIPT = (contract: { fingerprint: string }) => createVerifierReceip
 	workspaceManifestHash: "same",
 	verification: { status: "PASS", results: [{ status: "pass", raw: "ok" }] } as any,
 	attempt: 1,
+	verifier: { runId: "verifier-1", status: "PASS", summary: "ok" },
 });
 
 describe("user eval sets", () => {
@@ -60,7 +61,7 @@ describe("user eval sets", () => {
 	});
 
 	test("[eval] assertion binds a contract to the eval set hash", () => {
-		const contract = bindAcceptanceContract("# Objective\nDo it.\n\n## Contract\n- [cmd] npm test\n- [eval] evals/user-set.yaml sha256:" + "a".repeat(64) + "\n", "plan") as any;
+		const contract = bindAcceptanceContract("# Objective\nDo it.\n\n## Contract\n- npm test\n- [eval] evals/user-set.yaml sha256:" + "a".repeat(64) + "\n", "plan") as any;
 		if ("error" in contract) throw new Error("contract should bind");
 		expect(contract.requiredEval).toMatchObject({ path: "evals/user-set.yaml", sha256: "a".repeat(64) });
 	});
@@ -68,7 +69,7 @@ describe("user eval sets", () => {
 	test("missing, stale and failed eval reports block completion; fresh PASS passes", () => {
 		const cwd = workspace();
 		const binding = { path: "evals/user-set.yaml", sha256: "b".repeat(64) };
-		const contract = { fingerprint: "fp", requiredEval: binding, mandatory: [{ kind: "cmd" }] } as any;
+		const contract = { fingerprint: "fp", requiredEval: binding } as any;
 		expect(checkRequiredEvalBinding(cwd, binding).ok).toBe(false);
 		// A PASS receipt alone cannot satisfy the gate without the eval report.
 		expect(canComplete(PASS_RECEIPT({ fingerprint: "fp" }), contract, "same")).toBe(false);

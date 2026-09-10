@@ -21,9 +21,8 @@ function receipt(cwd: string, status: "PASS" | "FAIL", attempt: number) {
 		status,
 		contractFingerprint: contract.fingerprint,
 		workspaceManifestHash: buildWorkspaceManifest(cwd, contract.fingerprint).hash,
-		results: status === "PASS" ? [] : [{ kind: "advisory" as const, raw: "repair needed", status: "blocked" as const, note: "fix" }],
+		results: status === "PASS" ? [] : [{ raw: "repair needed", status: "blocked" as const, note: "fix" }],
 		attempt,
-		verifierRequired: true,
 		verifier: { runId: `verifier-${attempt}`, status, summary: status === "PASS" ? "pass" : "fail" },
 		createdAt: new Date().toISOString(),
 	};

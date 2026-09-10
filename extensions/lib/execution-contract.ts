@@ -6,7 +6,6 @@ import { resolve } from "node:path";
 
 export type VerificationStatus = "PASS" | "FAIL" | "BLOCKED";
 export type ContractAssertion =
-	| { kind: "cmd"; raw: string; command: string; args: string[] }
 	| { kind: "eval"; raw: string; path: string; sha256: string }
 	| { kind: "advisory"; raw: string; text: string };
 
@@ -28,8 +27,6 @@ export interface AcceptanceContract {
 	/** Exact approved Markdown file used as the contract source, when file-backed. */
 	contractPath?: string;
 	assertions: ContractAssertion[];
-	/** Legacy compatibility field; no assertion type is a global completion gate. */
-	mandatory: ContractAssertion[];
 	/** Present when the confirmed contract binds a mandatory eval set via [eval]. */
 	requiredEval?: RequiredEvalBinding;
 	fingerprint: string;
@@ -108,7 +105,7 @@ export function tokenizeCommand(input: string): string[] {
 	return tokens;
 }
 
-/** Unknown checklist markers, including removed [file]/[match], are advisory. */
+/** Removed markers ([cmd]/[file]/[match]) and natural-language items are advisory. */
 export function parseAssertion(raw: string): ContractAssertion {
 	const advisory: ContractAssertion = { kind: "advisory", raw, text: raw.replace(/^advisory\s*[:\-]\s*/i, "").trim() };
 	const evalMarker = raw.match(/^\[eval\]\s+(.+)$/i);
@@ -119,17 +116,7 @@ export function parseAssertion(raw: string): ContractAssertion {
 			? { kind: "eval", raw, path, sha256: hashValue.toLowerCase() }
 			: advisory;
 	}
-	const marker = raw.match(/^\[cmd\]\s+(.+)$/i);
-	if (!marker) return advisory;
-	const tokens = tokenizeCommand(commandText(marker[1]));
-	const [command, ...args] = tokens;
-	return command ? { kind: "cmd", raw, command, args } : advisory;
-}
-
-export function isMandatory(_assertion: ContractAssertion): boolean {
-	// Historical [cmd] markers remain parseable for old contracts, but never
-	// become a global completion gate. Objective review owns PASS/FAIL/BLOCKED.
-	return false;
+	return advisory;
 }
 
 export function extractContractAssertions(markdown: string, headings: string[]): ContractAssertion[] {
@@ -155,7 +142,6 @@ function buildContract(markdown: string, source: AcceptanceContract["source"], h
 		constraints: sectionText(markdown, ["Constraints"]),
 		contractPath: contractPath ? resolve(contractPath) : undefined,
 		assertions,
-		mandatory: assertions.filter(isMandatory),
 		/** Set when the user marked an eval set as a mandatory acceptance item via [eval]. */
 		requiredEval: assertions.find((a): a is Extract<ContractAssertion, { kind: "eval" }> => a.kind === "eval"),
 		fingerprint: planFingerprint(markdown),
@@ -163,7 +149,7 @@ function buildContract(markdown: string, source: AcceptanceContract["source"], h
 }
 
 export function emptyContract(markdown: string, source: AcceptanceContract["source"], contractPath?: string): AcceptanceContract {
-	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", contractPath: contractPath ? resolve(contractPath) : undefined, assertions: [], mandatory: [], fingerprint: planFingerprint(markdown) };
+	return { version: 3, source, objective: markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() || "untitled", scope: "", acceptanceCriteria: "", evidenceRequirements: "", constraints: "", contractPath: contractPath ? resolve(contractPath) : undefined, assertions: [], fingerprint: planFingerprint(markdown) };
 }
 
 export function bindAcceptanceContract(markdown: string, source: "plan" | "pipeline" | "task", contractPath?: string): AcceptanceContract {

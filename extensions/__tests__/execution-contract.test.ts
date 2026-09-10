@@ -21,22 +21,12 @@ Auth exists.
 `;
 
 describe("assertion parsing", () => {
-	it("parses [cmd] into command + args without shell", () => {
-		const a = parseAssertion("[cmd] npm test -- auth.test.ts");
-		expect(a).toMatchObject({ kind: "cmd", command: "npm", args: ["test", "--", "auth.test.ts"] });
-	});
-
-	it("accepts a Markdown-fenced command with a result annotation", () => {
-		expect(parseAssertion("[cmd] `node --test` → all tests pass")).toMatchObject({
-			kind: "cmd",
-			command: "node",
-			args: ["--test"],
-		});
-	});
-
-	it("treats removed structural assertions as advisory", () => {
+	it("degrades [cmd] and removed structural markers to advisory context", () => {
+		expect(parseAssertion("[cmd] npm test -- auth.test.ts")).toMatchObject({ kind: "advisory" });
+		expect(parseAssertion("[cmd] `node --test` → all tests pass")).toMatchObject({ kind: "advisory" });
 		expect(parseAssertion("[file] extensions/lib/x.ts")).toMatchObject({ kind: "advisory" });
 		expect(parseAssertion("[match] foo :: extensions/lib/x.ts")).toMatchObject({ kind: "advisory" });
+		expect(parseAssertion("[cmd]")).toMatchObject({ kind: "advisory" });
 	});
 
 	it("degrades natural-language items to advisory", () => {
@@ -45,31 +35,31 @@ describe("assertion parsing", () => {
 		expect(parseAssertion("[cmd]")).toMatchObject({ kind: "advisory" });
 	});
 
-	it("keeps historical assertions separate without making them mandatory", () => {
+	it("keeps contract assertions advisory and never executable", () => {
 		const bound = bindAcceptanceContract(PLAN, "plan");
 		if ("error" in bound) throw new Error("expected contract");
-		expect(bound.mandatory).toHaveLength(0);
 		expect(bound.assertions).toHaveLength(2);
-		expect(bound.assertions[0]).toMatchObject({ kind: "cmd" });
-		expect(bound.assertions[1]).toMatchObject({ kind: "advisory" });
+		expect(bound.assertions.every((assertion) => assertion.kind === "advisory")).toBe(true);
+		expect(bound.requiredEval).toBeUndefined();
 	});
 
-	it("binds an Objective-only contract without executable assertions", () => {
+	it("binds an Objective-only contract without assertions", () => {
 		const bound = bindAcceptanceContract("# Plan: x\n\n## Objective\nLogin page renders.\n", "plan");
 		if ("error" in bound) throw new Error("expected contract");
 		expect(bound.objective).toBe("Login page renders.");
-		expect(bound.mandatory).toHaveLength(0);
+		expect(bound.assertions).toHaveLength(0);
 	});
 
-	it("binds spec contract from Requirements with executable assertions", () => {
+	it("binds spec contract from Requirements as advisory context", () => {
 		const spec = `# Spec: login\n\n## Scope\nLogin.\n\n## Acceptance Criteria\nLogin works.\n\n## Evidence Requirements\nTests.\n\n## Requirements\n- [cmd] npm test\n- login page (advisory)\n`;
 		const bound = bindSpecContract(spec);
 		if ("error" in bound) throw new Error("expected contract");
 		expect(bound.source).toBe("spec");
-		expect(bound.mandatory).toHaveLength(0);
+		expect(bound.assertions).toHaveLength(2);
+		expect(bound.assertions.every((assertion) => assertion.kind === "advisory")).toBe(true);
 	});
 
-	it("prefers an executable Contract section over natural-language Requirements", () => {
+	it("prefers an explicit Contract section over natural-language Requirements", () => {
 		const spec = `# Spec: search notes
 
 ## Scope
@@ -92,7 +82,7 @@ Tests cover search.
 		if ("error" in bound) throw new Error("expected contract");
 		expect(bound.source).toBe("spec");
 		expect(bound.assertions).toHaveLength(1);
-		expect(bound.assertions[0]).toMatchObject({ kind: "cmd", command: "node", args: ["--test"] });
+		expect(bound.assertions[0]).toMatchObject({ kind: "advisory", raw: "[cmd] node --test" });
 	});
 
 	it("changes fingerprint when the approved text changes", () => {
@@ -137,6 +127,6 @@ Do not modify main.rs.
 			constraints: "Do not modify main.rs.",
 		});
 		expect(bound.assertions).toHaveLength(2);
-		expect(bound.mandatory).toHaveLength(0);
+		expect(bound.assertions.every((assertion) => assertion.kind === "advisory")).toBe(true);
 	});
 });

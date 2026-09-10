@@ -26,6 +26,6 @@
 ## C. 红线（永不妥协，来自各文档）
 
 - 不造第二完成门；agent 自报 RESULT 永不是完成（verification-design §5）。
-- `[cmd]` 不作静默全局门；`[eval]` 绑定是显式确定性门的唯一入口（verification-design §5）。
+- `[cmd]` 断言已移除（无命令执行路径，遗留标记降级为 advisory）；`[eval]` 绑定是显式确定性门的唯一入口（verification-design §5）。
 - 所有自动化写/外联/部署过人工门（POSITIONING §6.6）。
 - load-bearing monolith 死代码清理 = 功能性触碰时顺带删，不为美容开膛（mode-semantics §8）。

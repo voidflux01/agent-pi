@@ -1,5 +1,5 @@
 // ABOUTME: User workspace eval-set loading, executor dispatch and the mandatory-eval gate.
-// ABOUTME: User commands run through execFile without a shell, reusing the [cmd] assertion boundary.
+// ABOUTME: User commands run through execFile without a shell, only when a case declares the command executor.
 
 import { execFile } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";

@@ -15,7 +15,7 @@ Turn the request into a contract: Objective, Scope, Acceptance Criteria, Evidenc
 - Prefer a small modification whitelist and treat tests, schemas, and approval artifacts as frozen specifications.
 - Keep active plan/spec state current; record blockers in the active RESULT or artifact, and finish with the final RESULT. Do not invent tracking files.
 - Stop after repeated failures, a worse-than-baseline result, or a satisfied scope. Never fake green with skipped/deleted tests, weaker assertions, changed thresholds, fake subjects, or \`|| true\`.
-- Worker reports are claims; deterministic commands and \`verify_execution\` decide completion.`;
+- Worker reports are claims; the independent verifier and any bound eval set decide completion.`;
 
 /** Shared task contract appended to every orchestration-mode prompt. */
 export const COMPLETION_GATE_PROMPT = `## Acceptance and review contract

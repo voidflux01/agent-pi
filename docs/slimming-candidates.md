@@ -15,7 +15,7 @@
 | dispatch-runtime `run` 别名 | @deprecated 兼容 shim | 已删（S3） |
 | CHAIN 模式（agent-chain runAgent/runChain + 父自建 spawn） | 文件自注 retired（L1065），dead 函数 | **修剪候选**（S4 登记：功能触碰时顺带删） |
 | agent-team / pipeline-team 死 spawn 路径 | __removed handler + 无活调用者 | **修剪候选**（同上，S4 登记） |
-| `[cmd]` 完成路径确定性执行 | legacy runIsolatedVerifier 零生产调用 | 记录于 verification-design，不删（机制保留） |
+| `[cmd]` 完成路径确定性执行 | legacy runIsolatedVerifier 零生产调用 | 已删（2026-09-10：解析、执行器、legacy API、提示词证据管道全清） |
 
 ## 2. 真机全程未命中（GUI/装饰/专项，推荐保留但停止继续堆料）
 

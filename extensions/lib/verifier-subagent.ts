@@ -40,7 +40,7 @@ export interface VerifierSubagentResult {
 
 const VERIFIER_SYSTEM_PROMPT = `You are an independent verifier subagent. Remain read-only, do not modify repository state, and follow the required shared Markdown RESULT contract supplied in the task prompt.`;
 
-function verifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
+function verifierPrompt(contract: AcceptanceContract, contractText = ""): string {
 	return `You are an independent verifier subagent and read-only code reviewer. You are the final acceptance auditor for a software change.
 
 Skills are enabled and must remain available. Use relevant skills progressively when they improve the audit. Never disable or bypass skills.
@@ -69,8 +69,6 @@ ${contract.contractPath || "(not file-backed; use the structured contract above)
 
 ${contractText ? `Exact user-confirmed contract text (preserve its scope and conditions during review):\n${contractText}` : ""}
 
-${deterministicEvidence ? `Optional deterministic evidence is available below. Treat it as authoritative for the listed checks, but do not treat command execution as required for Objective acceptance:\n${deterministicEvidence}` : ""}
-
 Perform all of these checks:
 1. Contract quality: decide whether Objective is concrete enough to audit. Objective is the only required contract field; Scope, Acceptance Criteria, Evidence Requirements, Constraints, and assertions are optional context. If Objective is missing or ambiguous, use BLOCKED and name the exact problem.
 2. Requirement coverage: map Objective to implementation and behavioral evidence. Missing optional evidence is a warning, not BLOCKED or FAIL; use BLOCKED only when the Objective itself cannot be audited. Never invent evidence.
@@ -83,7 +81,7 @@ Severity guidance: CRITICAL = exposed secrets, destructive or irreversible opera
 
 Report caps: exactly one REQ block per acceptance criterion from the contract (do not invent extra requirements), and at most 15 REV findings ordered by severity (highest first) — trim longer lists to the most material items.
 
-Use PASS when the Objective is supported by representative code, diff, deterministic checks, or available runtime evidence and no hard blocker remains. Missing optional, historical, unauthenticated, or non-replayable runtime evidence must be recorded as WARN, not BLOCKED or FAIL. Use FAIL only for a demonstrated Objective or implementation failure. Use BLOCKED only when the Objective is ambiguous, required access is unavailable, or evidence directly contradicts the implementation. Every finding must include a concrete file, line, command, test name, or search result where possible.
+Use PASS when the Objective is supported by representative code, diff, or available runtime evidence and no hard blocker remains. Missing optional, historical, unauthenticated, or non-replayable runtime evidence must be recorded as WARN, not BLOCKED or FAIL. Use FAIL only for a demonstrated Objective or implementation failure. Use BLOCKED only when the Objective is ambiguous, required access is unavailable, or evidence directly contradicts the implementation. Every finding must include a concrete file, line, command, test name, or search result where possible.
 
 Your final response MUST be exactly one shared Markdown result block. Do not use JSON, YAML, tables, code fences, or prose outside the block. Write summary and findings in the same language as the contract objective (match the user's language for non-English contracts). Keep every named field on one line; put longer material in list items. Use one ### REQ-nnn block per acceptance requirement and one ### REV-nnn block per review finding. Omit REV blocks when there are no review findings. The only overall, requirement, contract, review, and behavior status values are PASS, FAIL, and BLOCKED. Quality and security additionally allow WARN. If the Objective is ambiguous or required access is unavailable, use BLOCKED (never invent UNVERIFIED); do not use BLOCKED for missing optional runtime evidence:
 ## RESULT
@@ -152,8 +150,8 @@ findings:
 ## END`;
 }
 
-export function buildVerifierPrompt(contract: AcceptanceContract, deterministicEvidence = "", contractText = ""): string {
-	return verifierPrompt(contract, deterministicEvidence, contractText);
+export function buildVerifierPrompt(contract: AcceptanceContract, contractText = ""): string {
+	return verifierPrompt(contract, contractText);
 }
 
 /** Narrowed instructions for a re-verification round after remediation of the
@@ -439,7 +437,6 @@ export async function runVerifierSubagent(input: {
 	parentRunId?: string;
 	mode?: string;
 	model?: string;
-	deterministicEvidence?: string;
 	contractText?: string;
 	previousReport?: VerifierSubagentReport;
 	pollTimeoutMs?: number;
@@ -481,7 +478,7 @@ export async function runVerifierSubagent(input: {
 		...(input.previousReport && input.previousReport.status !== "PASS"
 			? [reVerificationPrompt(input.previousReport)]
 			: []),
-		verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),
+		verifierPrompt(input.contract, input.contractText),
 		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
 	].filter(Boolean).join("\n\n");
 	// A startup failure (empty output, process_error) is transport/infra flake,

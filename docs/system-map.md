@@ -36,7 +36,6 @@ context-gate | L1 | core | F | Y | 压缩 warn/prep/compact 门阈值
 coordination-state | L1 | core | F | Y | canonical 内存会话/协调状态（§3 canonical）
 defaults | L2 | core | - | N | 从 models.json 读默认 subagent 模型（import 时副作用）
 delegation-guard | L1 | core | - | Y | 探测嵌套 headless pi 启动（shadow fleets）
-deterministic-verifier | L2 | core | - | Y | 逐断言跑确定性验证命令
 dispatch-gate | L1 | core | - | N | AsyncLocalStorage 委派授权门
 dispatch-runtime | L2 | core | - | Y | 生成/传输 worker(headless/herdr) + 记录
 duration-format | L1 | optional | - | Y | 格式化耗时 Ns / Nm Ns

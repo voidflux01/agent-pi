@@ -4,21 +4,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bindAcceptanceContract, bindSpecContract, emptyContract, type AcceptanceContract } from "../lib/execution-contract.ts";
 import { completeDecision, pipelineCompleteDecision, verificationRequired, MISSING_RECEIPT_REASON } from "../lib/execution-gate.ts";
-import { createVerifierReceipt, type VerifierReceipt } from "../lib/verifier-runtime.ts";
-import type { DeterministicVerification } from "../lib/deterministic-verifier.ts";
+import { createVerifierReceipt, type VerificationOutcome, type VerifierReceipt } from "../lib/verifier-runtime.ts";
 
 const PLAN = `# Plan: add login
 
 ## Contract
-- [cmd] npm test -- auth.test.ts
-- [file] extensions/lib/execution-contract.ts
+- Login works with the authorized session (auth.test.ts)
+- No regression in the existing login path
 `;
 
 const SPEC = `# Spec: add login
 
 ## Requirements
-- [cmd] npm test -- auth.test.ts
-- login page renders (advisory)
+- login page renders
+- session cookie is set
 `;
 
 function contract(): AcceptanceContract {
@@ -33,21 +32,22 @@ function specContract(): AcceptanceContract {
 	return bound;
 }
 
-function verification(status: DeterministicVerification["status"] = "PASS"): DeterministicVerification {
+function verification(status: VerificationOutcome["status"] = "PASS"): VerificationOutcome {
 	return {
 		status,
 		results: status === "PASS"
-			? [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: "pass" as const }]
-			: [{ kind: "cmd" as const, raw: "[cmd] npm test -- auth.test.ts", status: status === "FAIL" ? "fail" as const : "blocked" as const, note: "boom" }],
+			? []
+			: [{ raw: "[subagent] independent acceptance and code review", status: status === "FAIL" ? "fail" as const : "blocked" as const, note: "boom" }],
 	};
 }
 
-function receipt(bound: AcceptanceContract, manifestHash = "m1", status: DeterministicVerification["status"] = "PASS"): VerifierReceipt {
+function receipt(bound: AcceptanceContract, manifestHash = "m1", status: VerificationOutcome["status"] = "PASS"): VerifierReceipt {
 	return createVerifierReceipt({
 		contract: bound,
 		workspaceManifestHash: manifestHash,
 		verification: verification(status),
 		attempt: 1,
+		verifier: { runId: "verifier-1", status, summary: status === "PASS" ? "objective satisfied" : "objective not satisfied" },
 	});
 }
 
@@ -107,7 +107,6 @@ describe("completion gate (contract-bound)", () => {
 			workspaceManifestHash: "m1",
 			verification: { status: "PASS", results: [] },
 			attempt: 1,
-			verifierRequired: true,
 			verifier: { runId: "verifier-1", status: "PASS", summary: "Objective satisfied" },
 		});
 		expect(completeDecision({ surface: "plan-show-report", contract: objectiveOnly, receipt: verifierReceipt, workspaceManifestHash: "m1" }).allowed).toBe(true);
@@ -179,7 +178,6 @@ describe("shipped wiring", () => {
 		const reportStart = src.indexOf('pi.registerCommand("report"');
 		expect(reportStart).toBeGreaterThan(0);
 		expect(src.slice(reportStart)).not.toContain("completeDecision");
-		expect(src.slice(reportStart)).not.toContain("runIsolatedVerifier");
 	});
 
 	it("records deterministic verification status in the orchestration event trail", () => {
@@ -196,7 +194,7 @@ describe("shipped wiring", () => {
 		const src = readFileSync(join(root, "..", "lib", "verifier-subagent.ts"), "utf8");
 		expect(src).toContain("Approved contract file path");
 		expect(src).toContain("contract.contractPath");
-		expect(src).toContain('verifierPrompt(input.contract, input.deterministicEvidence, input.contractText),');
+		expect(src).toContain('verifierPrompt(input.contract, input.contractText),');
 		expect(src).toContain("const initialPrompt = [");
 		expect(src).not.toContain('"--append-system-prompt", VERIFIER_SYSTEM_PROMPT');
 	});

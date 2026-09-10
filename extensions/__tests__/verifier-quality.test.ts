@@ -99,18 +99,8 @@ describe("acceptance contract quality", () => {
 		expect(result.findings.join(" ")).toContain("Objective");
 	});
 
-	it("does not require Scope or command evidence", () => {
+	it("does not require Scope or extra evidence sections", () => {
 		const result = inspectContractQuality(bindAcceptanceContract("# Plan: x\n\n## Objective\nShip it.\n", "plan"));
-		expect(result.status).toBe("PASS");
-	});
-
-	it("does not block historical commands that would previously fail quality checks", () => {
-		const result = inspectContractQuality(contract(`# Plan: x\n\n## Contract\n- [cmd] mvn -q test -Dtest=X -Dsurefire.failIfNoSpecifiedTests=false\n`));
-		expect(result.status).toBe("PASS");
-	});
-
-	it("accepts a representative test command", () => {
-		const result = inspectContractQuality(contract(`# Plan: x\n\n## Contract\n- [cmd] mvnd -q test\n- [match] toggleTodo :: src/todos.js\n`));
 		expect(result.status).toBe("PASS");
 	});
 
@@ -121,10 +111,11 @@ describe("acceptance contract quality", () => {
 	});
 
 	it("keeps verifier skills enabled and its audit prompt read-only", () => {
-		const prompt = buildVerifierPrompt(contract(`# Plan: x\n\n## Contract\n- [cmd] mvnd -q test\n`));
+		const prompt = buildVerifierPrompt(contract("# Plan: x\n\n## Objective\nShip the change.\n"));
 		expect(prompt).toContain("Skills are enabled and must remain available");
 		expect(prompt).toContain("must not modify any file");
 		expect(prompt).toContain("read-only verification commands");
+		expect(prompt).not.toContain("deterministic evidence");
 		const source = readFileSync(new URL("../lib/verifier-subagent.ts", import.meta.url), "utf8");
 		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
 		expect(source).toContain('launch(initialPrompt, "read,bash,grep,find,ls", "audit")');
@@ -136,9 +127,8 @@ describe("acceptance contract quality", () => {
 		expect(source).toContain("withSessionResume");
 	});
 
-	it("passes deterministic evidence to the verifier and forbids stranded statuses", () => {
-		const prompt = buildVerifierPrompt(contract(`# Plan: x\n\n## Contract\n- [cmd] mvnd -q test\n`), "1. [cmd] mvnd -q test => pass");
-		expect(prompt).toContain("Optional deterministic evidence is available below");
+	it("forbids stranded statuses in the verifier prompt", () => {
+		const prompt = buildVerifierPrompt(contract("# Plan: x\n\n## Objective\nShip the change.\n"));
 		expect(prompt).toContain("never invent UNVERIFIED");
 		expect(prompt).toContain("## RESULT");
 		expect(prompt).not.toContain("## VERIFIER RESULT");

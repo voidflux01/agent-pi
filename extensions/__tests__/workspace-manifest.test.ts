@@ -16,7 +16,7 @@ beforeEach(() => {
 	git(["add", "-A"]);
 	git(["commit", "-q", "-m", "init"]);
 });
-afterEach(() => { try { rmSync(repo, { recursive: true, force: true }); } catch {} });
+afterEach(() => { try { rmSync(repo, { recursive: true, force: true }); } catch { } });
 
 const FINGERPRINT_A = "a".repeat(64);
 const FINGERPRINT_B = "b".repeat(64);
@@ -74,42 +74,28 @@ describe("workspace manifest", () => {
 	});
 });
 
-describe("receipt binding end-to-end (acceptance criteria 1-4)", () => {
+describe("receipt binding end-to-end", () => {
 	it("untracked file invalidates an existing PASS receipt", async () => {
 		const { bindAcceptanceContract } = await import("../lib/execution-contract.ts");
-		const { runIsolatedVerifier } = await import("../lib/isolated-verifier.ts");
 		const { createVerifierReceipt, canComplete } = await import("../lib/verifier-runtime.ts");
 		const { buildWorkspaceManifest } = await import("../lib/workspace-manifest.ts");
-		const { runDeterministicVerification } = await import("../lib/deterministic-verifier.ts");
 
-		const plan = `# Plan: p\n\n## Contract\n- [cmd] ${process.execPath} -e "process.exit(0)"\n`;
-		const bound = bindAcceptanceContract(plan, "plan");
+		const bound = bindAcceptanceContract("# Plan: p\n\n## Objective\nShip the change.\n", "plan");
 		if ("error" in bound) throw new Error("expected contract");
 
-		// Verify → PASS, bound to current manifest.
-		const first = await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
-		const initialManifest = buildWorkspaceManifest(repo, bound.fingerprint);
-		expect(first.receipt?.status).toBe("PASS");
-		expect(canComplete(first.receipt, bound, initialManifest.hash)).toBe(true);
+		// Verify → PASS, bound to the current manifest.
+		const receipt = createVerifierReceipt({
+			contract: bound,
+			workspaceManifestHash: buildWorkspaceManifest(repo, bound.fingerprint).hash,
+			verification: { status: "PASS", results: [] },
+			attempt: 1,
+			verifier: { runId: "verifier-1", status: "PASS", summary: "objective satisfied" },
+		});
+		expect(canComplete(receipt, bound, buildWorkspaceManifest(repo, bound.fingerprint).hash)).toBe(true);
 
 		// Add an untracked file → manifest changes → old receipt is stale.
 		writeFileSync(join(repo, "sneaky-untracked.ts"), "x\n");
 		const afterManifest = buildWorkspaceManifest(repo, bound.fingerprint);
-		expect(canComplete(first.receipt, bound, afterManifest.hash)).toBe(false);
-	});
-
-	it("failing command produces a FAIL receipt that blocks completion", async () => {
-		const { bindAcceptanceContract } = await import("../lib/execution-contract.ts");
-		const { runIsolatedVerifier } = await import("../lib/isolated-verifier.ts");
-		const { canComplete } = await import("../lib/verifier-runtime.ts");
-		const { buildWorkspaceManifest } = await import("../lib/workspace-manifest.ts");
-
-		const plan = `# Plan: p\n\n## Contract\n- [cmd] ${process.execPath} -e "process.exit(3)"\n`;
-		const bound = bindAcceptanceContract(plan, "plan");
-		if ("error" in bound) throw new Error("expected contract");
-		const verification = await runIsolatedVerifier({ cwd: repo, contract: bound, attempt: 1 });
-		const manifest = buildWorkspaceManifest(repo, bound.fingerprint);
-		expect(verification.receipt?.status).toBe("FAIL");
-		expect(canComplete(verification.receipt, bound, manifest.hash)).toBe(false);
+		expect(canComplete(receipt, bound, afterManifest.hash)).toBe(false);
 	});
 });

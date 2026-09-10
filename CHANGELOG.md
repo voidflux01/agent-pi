@@ -4,6 +4,18 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Inline `[cmd]` command execution removed
+
+- **The acceptance contract no longer carries executable commands.** The
+  `[cmd]` parse branch, `lib/deterministic-verifier.ts` (the shell-free
+  `execFile` runner), the zero-caller legacy `runIsolatedVerifier`, the
+  `mandatory`/`isMandatory` compatibility field, and the verifier prompt's
+  deterministic-evidence pipe are gone. Legacy `[cmd]`/`[file]`/`[match]`
+  markers now degrade to advisory context, and a receipt's `results` holds
+  advisory diagnostics only — never a verdict. Deterministic evidence stays
+  where it was already a real gate: a contract-bound `[eval] <path>
+  sha256:<hex>` eval set (and the user eval-set `command` executor it drives).
+
 ### Verifier verdicts derived, not typed-and-rechecked
 
 - **Overall verifier status is now derived from the reported per-item facts
