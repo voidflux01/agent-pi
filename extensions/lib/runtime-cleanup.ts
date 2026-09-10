@@ -4,6 +4,7 @@
 // ABOUTME: (session shutdown: verifier transcripts, terminal orchestration runs).
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +49,14 @@ export const SESSION_SCRAP_DIRS = [
 	".pi/grill-me",
 ];
 
+/** Subagent worker sessions live under the user's home dir (not the workspace):
+ *  their per-tool compositions land in ~/.pi/agent/sessions/subagents/compositions.
+ *  Worker exit must NOT clean these (the parent may still want the ledger); the
+ *  parent session's shutdown reaps them via cleanupTerminalRuns, and the home
+ *  sessions dir is swept on retention as the crash-debris net. */
+export const HOME_SUBAGENT_SESSIONS = join(homedir(), ".pi", "agent", "sessions", "subagents");
+export const HOME_SUBAGENT_COMPOSITIONS = join(HOME_SUBAGENT_SESSIONS, "compositions");
+
 /** Recursively delete files older than `cutoff`, then remove dirs left empty.
  *  Silent on any filesystem error — cleanup must never break anything. */
 function sweep(path: string, cutoff: number): number {
@@ -67,7 +76,7 @@ function sweep(path: string, cutoff: number): number {
 
 /** Retention sweep over the fixed artifact table, throttled: skips (and keeps
  *  the old marker) when the last sweep is younger than `throttleMs`. */
-export function cleanupRuntimeArtifacts(cwd: string, retentionMs = RUNTIME_ARTIFACT_RETENTION_MS, throttleMs = RUNTIME_CLEANUP_THROTTLE_MS): number {
+export function cleanupRuntimeArtifacts(cwd: string, retentionMs = RUNTIME_ARTIFACT_RETENTION_MS, throttleMs = RUNTIME_CLEANUP_THROTTLE_MS, homeDirs: string[] = [HOME_SUBAGENT_SESSIONS]): number {
 	const markerPath = join(cwd, LAST_SWEEP_MARKER);
 	let last = 0;
 	try { last = Number(readFileSync(markerPath, "utf8")) || 0; } catch { }
@@ -76,6 +85,9 @@ export function cleanupRuntimeArtifacts(cwd: string, retentionMs = RUNTIME_ARTIF
 	let removed = 0;
 	for (const rel of RUNTIME_ARTIFACT_DIRS) {
 		try { removed += sweep(join(cwd, rel), cutoff); } catch { }
+	}
+	for (const abs of homeDirs) {
+		try { removed += sweep(abs, cutoff); } catch { }
 	}
 	try { mkdirSync(dirname(markerPath), { recursive: true }); writeFileSync(markerPath, String(Date.now())); } catch { }
 	return removed;
@@ -105,15 +117,34 @@ export function cleanupVerifierTranscripts(cwd: string): number {
 }
 
 /** Delete orchestration runs that reached a terminal state (no active.json).
+ *  Covers the workspace's top-level compositions dir plus per-session nested
+ *  ones (event dirs land under the session file's dir, e.g. verifier/compositions),
+ *  and the home subagent compositions dir (subagent worker ledgers).
  *  Runs mid-flight are kept: their subagent may still be running in a detached
  *  pane, or be resumed after a crash via dispatch receipts. */
-export function cleanupTerminalRuns(cwd: string): number {
-	const base = join(cwd, ".pi", "agent-sessions", "compositions");
+export function cleanupTerminalRuns(cwd: string, homeCompositions: string = HOME_SUBAGENT_COMPOSITIONS): number {
+	// Home subagent ledger is swept regardless of the workspace layout: a fresh
+	// workspace may have no .pi/agent-sessions at all while workers still left runs.
+	let removed = reapTerminalRuns(homeCompositions);
+	const sessions = join(cwd, ".pi", "agent-sessions");
 	let names: string[];
-	try { names = readdirSync(base); } catch { return 0; }
-	let removed = 0;
+	try { names = readdirSync(sessions); } catch { return removed; }
 	for (const name of names) {
-		const dir = join(base, name);
+		const base = name === "compositions"
+			? join(sessions, name)
+			: join(sessions, name, "compositions");
+		removed += reapTerminalRuns(base);
+	}
+	return removed;
+}
+
+/** Remove finished run dirs (no active.json) under one compositions base. */
+function reapTerminalRuns(base: string): number {
+	let runDirs: string[];
+	try { runDirs = readdirSync(base); } catch { return 0; }
+	let removed = 0;
+	for (const runId of runDirs) {
+		const dir = join(base, runId);
 		try {
 			if (!existsSync(join(dir, ACTIVE_RUN_MARKER))) {
 				rmSync(dir, { recursive: true, force: true });
