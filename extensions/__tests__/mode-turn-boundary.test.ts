@@ -213,4 +213,45 @@ describe("set_mode turn boundary", () => {
 		});
 		expect(providerResult).toBeUndefined();
 	});
+
+	it("delivers the soft recon advisory once, on the reconnaissance result it was raised for", async () => {
+		// Fresh module instance: the advisory queue is module state.
+		vi.resetModules();
+		const { default: freshModeCycler } = await import("../mode-cycler.ts");
+		const toolCallHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const toolResultHandlers: Array<(event: any, ctx?: any) => any> = [];
+		const pi: any = {
+			registerTool() {},
+			registerCommand() {},
+			registerShortcut() {},
+			on(event: string, handler: (event: any, ctx?: any) => any) {
+				if (event === "tool_call") toolCallHandlers.push(handler);
+				if (event === "tool_result") toolResultHandlers.push(handler);
+			},
+			getActiveTools: () => [],
+			setActiveTools() {},
+			sendUserMessage: vi.fn(),
+		};
+		freshModeCycler(pi);
+		resetApprovals();
+		setCoordinationMode("NORMAL");
+
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
+			const below = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", input: { query: `term-${i}` } }, {})));
+			expect(below.every((r) => !r || r.block !== true)).toBe(true);
+		}
+		const triggering = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "grep", input: { query: "term-final" } }, {})));
+		expect(triggering.every((r) => !r || r.block !== true)).toBe(true);
+
+		const content = [{ type: "text", text: "match" }];
+		const injected = (await Promise.all(toolResultHandlers.map((h) => h({ toolName: "grep", input: { query: "term-final" }, content, isError: false }, {}))))
+			.filter((r) => JSON.stringify(r?.content ?? "").includes("advisory"));
+		expect(injected).toHaveLength(1);
+		// The reminder is appended, never a replacement of the real result.
+		expect(injected[0].content[0]).toEqual(content[0]);
+		expect(injected[0].content[1].text).toContain("scout");
+
+		const later = await Promise.all(toolResultHandlers.map((h) => h({ toolName: "grep", input: { query: "term-final" }, content, isError: false }, {})));
+		expect(later.every((r) => !JSON.stringify(r?.content ?? "").includes("advisory"))).toBe(true);
+	});
 });

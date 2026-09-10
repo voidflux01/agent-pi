@@ -5,6 +5,7 @@ import {
 	createNormalEscalationState,
 	isNormalReconCall,
 	normalEscalationReason,
+	reconEscalationAdvisory,
 	NORMAL_RECON_LIMIT,
 	recordNormalToolCall,
 		 resetNormalEscalation,
@@ -24,6 +25,7 @@ describe("NORMAL progressive escalation", () => {
 		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) recordNormalToolCall(state, "read", { path: `file-${i}.ts` });
 		const result = recordNormalToolCall(state, "find", { path: "new-area" });
 		expect(result).toMatchObject({ block: false, count: NORMAL_RECON_LIMIT, advisory: true });
+		expect(reconEscalationAdvisory("NORMAL", result.count)).toContain("scout");
 		expect(recordNormalToolCall(state, "find", { path: "another-area" }).advisory).toBe(false);
 	});
 

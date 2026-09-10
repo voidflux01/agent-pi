@@ -15,7 +15,7 @@ import { coordinationState, setCoordinationMode, type ModeChangeUi } from "./lib
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
-import { createNormalEscalationState, reconEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
+import { createNormalEscalationState, reconEscalationAdvisory, reconEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { asUiTheme } from "./lib/tui/theme.ts";
 import { toolCallText } from "./lib/tui/tool-render.ts";
@@ -27,6 +27,8 @@ const MODE_FILE = "/tmp/pi-current-mode.txt";
 /** System prompt to apply on the next provider request after set_mode in this run. */
 let midRunSystemPrompt: string | null = null;
 let currentObjective = "";
+/** One-time soft recon reminder queued for the next tool result. Never blocks. */
+let pendingEscalationAdvisory: string | null = null;
 
 function withAdoptedExperience(prompt: string, cwd: string): string {
 	if (!currentObjective.trim()) return prompt;
@@ -111,6 +113,7 @@ export default function(pi: ExtensionAPI) {
 		if (previous !== mode) {
 			resetApprovalForMode(mode);
 			resetNormalEscalation(normalEscalationState);
+			pendingEscalationAdvisory = null;
 		}
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
@@ -231,6 +234,7 @@ export default function(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		const mode = coordinationState().mode;
+		let advisory: string | null = null;
 		if (mode !== "NORMAL" && mode !== "PLAN" && mode !== "SPEC") {
 			resetNormalEscalation(normalEscalationState);
 		} else if ((mode === "PLAN" || mode === "SPEC") && approvalStateForMode(mode)) {
@@ -245,6 +249,9 @@ export default function(pi: ExtensionAPI) {
 				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason, context: ctx });
 				return { block: true, reason };
 			}
+			// Soft nudge, not a gate: hold it locally so it is queued only for a call
+			// that actually runs and produces its own result.
+			if (escalation.advisory) advisory = reconEscalationAdvisory(mode, escalation.count);
 		}
 		const decision = decideApprovalGate({
 			mode,
@@ -255,8 +262,20 @@ export default function(pi: ExtensionAPI) {
 		});
 		if (decision.block) {
 			recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "approval", reason: decision.reason, context: ctx });
+		} else if (advisory) {
+			// The call proceeded, so its tool_result is coming: ride along with it.
+			pendingEscalationAdvisory = advisory;
 		}
 		return decision;
+	});
+
+	// Deliver the queued soft reminder attached to the reconnaissance result it
+	// was raised for, then clear it so it is issued once per burst.
+	pi.on("tool_result", (event) => {
+		if (!pendingEscalationAdvisory) return;
+		const advisory = pendingEscalationAdvisory;
+		pendingEscalationAdvisory = null;
+		return { content: [...event.content, { type: "text" as const, text: `\n[${advisory}]` }] };
 	});
 
 	// A follow-up user request starts a fresh reconnaissance decision. Without
@@ -266,6 +285,7 @@ export default function(pi: ExtensionAPI) {
 	pi.on("input", (event) => {
 		if (event.source === "interactive" || event.source === "rpc" || event.source === "extension") {
 			resetNormalEscalation(normalEscalationState);
+			pendingEscalationAdvisory = null;
 			currentObjective = "text" in event && typeof event.text === "string" ? event.text.slice(0, 4000) : "";
 		}
 	});
@@ -288,6 +308,7 @@ export default function(pi: ExtensionAPI) {
 		applyExtensionDefaults(import.meta.url, ctx);
 		midRunSystemPrompt = null;
 		currentObjective = "";
+		pendingEscalationAdvisory = null;
 		resetApprovals();
 		resetNormalEscalation(normalEscalationState);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
@@ -308,6 +329,7 @@ export default function(pi: ExtensionAPI) {
 		// A resumed/new session must not inherit recon pressure or a pending
 		// provider-prompt rewrite from the session that was left behind.
 		resetNormalEscalation(normalEscalationState);
+		pendingEscalationAdvisory = null;
 		midRunSystemPrompt = null;
 		resetApprovals();
 		// Match session_start: a new session starts in NORMAL. This also gives

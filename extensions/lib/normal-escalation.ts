@@ -87,6 +87,15 @@ export function normalEscalationReason(count: number): string {
 	return `The same reconnaissance target has been repeated after the soft threshold (${count} calls). Dispatch one bounded read-only SCOUT with subagent_create (name: "scout"), or stop and report the verified terminal result. SCOUT output is evidence, not completion proof; continue in NORMAL if it resolves the uncertainty.`;
 }
 
+/**
+ * One-time soft reminder issued once per reconnaissance burst. Advisory only:
+ * it never blocks a call and never forces a mode switch.
+ */
+export function reconEscalationAdvisory(mode: string, count: number): string {
+	const normalized = String(mode || "NORMAL").toUpperCase();
+	return `${normalized} advisory (${count} read-only inspection calls): if the context is still unfamiliar — a multi-file area, an unclear call chain, or missing patterns — dispatch one bounded read-only SCOUT with subagent_create (name: "scout"). SCOUT output is evidence, not completion proof. Continue directly if you already have what you need.`;
+}
+
 export function reconEscalationReason(mode: string, count: number): string {
 	const normalized = String(mode || "NORMAL").toUpperCase();
 	if (normalized === "NORMAL") return normalEscalationReason(count);
