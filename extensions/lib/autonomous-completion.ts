@@ -8,7 +8,7 @@ import { decideIteration, loadIteration, recordIteration, type IterationDecision
 import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 import { canComplete, type VerifierReceipt } from "./verifier-runtime.ts";
 import { bumpVerifierAttempt, getEvalGate, getVerifierReceipt, setEvalGate, setVerifierReceipt, verificationScope, getVerifierAttempt } from "./coordination-state.ts";
-import { checkApproval, recordApproval, type ApprovalProposal } from "./workflow-approval-gate.ts";
+import { type ApprovalProposal } from "./workflow-approval-gate.ts";
 import { hasCompletionOverride } from "./completion-override.ts";
 import { OVERRIDE_ALLOWED_REASON } from "./execution-gate.ts";
 import { upsertPersistedReport } from "./report-index.ts";

@@ -24,10 +24,10 @@
  * Usage: Loaded via packages in agent/settings.json
  */
 
-import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
-import { existsSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, appendFileSync, statSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -316,7 +316,6 @@ export default function securityGuard(pi: ExtensionAPI) {
 			const content = params.content || "";
 			if (typeof content === "string" && content.length > 0) {
 				const contentThreats = scanCommand(content, policy); // scripts in content
-				const injectionThreats = scanContent(content, policy);
 				// Only keep exfiltration/destructive from content scan (not injection in content we're writing)
 				const relevantContent = contentThreats.filter(
 					(t) => t.category === "exfiltration" || t.category === "remote_exec",

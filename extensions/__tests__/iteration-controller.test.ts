@@ -14,7 +14,7 @@ describe("iteration controller", () => {
 		const first = observation("FAIL", 1);
 		const second = observation("FAIL", 2);
 		expect(decideIteration({ observation: first, previous: [], maxIterations: 3, repairAvailable: true }).action).toBe("REPAIR");
-		expect(decideIteration({ observation: second, previous: [first], maxIterations: 3, repairAvailable: true }).action).toBe("ESCALATE");
+		expect(decideIteration({ observation: second, previous: [first], maxIterations: 3, repairAvailable: true })).toMatchObject({ action: "REPLAN", nextMode: "PLAN", requiresApproval: true });
 		expect(decideIteration({ observation: observation("PASS", 3), previous: [first, second], maxIterations: 3, repairAvailable: true }).action).toBe("COMPLETE");
 	});
 

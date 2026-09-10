@@ -51,16 +51,16 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT).toContain(".context/todo.md");
 	});
 
-	it("binds RESULT done:true to deterministic verification and report success", () => {
-		expect(PLAN_PROMPT).toContain("Never emit `done: true`");
+	it("binds RESULT done:true to verifier PASS and report success", () => {
+		expect(PLAN_PROMPT).toContain("A final `done: true` is allowed only after `verify_execution` reports PASS and `show_report` completes successfully");
 		expect(PLAN_PROMPT).toContain("completionBlocked: true");
 		expect(PLAN_PROMPT).toContain("done: false");
-		expect(PLAN_PROMPT).toContain("pass the same contract to `verify_execution`");
+		expect(PLAN_PROMPT).toContain("call `verify_execution` and require PASS");
 		expect(PLAN_PROMPT.indexOf("call `verify_execution` and require PASS")).toBeLessThan(PLAN_PROMPT.indexOf("After verifier PASS, call `show_report`"));
 	});
 
 	it("documents Objective-only explainable acceptance", () => {
-		expect(PLAN_PROMPT).toContain("concrete Objective");
+		expect(PLAN_PROMPT).toContain("### Objective");
 		expect(PLAN_PROMPT).toContain("Objective review");
 	});
 
@@ -101,8 +101,8 @@ describe("PLAN_PROMPT — scout-based context gathering", () => {
 	});
 
 	it("does not allow a worker report to replace verify_execution", () => {
-		expect(PLAN_PROMPT).toContain("Manually spawned workers cannot replace");
-		expect(SPEC_PROMPT).toContain("Manually spawned workers cannot replace");
+		expect(PLAN_PROMPT).toContain("Manual workers and self-written summaries cannot replace independent verification");
+		expect(SPEC_PROMPT).toContain("Manual workers and self-written summaries cannot replace independent verification");
 	});
 
 	it("requires recon for non-trivial PLAN tasks while allowing small known-scope tasks to self-inspect", () => {

@@ -1,5 +1,5 @@
 // ABOUTME: Provider-free functional and workflow regression sets exercise real plugin policies.
-import { evaluateCase, calibrateJudge, parseEvalCase, type EvalCase, type JudgeAdapter } from "./eval-engine.ts";
+import { evaluateCase, parseEvalCase, type EvalCase } from "./eval-engine.ts";
 import { scheduleResourceWaves } from "./resource-scheduler.ts";
 import { workflowDirection } from "./workflow-direction.ts";
 import { canComplete } from "./verifier-runtime.ts";
@@ -37,10 +37,3 @@ export async function runRegressionEvals(signal?: AbortSignal) {
 	}, { signal }));
 	return reports;
 }
-
-/** A deterministic test double validates the calibration harness, not an LLM's reliability. */
-export const calibrationFixture: JudgeAdapter = {
-	model: "fixture-only-not-an-llm",
-	async evaluate(_rubric, evidence) { return { tokens: 0, verdict: { score: evidence[0].text.startsWith("observed_exit=0") ? 5 : 1, reason: "Observed exit code", evidence_refs: [evidence[0].id] } }; },
-};
-export function runCalibrationFixture(signal: AbortSignal) { return calibrateJudge(calibrationFixture, signal); }

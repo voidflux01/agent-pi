@@ -7,7 +7,7 @@ import {
   matchesKey, Key, truncateToWidth
 } from "@mariozechner/pi-tui";
 import { DynamicBorder, getMarkdownTheme as getPiMdTheme } from "@mariozechner/pi-coding-agent";
-import { extractContent, buildHistoryItems } from "./lib/session-replay-helpers.ts";
+import { buildHistoryItems } from "./lib/session-replay-helpers.ts";
 
 function formatTime(date: Date): string {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });

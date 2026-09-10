@@ -6,7 +6,7 @@
 // ABOUTME: in-process, and in herdr panes alike.
 // ABOUTME: Parent side provides visibility commands; nothing here blocks the parent.
 
-import { existsSync, readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";

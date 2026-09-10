@@ -255,10 +255,7 @@ function ensureGitignoreEntries(root: string, result: InstallResult, options: { 
 
 function generateAISecurityGuard(isTS: boolean): string {
 	const t = isTS ? ": string" : "";
-	const tBool = isTS ? ": boolean" : "";
-	const tAny = isTS ? ": any" : "";
 	const tVoid = isTS ? ": void" : "";
-	const tObj = isTS ? ": Record<string, any>" : "";
 	const tArr = isTS ? ": string[]" : "";
 
 	const interfaceBlock = isTS

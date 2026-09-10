@@ -14,7 +14,7 @@
  *   /subclear                              — clear all subagent widgets
  */
 
-import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Box, Text, type AutocompleteItem } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -35,7 +35,7 @@ import { resolveToolkitWorkerModel, isToolkitCliAgent, parseToolkitResult, toolk
 import { buildMailboxPreamble, mailboxPreambleEnabled } from "./lib/fleet-mailbox.ts";
 import { currentDispatchAuthorization, isExplicitDispatchActive, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchFailure } from "./lib/dispatch-runtime.ts";
 import type { DispatchOrigin } from "./lib/dispatch-gate.ts";
-import { buildResultFormatRepairPrompt, buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, contractGateEnabled, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, normalizeResultContract, persistFullOutput, resultContractFailure, resultFormatRepairReason, runBaseName } from "./lib/agent-result-contract.ts";
+import { buildResultFormatRepairPrompt, buildWorkerInitialPrompt, checkResultCompliance, composeAgentResult, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, normalizeResultContract, persistFullOutput, resultContractFailure, resultFormatRepairReason, runBaseName } from "./lib/agent-result-contract.ts";
 import { decideScopeDispatch } from "./lib/subagent-scope.ts";
 import { decideTypeDispatch } from "./lib/subagent-type-gate.ts";
 import { journalAppend, journalList, journalUpdate, pruneRunArtifacts, reconcileJournal, type TaskJournalEntry } from "./lib/agent-task-journal.ts";

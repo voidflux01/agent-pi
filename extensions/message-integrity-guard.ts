@@ -27,7 +27,7 @@
  * regardless of how it happened.
  */
 
-import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 // ============================================================================
 // Types (minimal, matching what we see in the message objects)

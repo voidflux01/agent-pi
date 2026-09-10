@@ -17,7 +17,7 @@ import { upsertPersistedReport } from "./lib/report-index.ts";
 import { getEvalGate, getExecutionContract, getVerifierReceipt, verificationScope, getWorkflowRunLink, resetWorkflowRunLink, setWorkflowRunLink } from "./lib/coordination-state.ts";
 import { canComplete } from "./lib/verifier-runtime.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
-import { decideIteration, loadIteration, type IterationObservation } from "./lib/iteration-controller.ts";
+import { decideIteration, loadIteration } from "./lib/iteration-controller.ts";
 import { createWorkflowRun, formatWorkflowRun, loadLatestWorkflowRun, reconcileLatestWorkflowRun, saveWorkflowRun, updateWorkflowRun, markWorkflowRunBlocked } from "./lib/workflow-run.ts";
 
 const result = (value: unknown) => ({ content: [{ type: "text" as const, text: redactEvidence(JSON.stringify(value, null, 2)) }] });

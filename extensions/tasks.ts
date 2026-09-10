@@ -23,8 +23,8 @@
 
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ThemeColor, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
-import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import { Container, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
+
+import { matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { outputLine, type OutputBoxTheme } from "./lib/output-box.ts";
 import { Type, type Static } from "@sinclair/typebox";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";

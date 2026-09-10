@@ -52,7 +52,6 @@ export function modeTextAnsi(mode: Mode): string {
 }
 
 // ANSI escape codes for mode block background colors
-const DODGER_BLUE_BG = "\x1b[48;2;30;144;255m"; // dodger blue rgb(30,144,255)
 
 /** ANSI background color for the mode bar. Dodger blue for all active modes. */
 

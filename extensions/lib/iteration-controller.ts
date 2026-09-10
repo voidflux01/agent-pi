@@ -1,6 +1,6 @@
 // ABOUTME: Deterministic, bounded adaptation between verification attempts.
 // ABOUTME: Persists redacted observations, never changes rules or approval state.
-import {existsSync, mkdirSync, renameSync, writeFileSync} from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readBounded, redactEvidence, safeWorkspacePath } from "./workflow-artifacts.ts";
 import { workflowDirection } from "./workflow-direction.ts";
@@ -97,7 +97,9 @@ export function recordIteration(cwd: string, observation: IterationObservation):
 	const path = iterationPath(cwd, clean.contractFingerprint);
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-	writeFileSync(temporary, redactEvidence(JSON.stringify({ schema_version: 1, contractFingerprint: clean.contractFingerprint, observations }, null, 2)) + "\n", { mode: 0o600 });
+	// Fields are redacted individually in cleanObservation; redacting the serialized
+	// blob as well could match across JSON structure and corrupt the record.
+	writeFileSync(temporary, JSON.stringify({ schema_version: 1, contractFingerprint: clean.contractFingerprint, observations }, null, 2) + "\n", { mode: 0o600 });
 	renameSync(temporary, path);
 }
 

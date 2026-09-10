@@ -1,7 +1,7 @@
 // ABOUTME: Runtime-neutral file mailbox for cross-agent questions/messages.
 // ABOUTME: Maildir-style atomic delivery semantics (as popularized by AMQ), zero deps.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 export type MailKind = "question" | "answer" | "decision" | "status" | "steer";

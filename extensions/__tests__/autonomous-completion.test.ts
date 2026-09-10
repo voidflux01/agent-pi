@@ -21,7 +21,7 @@ function receipt(cwd: string, status: "PASS" | "FAIL", attempt: number) {
 		status,
 		contractFingerprint: contract.fingerprint,
 		workspaceManifestHash: buildWorkspaceManifest(cwd, contract.fingerprint).hash,
-		results: status === "PASS" ? [] : [{ raw: "repair needed", status: "blocked" as const, note: "fix" }],
+		results: status === "PASS" ? [] : [{ raw: "repair needed", status: "fail" as const, note: "fix" }],
 		attempt,
 		verifier: { runId: `verifier-${attempt}`, status, summary: status === "PASS" ? "pass" : "fail" },
 		createdAt: new Date().toISOString(),
@@ -55,6 +55,27 @@ describe("autonomous completion loop", () => {
 		expect(result.attempts).toBe(2);
 		expect(repairs).toBe(1);
 		expect(runVerifier).toHaveBeenCalledTimes(2);
+	});
+
+	it("blocks without repair when the verifier receipt carries blocked evidence", async () => {
+		if ("error" in contract) throw new Error("expected contract");
+		const cwd = mkdtempSync(join(tmpdir(), "autonomous-completion-"));
+		runVerifier.mockResolvedValueOnce({
+			receipt: { ...receipt(cwd, "FAIL", 1), results: [{ raw: "evidence missing", status: "blocked" as const, note: "collect logs" }] },
+		});
+		let repairs = 0;
+		const result = await runAutonomousCompletion({
+			contract,
+			cwd,
+			mode: "NORMAL",
+			dispatchRepair: async () => { repairs++; return true; },
+		});
+		// Missing evidence must not be "repaired" into a pass: fail closed.
+		expect(result.allowed).toBe(false);
+		expect(result.status).toBe("BLOCKED");
+		expect(result.attempts).toBe(1);
+		expect(repairs).toBe(0);
+		expect(runVerifier).toHaveBeenCalledTimes(1);
 	});
 
 	it("replans after repeated FAIL attempts", async () => {

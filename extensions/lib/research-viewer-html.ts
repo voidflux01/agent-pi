@@ -1,7 +1,7 @@
 // ABOUTME: Self-contained HTML template for the research sessions browser view.
 // ABOUTME: Card-based layout with search, status filters, detail view, and resume command copy.
 
-import type { ResearchSession, ResearchSessionSummary } from "./research-session.ts";
+import type { ResearchSessionSummary } from "./research-session.ts";
 
 function escapeHtml(str: string): string {
 	return str.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));

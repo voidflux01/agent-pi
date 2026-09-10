@@ -4,6 +4,32 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- **The iteration ledger no longer corrupts its own JSON.** `recordIteration`
+  redacted the *serialized* record, so a secret-shaped value (for example
+  `token=secret-1`) could swallow the closing quote and leave the file
+  unparseable — every later read then returned an empty history, silently
+  disabling repeated-failure detection. Fields are redacted individually before
+  serialization (they already were in `cleanObservation`), so the record stays
+  valid and the ledger test's redaction assertion still holds.
+- **`searchAdoptedInsights` returns results again.** Its filename filter used
+  `/^[a-zA-Z0-9-]+\\.json$/` (an escaped backslash), so no retrospective file
+  ever matched and adopted insights never re-entered context.
+- **`npm test` always runs both phases.** A bun-phase failure used to `exit`
+  before vitest, hiding 84 test files / 1030 tests from the command everyone
+  runs — which is how the stale assertions below survived.
+- **Stale verifier/iteration test expectations corrected** (they pinned deleted
+  or renamed implementations): the autonomous-completion FAIL fixture carried a
+  `blocked` result (classified as missing *evidence*, i.e. fail-closed BLOCKED
+  with no repair) instead of a `fail` result; the iteration-controller test
+  expected `ESCALATE` where both the code and its own name say `REPLAN`; the
+  mode-prompts assertions quoted prompt wording that no longer exists; the
+  subagent-lifecycle pins named a renamed batch counter and tool description.
+  The fail-closed path those fixtures had accidentally covered is now an
+  explicit test, and the calibration harness with zero callers
+  (`runCalibrationFixture`, `calibrationFixture`, `calibrateJudge`) is deleted.
+
 ### Orphan and compatibility code removed
 
 - **The retired self-spawn paths are gone.** `agent-team.ts`

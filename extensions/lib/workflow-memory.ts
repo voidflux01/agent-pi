@@ -132,7 +132,7 @@ export function listRetrospectives(cwd: string, limit = 20): Array<{ run_id: str
 export function searchAdoptedInsights(cwd: string, objective: string, limit = 5): Array<{ text: string; evidence_refs: string[]; run_id: string }> {
 	const relative = ".pi/workflow/retrospectives";
 	let names: string[];
-	try { names = readdirSync(safeWorkspacePath(cwd, relative)).filter(name => /^[a-zA-Z0-9-]+\\.json$/.test(name)).slice(-500); }
+	try { names = readdirSync(safeWorkspacePath(cwd, relative)).filter(name => /^[a-zA-Z0-9-]+\.json$/.test(name)).slice(-500); }
 	catch (error: any) { if (error?.code === "ENOENT") return []; throw error; }
 	const queryTerms = objective.toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/i).filter(term => term.length > 2).slice(0, 12);
 	const matches: Array<{ text: string; evidence_refs: string[]; run_id: string }> = [];

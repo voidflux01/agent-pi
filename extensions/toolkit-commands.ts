@@ -17,7 +17,7 @@ import { mkdirSync, readdirSync, readFileSync, existsSync, statSync } from "node
 import { join, dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
+
 import { TOOLKIT_WORKER_MODEL } from "./lib/toolkit-cli.ts";
 import { childEnvironment } from "./lib/child-runtime.ts";
 import { currentDispatchAuthorization, createSubagentRuntime, explicitDispatchHandler, withSessionLifecycle, type DispatchRuntimeResult } from "./lib/dispatch-runtime.ts";

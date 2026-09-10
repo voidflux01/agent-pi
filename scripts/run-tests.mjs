@@ -27,8 +27,13 @@ function run(command, args) {
 }
 
 const bunStatus = run(process.env.BUN_BIN || "bun", ["test", "--isolate", ...bunFiles]);
-if (bunStatus !== 0) process.exit(bunStatus);
 
 const vitestCli = resolve(root, "node_modules", "vitest", "vitest.mjs");
 const vitestStatus = run(process.execPath, [vitestCli, "run", ...vitestFiles]);
-process.exit(vitestStatus);
+
+// Both phases always run: a bun-phase failure used to hide the entire vitest
+// phase from `npm test`, so vitest regressions could ship unnoticed.
+if (bunStatus !== 0 || vitestStatus !== 0) {
+  console.error(`\nTest phases: bun ${bunStatus === 0 ? "PASS" : `FAIL(${bunStatus})`} · vitest ${vitestStatus === 0 ? "PASS" : `FAIL(${vitestStatus})`}`);
+  process.exit(bunStatus !== 0 ? bunStatus : vitestStatus);
+}

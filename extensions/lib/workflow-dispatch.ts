@@ -2,7 +2,7 @@
 // ABOUTME: Mode-owned workflows validate dispatches and consume results here.
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 export type WorkflowMode = "NORMAL" | "TEAM" | "PIPELINE" | "CHAIN";

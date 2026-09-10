@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { basename, dirname } from "node:path";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import { shouldWarnForCompaction, getProactiveCompactionPhase } from "./lib/context-gate.ts";
+
 
 /** Turn a model name like "Claude 4 Opus" into "opus 4" */
 function shortModelName(name: string | undefined): string {

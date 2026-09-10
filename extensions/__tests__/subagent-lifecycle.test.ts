@@ -59,7 +59,7 @@ describe("stale session lifecycle protection", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain("shouldAwaitSubagentResult(agentName)");
 		expect(src).toContain("args.join === true");
-		expect(src).toContain('description: "Wait for this worker and return its bounded result in this call');
+		expect(src).toContain('description: "Wait for this worker and return its complete RESULT report in this call');
 		expect(src).toContain("if (!awaitResult)");
 		expect(src).toContain("const result = await started");
 		expect(src).toContain("if (!state.awaitResult)");
@@ -89,7 +89,8 @@ describe("stale session lifecycle protection", () => {
 		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
 		expect(src).toContain('actor: "subagent_batch"');
 		expect(src).toContain("maxSteps: states.length");
-		expect(src).toContain("batchRemaining");
+		expect(src).toContain("deferredCompletions");
+		expect(src).toContain("state.completion");
 		expect(src).toContain("orchestrationRun: batchRun");
 		expect(src).toContain("onSettled: onBatchSettled");
 		expect(src).toContain("signal: args.join === true ? signal : undefined");

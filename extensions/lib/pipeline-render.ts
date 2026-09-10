@@ -84,7 +84,6 @@ export function renderVerticalTimeline(
 ): string[] {
 	const lines: string[] = [];
 	const INDENT = " ";        // 1-char left margin
-	const ICON_GAP = " ";     // space after icon
 	const AGENT_PREFIX = " │  "; // connector + indent for agent lines
 
 	for (let i = 0; i < phases.length; i++) {
@@ -129,7 +128,6 @@ export function renderVerticalTimeline(
 				const timeLen = timeStr.length;
 				const gap = "  ";
 				// Available space for work text: width - prefix - gap - time - gap(if time)
-				const timeSection = timeLen > 0 ? gap + timeStr : "";
 				const timeSectionLen = timeLen > 0 ? gap.length + timeLen : 0;
 				const maxWork = width - prefixLen - gap.length - timeSectionLen;
 				const work = maxWork > 0 ? truncate(workText, maxWork) : "";

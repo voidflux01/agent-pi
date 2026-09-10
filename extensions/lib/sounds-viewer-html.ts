@@ -1,7 +1,7 @@
 // ABOUTME: Self-contained HTML/CSS/JS for the browser-based Soundcn sound viewer.
 // ABOUTME: Categories, search, preview playback via Web Audio API, hook assignment, config management.
 
-import type { SoundsConfig, HookName } from "./sounds-config.ts";
+import type { SoundsConfig } from "./sounds-config.ts";
 
 export interface CatalogItem {
 	name: string;

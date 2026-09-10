@@ -1,7 +1,7 @@
 // ABOUTME: Lightweight local file viewer/editor for the Pi runtime.
 // ABOUTME: Serves a local web UI for viewing and optionally editing a single file directly from the CLI.
 
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";

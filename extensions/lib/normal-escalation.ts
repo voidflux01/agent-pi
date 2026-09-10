@@ -5,7 +5,6 @@ import { isReconTool } from "./tool-classification.ts";
 import { isReconBash } from "./tool-invocation.ts";
 
 export const NORMAL_RECON_LIMIT = 8;
-export const RECON_ESCALATION_LIMIT = NORMAL_RECON_LIMIT;
 
 export interface NormalEscalationState {
 	consecutiveReconCalls: number;

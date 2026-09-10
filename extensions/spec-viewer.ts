@@ -6,7 +6,7 @@ import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync, lstatSync } from "node:fs";
-import { join, basename, dirname, extname, resolve, relative } from "node:path";
+import { join, basename, dirname, extname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
