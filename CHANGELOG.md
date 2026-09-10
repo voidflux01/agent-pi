@@ -6,6 +6,19 @@ All notable changes to agent-pi will be documented in this file.
 
 ### Changed
 
+- **Runtime artifact cleanup (`.pi`/`.context`).** A new lifecycle extension
+  keeps workspace runtime debris bounded. At session start it sweeps with
+  7-day retention, throttled to once per 12h so frequently-touched
+  workspaces are not re-walked every session (orchestration run ledgers,
+  verifier transcripts, dispatch receipts, evidence, research sessions,
+  generated images, security audit log); at session shutdown it deletes what is provably dead immediately:
+  pure capture artifacts (debug/web captures, grill bookkeeping), verifier
+  transcripts (the verdict lives in the persisted receipt), and orchestration
+  runs that reached a terminal state (no `active.json` — in-flight runs are
+  kept for crash recovery). User data and durable state are untouched:
+  `.context/todo.md`, session state, `.context/reports` (own pruner) and
+  `.pi/workflow` (approvals, memory, retrospectives).
+
 - **The workspace gate is now a fast git-state fingerprint, not a content
   hash.** A receipt binds index object ids (`git ls-files -s`) plus
   `git status --porcelain` rows (staged/dirty/untracked names) and the
