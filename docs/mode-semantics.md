@@ -66,7 +66,7 @@
 
 ## 7. 完成与验证（跨模式）
 
-- 完成唯一出口 = verifier 收据：`verify_execution`（extensions/execution-verifier.ts）→ `lib/isolated-verifier.ts` `runAcceptanceVerifier`（确定性 + 独立只读 verifier subagent）→ `VerifierReceipt`；`completeDecision`/`canComplete`（execution-gate + verifier-runtime）判定 PASS/FAIL/BLOCKED。用户 `/report` 永不 gate。
+- 完成唯一出口 = verifier 收据：`verify_execution`（extensions/execution-verifier.ts）→ `lib/isolated-verifier.ts` `runAcceptanceVerifier`（确定性判定 + 独立 verifier subagent：不可改仓库状态，但可执行项目自带 test/lint/typecheck 取证据）→ `VerifierReceipt`；`completeDecision`/`canComplete`（execution-gate + verifier-runtime）判定 PASS/FAIL/BLOCKED。用户 `/report` 永不 gate。
 - 这是 PLAN/PIPELINE/SPEC 等"验收面"的地基，也是唯一不依赖提示词的收尾闸。
 
 ## 8. 模式语义 → 演进含意

@@ -25,7 +25,7 @@ Every delegated run has bounded steps, duration, tokens, cancellation, and recov
 
 ## Verification and human gates
 
-`verify_execution` is the deterministic acceptance boundary. Eval results are additional evidence and never mark a user task complete. Evidence is untrusted, bounded, redacted where possible, and referenced by stable identifiers. High-risk workflow actions use `workflow_approval`; an approval record authorizes only the exact scope and does not itself execute, deploy, or modify files.
+`verify_execution` is the deterministic acceptance boundary. The verifier subagent may run the project's own test/lint/typecheck commands and must quote their real output as evidence, but no command exit code decides completion — the explainable audit does. It may not mutate reviewed content: build output and caches are never guessed by name (they are language-specific), so a repository either ignores them through `.gitignore` — which git already honors — or declares them one rule per line in `.pi/manifest-ignore`. Any other change during the audit voids the receipt and the blocked result names the exact changed paths. Eval results are additional evidence and never mark a user task complete. Evidence is untrusted, bounded, redacted where possible, and referenced by stable identifiers. High-risk workflow actions use `workflow_approval`; an approval record authorizes only the exact scope and does not itself execute, deploy, or modify files.
 
 Deployment checks report readiness only. Missing, failed, unavailable, or uncited required checks block readiness. The extension does not become a CI/CD system, monitoring daemon, or automatic deployment service.
 

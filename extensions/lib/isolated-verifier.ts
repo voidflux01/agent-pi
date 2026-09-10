@@ -1,10 +1,11 @@
-// ABOUTME: Independent Objective verifier: a read-only verifier subagent judges the
-// ABOUTME: approved contract. No workspace command is executed to decide completion.
+// ABOUTME: Independent Objective verifier: a verifier subagent judges the approved
+// ABOUTME: contract and may run the project's own test/lint commands. Completion is
+// ABOUTME: the explainable audit, never a command exit code.
 
 import type { AcceptanceContract } from "./execution-contract.ts";
 import type { VerificationOutcome, VerifierReceipt } from "./verifier-runtime.ts";
 import { createVerifierReceipt } from "./verifier-runtime.ts";
-import { buildWorkspaceManifest } from "./workspace-manifest.ts";
+import { buildWorkspaceManifest, manifestDelta } from "./workspace-manifest.ts";
 import { runVerifierSubagent, type VerifierSubagentReport } from "./verifier-subagent.ts";
 import { inspectContractQuality } from "./verifier-quality.ts";
 import { recordEvidence } from "./evidence-store.ts";
@@ -77,12 +78,28 @@ export async function runAcceptanceVerifier(input: {
 	if (blockingReviewFindings.length > 0) {
 		report.hard_blockers.push(...blockingReviewFindings.map((finding) => `${finding.id || "review"}: ${finding.title || finding.evidence || "high-severity review finding"}`));
 	}
-	// The verifier subagent is read-only, so any workspace change during the run
-	// means the audit cannot be trusted for this manifest.
+	// The verifier may run test/lint commands, and any toolchain may write
+	// build output. The manifest is a git-state fingerprint: only rows that
+	// survived the git/declared filters are bound, so a change here means
+	// git state moved mid-audit — name the exact paths so the cause (usually
+	// an un-ignored build directory) is fixable.
 	let verification: VerificationOutcome = { status: "PASS", results: [] };
 	const after = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
 	if (after.hash !== before.hash) {
-		verification = { status: "BLOCKED", results: [{ raw: "[workspace] verifier mutated the workspace", status: "blocked", note: "the workspace changed while verification ran" }] };
+		const delta = manifestDelta(before, after);
+		const shown = delta.slice(0, 10).join(", ");
+		const more = delta.length > 10 ? ` (+${delta.length - 10} more)` : "";
+		const cause = delta.length > 0
+			? `the workspace changed while verification ran: ${shown}${more}`
+			: "the workspace hash changed but no file content or declared rule differs (a git index/metadata change, e.g. git add, shifts the binding)";
+		verification = {
+			status: "BLOCKED",
+			results: [{
+				raw: "[workspace] verifier mutated the workspace",
+				status: "blocked",
+				note: `${cause}. If these are artifacts a verification command regenerates, have the repository ignore them (.gitignore) or declare them in .pi/manifest-ignore, then re-run verification.`,
+			}],
+		};
 	}
 	try {
 		recordEvidence(join(input.cwd, ".context", "evidence", input.parentRunId || `verifier-${input.attempt}`), {

@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildWorkspaceManifest } from "../lib/workspace-manifest.ts";
+import { buildWorkspaceManifest, manifestDelta } from "../lib/workspace-manifest.ts";
 
 let repo = "";
 beforeEach(() => {
@@ -22,12 +22,14 @@ const FINGERPRINT_A = "a".repeat(64);
 const FINGERPRINT_B = "b".repeat(64);
 
 describe("workspace manifest", () => {
-	it("hashes tracked content — a working-tree edit changes the manifest hash", () => {
+	it("hashes git state — a working-tree edit changes the manifest hash", () => {
 		const before = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		writeFileSync(join(repo, "base.txt"), "base changed\n");
 		const after = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		expect(after.hash).not.toBe(before.hash);
-		expect(after.files.find(f => f.path === "base.txt")?.hash).not.toBe(before.files.find(f => f.path === "base.txt")?.hash);
+		// A worktree edit moves the file into the dirty state; the index oid is untouched.
+		expect(after.files.find(f => f.path === "base.txt")?.oid).toBe(before.files.find(f => f.path === "base.txt")?.oid);
+		expect(after.dirty.some(line => line.includes("base.txt"))).toBe(true);
 	});
 
 	it("includes untracked files — a new untracked file changes the hash", () => {
@@ -36,18 +38,24 @@ describe("workspace manifest", () => {
 		const after = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		expect(after.hash).not.toBe(before.hash);
 		expect(after.untracked).toContain("new-untracked.ts");
-		expect(after.files.some(f => f.path === "new-untracked.ts")).toBe(true);
-	});
+		// Untracked files have no index oid; they surface as porcelain rows.
+		expect(after.files.some(f => f.path === "new-untracked.ts")).toBe(false);
+		expect(after.dirty.some(line => line.startsWith("??") && line.includes("new-untracked.ts"))).toBe(true);
+	}, 20000);
 
 	it("covers staged AND unstaged content", () => {
+		const committed = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		writeFileSync(join(repo, "base.txt"), "v1\n");
 		execFileSync("git", ["add", "base.txt"], { cwd: repo });
 		const stagedOnly = buildWorkspaceManifest(repo, FINGERPRINT_A);
-		// Unstaged edit after the add is still visible in the manifest.
+		// Staging moves the index object id.
+		expect(stagedOnly.files.find(f => f.path === "base.txt")?.oid).not.toBe(committed.files.find(f => f.path === "base.txt")?.oid);
+		expect(stagedOnly.staged).toContain("base.txt");
+		// Unstaged edit after the add leaves the index oid, adds a dirty row.
 		writeFileSync(join(repo, "base.txt"), "v2-staged-plus-unstaged\n");
 		const afterUnstaged = buildWorkspaceManifest(repo, FINGERPRINT_A);
-		expect(stagedOnly.staged).toContain("base.txt");
-		expect(stagedOnly.files.find(f => f.path === "base.txt")?.hash).not.toBe(afterUnstaged.files.find(f => f.path === "base.txt")?.hash);
+		expect(afterUnstaged.files.find(f => f.path === "base.txt")?.oid).toBe(stagedOnly.files.find(f => f.path === "base.txt")?.oid);
+		expect(afterUnstaged.dirty.some(line => line.includes("base.txt"))).toBe(true);
 		expect(stagedOnly.hash).not.toBe(afterUnstaged.hash);
 	});
 
@@ -65,12 +73,48 @@ describe("workspace manifest", () => {
 		expect(manifest.files.some(f => f.path.startsWith(".pi/"))).toBe(false);
 	});
 
-	it("records file size and content hash per entry", () => {
+	it("honors exclusions the repository declares itself", () => {
+		mkdirSync(join(repo, ".pi"), { recursive: true });
+		writeFileSync(join(repo, ".pi", "manifest-ignore"), "# build output\ntarget\ncoverage/lcov.info\n");
+		const before = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		mkdirSync(join(repo, "target", "classes"), { recursive: true });
+		writeFileSync(join(repo, "target", "classes", "App.class"), "x\n");
+		mkdirSync(join(repo, "coverage"), { recursive: true });
+		writeFileSync(join(repo, "coverage", "lcov.info"), "TN:\n");
+		const after = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(after.files.some(f => f.path.startsWith("target/"))).toBe(false);
+		expect(after.files.some(f => f.path === "coverage/lcov.info")).toBe(false);
+		// Paths the declaration did not cover still count.
+		writeFileSync(join(repo, "coverage", "index.html"), "<html>\n");
+		expect(buildWorkspaceManifest(repo, FINGERPRINT_A).hash).not.toBe(after.hash);
+		expect(after.hash).toBe(before.hash);
+	});
+
+	it("never guesses build directories by name — undeclared output is a workspace change", () => {
+		const before = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		mkdirSync(join(repo, "target"));
+		writeFileSync(join(repo, "target", "app.jar"), "x\n");
+		const after = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(after.hash).not.toBe(before.hash);
+		expect(manifestDelta(before, after)).toContain("created target/app.jar");
+	});
+
+	it("treats a widened declaration as a workspace change", () => {
+		const before = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		mkdirSync(join(repo, ".pi"), { recursive: true });
+		writeFileSync(join(repo, ".pi", "manifest-ignore"), "coverage\n");
+		const after = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(after.hash).not.toBe(before.hash);
+		// The rule change carries no path; the delta names it so the cause stays visible.
+		expect(manifestDelta(before, after)).toContain("declared coverage");
+	});
+
+	it("records index object ids per entry", () => {
 		writeFileSync(join(repo, "sized.txt"), "abcdef\n");
+		execFileSync("git", ["add", "sized.txt"], { cwd: repo });
 		const manifest = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		const entry = manifest.files.find(f => f.path === "sized.txt");
-		expect(entry?.size).toBe(7);
-		expect(entry?.hash).toMatch(/^[0-9a-f]{64}$/);
+		expect(entry?.oid).toMatch(/^[0-9a-f]{40,64}$/);
 	});
 });
 

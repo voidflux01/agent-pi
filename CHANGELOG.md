@@ -4,6 +4,50 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- **The workspace gate is now a fast git-state fingerprint, not a content
+  hash.** A receipt binds index object ids (`git ls-files -s`) plus
+  `git status --porcelain` rows (staged/dirty/untracked names) and the
+  declared exclusions — no per-file content reads, so the gate that only
+  answers "did the workspace change since the receipt?" costs an index read
+  and a stat walk. Identity is deliberately state-row-level: editing an
+  already-dirty or untracked file without changing its state row does not
+  invalidate a receipt; go back to per-file hashing only if content-level
+  identity is ever required.
+
+- **The verifier may now run the project's own verification commands.** Its
+  prompt previously allowed bash only for bounded read-only inspection
+  (`grep`/`sed -n`/`git status`), so a contract criterion like `pnpm lint`
+  passed without errors could never be independently settled: the verifier
+  reported it BLOCKED-without-attempting, the fail-closed parse downgraded the
+  whole receipt to BLOCKED, and the completion gate closed on a requirement
+  nobody was permitted to check. Test/lint/typecheck/build now run for evidence
+  under an explicit non-destructive rule (no `--fix`/`--write`/`-u`, no
+  installs, no rewrites of source, fixtures, configuration, or committed build
+  output), evidence must quote the exact command and its real output, and a
+  requirement may not be reported BLOCKED without the covering command having
+  been attempted. Command exit codes still decide nothing — the audit does.
+  Build output is deliberately not guessed by name (a hardcoded cache list is
+  language-specific and silently widens every receipt): a repository ignores it
+  via `.gitignore` or declares it one rule per line in `.pi/manifest-ignore`
+  (bare name = that segment at any depth, `rule/with/slash` = repo-relative
+  prefix, `#` comments). A widened declaration is itself part of the manifest
+  binding, so it invalidates existing receipts instead of retroactively
+  extending them. When the workspace does change mid-audit, the blocked result
+  now names the created/modified/deleted paths and says where to declare them.
+- **Indentation-tolerant RESULT field reads.** `field()` anchored `^status:` to
+  column zero while `requirement`/`evidence`/`files` trimmed their lines, so a
+  report copied with leading whitespace lost its `status` and whole REQ blocks
+  failed the schema gate — burning both format-repair rounds and surfacing a
+  boilerplate BLOCKED instead of the real audit.
+- **The unchanged-workspace block names its escape hatches.** Re-running
+  verification without workspace changes still short-circuits, but the message
+  now says so and points at the two legal ways out: repair the findings, or —
+  when the finding is not code-repairable (an unverifiable acceptance
+  criterion) — correct the contract with the user, which rebinds the
+  fingerprint and starts a fresh attempt budget.
+
 ### Fixed
 
 - **The iteration ledger no longer corrupts its own JSON.** `recordIteration`

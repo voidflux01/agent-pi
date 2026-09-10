@@ -75,13 +75,15 @@ function workspaceSnapshot(cwd: string | undefined): WorkspaceManifest | undefin
 }
 
 function changedWorkspaceFiles(before: WorkspaceManifest, after: WorkspaceManifest): string[] {
+	const dirtyRow = (m: WorkspaceManifest, path: string) => m.dirty.find(line => line.slice(3) === path) || "";
 	const paths = new Set([...before.files.map(file => file.path), ...after.files.map(file => file.path), ...before.staged, ...after.staged, ...before.untracked, ...after.untracked]);
 	return [...paths].sort().filter(path => {
 		const beforeFile = before.files.find(file => file.path === path);
 		const afterFile = after.files.find(file => file.path === path);
-		return `${beforeFile?.size ?? "missing"}:${beforeFile?.hash ?? ""}` !== `${afterFile?.size ?? "missing"}:${afterFile?.hash ?? ""}`
+		return (beforeFile?.oid ?? "missing") !== (afterFile?.oid ?? "missing")
 			|| before.staged.includes(path) !== after.staged.includes(path)
-			|| before.untracked.includes(path) !== after.untracked.includes(path);
+			|| before.untracked.includes(path) !== after.untracked.includes(path)
+			|| dirtyRow(before, path) !== dirtyRow(after, path);
 	});
 }
 

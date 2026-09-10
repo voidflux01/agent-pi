@@ -110,11 +110,13 @@ describe("acceptance contract quality", () => {
 		expect(inspectContractQuality(missing).status).toBe("BLOCKED");
 	});
 
-	it("keeps verifier skills enabled and its audit prompt read-only", () => {
+	it("keeps verifier skills enabled, allows verification commands, and protects repository state", () => {
 		const prompt = buildVerifierPrompt(contract("# Plan: x\n\n## Objective\nShip the change.\n"));
 		expect(prompt).toContain("Skills are enabled and must remain available");
 		expect(prompt).toContain("must not modify any file");
-		expect(prompt).toContain("read-only verification commands");
+		expect(prompt).toContain("execute the project's own verification commands");
+		expect(prompt).toContain("never pass fix-writes-things flags");
+		expect(prompt).toContain("never report a requirement as BLOCKED without having attempted");
 		expect(prompt).not.toContain("deterministic evidence");
 		const source = readFileSync(new URL("../lib/verifier-subagent.ts", import.meta.url), "utf8");
 		expect(source).toContain('AGENT_PI_CONFIG.workers.thinking');
@@ -133,6 +135,21 @@ describe("acceptance contract quality", () => {
 		expect(prompt).toContain("## RESULT");
 		expect(prompt).not.toContain("## VERIFIER RESULT");
 		expect(prompt).toContain("Do not use JSON");
+	});
+
+	it("parses a report whose fields are indented", () => {
+		// Models copy the schema example with leading whitespace; indent-sensitive
+		// field reads used to turn a valid audit into a format failure.
+		const indented = validVerifierResult
+			.replace("### REQ-001\nstatus: PASS", "### REQ-001\n  status: PASS")
+			.replace("## Contract\nstatus: PASS", "## Contract\n  status: PASS")
+			.replace("## Behavior\nstatus: PASS", "## Behavior\n  status: PASS");
+		expect(parseVerifierReportDetailed(indented).report).toMatchObject({
+			status: "PASS",
+			requirements: [{ status: "PASS" }],
+			contract: { status: "PASS" },
+			behavior: { status: "PASS" },
+		});
 	});
 
 	it("accepts a valid result followed by trailing assistant text", () => {

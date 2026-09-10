@@ -110,7 +110,7 @@ ui-helpers | L1 | optional | - | N | TUI 文本布局助手：pad/换行/并排
 verification-policy | L1 | core | - | N | 有界 verifier 重试/升级/完成决策策略
 verifier-quality | L1 | core | - | Y | 可解释性检查：拒空/不可审计 Objective
 verifier-runtime | L1 | core | F | N | 构造 VerifierReceipt；canComplete 完成谓词
-verifier-subagent | L2 | core | - | N | 生成/解析/复验独立只读 verifier subagent
+verifier-subagent | L2 | core | - | N | 生成/解析/复验独立 verifier subagent（禁改仓库状态，可跑项目自带 test/lint 取证）
 viewer-session | L2 | optional | - | N | 跟踪/关闭单个活动本地 viewer HTTP server 会话
 viewer-standalone-export | L2 | optional | - | N | 写净化独立 plan/report/spec HTML 到 Desktop
 worker-budget | L1 | core | - | Y | 每角色 worker 工具上限/thinking/超时启动策略
@@ -122,7 +122,7 @@ workflow-direction | L1 | optional | - | N | 基于证据的下一步/模式建�
 workflow-dispatch | L3 | core | F | Y | 模式 dispatch hooks + 持久 dispatch 收据（subagent_create）
 workflow-memory | L2 | optional | - | N | retrospective/insight 存储；生命周期迁移
 workflow-monitor | L2 | optional | - | Y | 有界 log-tail 分诊 + fail-closed 咨询性部署门
-workspace-manifest | L2 | core | F | Y | 哈希全 workspace(tracked/staged/untracked) 绑定契约
+workspace-manifest | L2 | core | F | Y | git 状态指纹(tracked oid/staged/dirty/untracked) 绑定契约
 ```
 
 ## 2. 顶层入口（52，L0；workspace-memory/optional-adapters no-op 壳已删）

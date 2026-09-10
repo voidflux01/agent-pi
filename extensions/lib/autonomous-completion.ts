@@ -106,8 +106,12 @@ function classifyFailure(receipt: VerifierReceipt, input: AutonomousCompletionOp
 function observeReceipt(receipt: VerifierReceipt, input: AutonomousCompletionOptions, before?: WorkspaceManifest): IterationObservation {
 	const summary = receipt.verifier?.summary || receipt.results.filter(result => result.status !== "pass").map(result => `${result.raw}: ${result.note || result.status}`).join("; ");
 	const after = buildWorkspaceManifest(input.cwd, input.contract.fingerprint);
-	const beforePaths = new Map((before?.files ?? []).map(file => [file.path, file.hash]));
-	const changedFiles = after.files.filter(file => beforePaths.get(file.path) !== file.hash).map(file => file.path);
+	const beforeOids = new Map((before?.files ?? []).map(file => [file.path, file.oid]));
+	const beforeDirty = new Set(before?.dirty ?? []);
+	const changedFiles = [...new Set([
+		...after.files.filter(file => (beforeOids.get(file.path) ?? "missing") !== file.oid).map(file => file.path),
+		...after.dirty.filter(line => !beforeDirty.has(line)).map(line => line.slice(3)),
+	])];
 
 	return {
 		runId: receipt.verifier?.runId || `verifier-${receipt.attempt}`,

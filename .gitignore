@@ -28,6 +28,9 @@ commands/private/
 # Runtime / Pi state
 .pi/
 
+# Herdr launch-script debris left by a crashed parent transport
+herdr-launch-*
+
 # Probe / scratch artifacts
 PROBE-*/
 
