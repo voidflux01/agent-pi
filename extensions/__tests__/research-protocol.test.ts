@@ -20,6 +20,21 @@ describe("research routing", () => {
 		])).toEqual(["search_web_now", "extract_page", "check_claim"]);
 	});
 
+	it("keeps known read-only web tools whose description mentions login/auth (pi-web-access web_search regression)", () => {
+		expect(discoverResearchTools([
+			{ name: "web_search", description: "Search the web using multiple providers. Kimi search is authenticated through /login kimi-coding; OpenAI search uses a Codex subscription." },
+			{ name: "fetch_content", description: "Fetch URL(s) and extract readable content as markdown." },
+			{ name: "source_check", description: "Check a claim against web sources and return bounded passages." },
+			{ name: "get_search_content", description: "Retrieve bounded content slices from a previous search call." },
+		])).toEqual(["web_search", "fetch_content", "source_check", "get_search_content"]);
+	});
+
+	it("still excludes write-capable tools discovered only by description", () => {
+		expect(discoverResearchTools([
+			{ name: "upload_to_index", description: "Submit fetched content to an external web index" },
+		])).toEqual([]);
+	});
+
 	it("keeps the research prompt read-only and source focused", () => {
 		const prompt = researcherPrompt("Compare the current SDK versions");
 		expect(prompt).toContain("source-backed");

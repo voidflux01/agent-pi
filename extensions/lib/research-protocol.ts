@@ -1,6 +1,8 @@
 // ABOUTME: Shared routing and prompt protocol for optional external research.
 // ABOUTME: Keeps runtime-discovered web capability checks and evidence requirements consistent across modes.
 
+import { classifyTool } from "./tool-classification.ts";
+
 const EXTERNAL_RESEARCH_PATTERNS = [
 	"latest", "current", "recent", "version", "release", "api", "sdk", "documentation",
 	"official", "standard", "specification", "cve", "security advisory", "third-party",
@@ -36,7 +38,17 @@ export function discoverResearchTools(tools: readonly AvailableToolMetadata[]): 
 		const looksLikeResearch = /(web|internet|online|search|query|url|page|content|fetch|extract)/.test(text)
 			|| /(source|citation|evidence)/.test(text) && /(check|claim|verify|citation|evidence)/.test(text);
 		const looksLikeUiOrTest = /(screenshot|click|navigate|browser automation|web test|local server|chat|viewer|dashboard|socket)/.test(text);
-		const hasSideEffect = /(write|create|delete|remove|update|mutat|post|put|patch|send|submit|upload|install|execute|login|authenticate)/.test(text);
+		// Known read-only network tools (e.g. pi-web-access' web_search) are
+		// trusted via precise classification, not prose: their descriptions
+		// legitimately mention login/auth/send for provider setup, which naive
+		// side-effect regexes misread as mutation. Unknown tools keep the
+		// description heuristic, narrowed to unmistakable write verbs.
+		const hasSideEffect = /(write|create|delete|remove|update|mutat|post|publish|upload|install)/.test(text);
+		const classified = classifyTool(name, tool.description || "");
+		if (classified.intent === "network" && classified.readOnly && looksLikeResearch) {
+			result.push(name);
+			continue;
+		}
 		if (looksLikeResearch && !looksLikeUiOrTest && !hasSideEffect) result.push(name);
 	}
 	return [...new Set(result)];
