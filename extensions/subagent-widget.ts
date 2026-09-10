@@ -102,6 +102,11 @@ function scheduleUnrefCleanup(callback: () => void, delayMs: number): void {
 
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const TIMEOUT_KILL_GRACE_MS = 30_000;
+
+// Read-only recon workers deliver a report, not a repo change; their results
+// are self-evidentiary (live tool calls, URLs, quotes) and the read-only
+// verifier cannot reproduce them, so the autonomous acceptance gate is skipped.
+const reconReportRoles = new Set(["researcher", "scout"]);
 export const DEFAULT_SUBAGENT_TIMEOUT_MS = DEFAULT_ORCHESTRATION_TIMEOUT_MS;
 
 /** Use the shared RunContext deadline by default; explicit zero disables it. */
@@ -587,7 +592,7 @@ export default function(pi: ExtensionAPI) {
     }
     state.elapsed = Date.now() - startTime;
     state.status = code === 0 && !failure && !contractFailure && !terminalFormatFailure && !reviewerFailure ? "done" : "error";
-    if (state.status === "done" && !options.orchestrationRun && coordinationState().mode === "NORMAL" && state.scope !== "autonomous-repair" && process.env.PI_AGENT_NAME?.toLowerCase() !== "verifier") {
+    if (state.status === "done" && !options.orchestrationRun && coordinationState().mode === "NORMAL" && state.scope !== "autonomous-repair" && !reconReportRoles.has(state.name.toLowerCase()) && process.env.PI_AGENT_NAME?.toLowerCase() !== "verifier") {
      try {
       const admission = await autonomousFinalize({ cwd: spawnCwd, mode: "NORMAL", taskText: state.task, risk: "low", dispatchRepair: builderRepairDispatcher(ctx) });
       if (admission && !admission.allowed) {
