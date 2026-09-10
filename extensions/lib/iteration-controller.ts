@@ -1,6 +1,6 @@
 // ABOUTME: Deterministic, bounded adaptation between verification attempts.
 // ABOUTME: Persists redacted observations, never changes rules or approval state.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {existsSync, mkdirSync, renameSync, writeFileSync} from "node:fs";
 import { dirname, join } from "node:path";
 import { readBounded, redactEvidence, safeWorkspacePath } from "./workflow-artifacts.ts";
 import { workflowDirection } from "./workflow-direction.ts";
@@ -101,7 +101,3 @@ export function recordIteration(cwd: string, observation: IterationObservation):
 	renameSync(temporary, path);
 }
 
-export function buildIterationContext(cwd: string, objective: string, limit = 5): string {
-	const observations = loadIteration(cwd, objective).slice(-Math.max(1, Math.min(10, limit)));
-	return observations.length ? observations.map(item => `${item.createdAt} ${item.status} attempt = ${item.attempt}${item.failure ? ` failure=${item.failure}` : ""}: ${item.failureSignature ?? "no signature"}`).join("\n") : "";
-}

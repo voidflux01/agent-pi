@@ -8,7 +8,6 @@ export const REVIEW_WORKER_MAX_TOOLS = 20;
 export const PLANNER_MAX_TOOLS = 32;
 export const DEFAULT_PLANNER_TIMEOUT_MS = AGENT_PI_CONFIG.workers.timeoutsMs.planner;
 export const DEFAULT_REVIEW_TIMEOUT_MS = AGENT_PI_CONFIG.workers.timeoutsMs.reviewer;
-export const IMPLEMENTATION_WORKER_THINKING = "low";
 
 const TOOLKIT_EXTRA = new Set(["copilot-agent"]);
 

@@ -59,18 +59,6 @@ export function completeDecision(input: {
 	return { allowed: true };
 }
 
-/** Back-compat alias kept for tests and long imports. */
-export function completionDecision(input: {
-	surface: CompletionSurface;
-	contract?: AcceptanceContract;
-	receipt?: VerifierReceipt;
-	workspaceManifestHash?: string;
-	evalGate?: { ok: boolean };
-	overrideActive?: boolean;
-}): { allowed: boolean; reason?: string } {
-	return completeDecision(input);
-}
-
 /** Shipped complete-gate for every pipeline, including plan-build whose last phase is build. */
 export function pipelineCompleteDecision(
 	planText: string,

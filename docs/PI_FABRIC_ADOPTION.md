@@ -301,9 +301,9 @@ provider smoke 和用户试用数据验证，不以“代码已写完”替代�
 - PIPELINE now writes an atomic versioned workflow snapshot; `/pipeline-resume`
   restores the phase, accumulated context, plan/review output, and review-loop
   counters only when the current config still matches the snapshot.
-- CHAIN's retired synchronous runner still has legacy snapshot code, but the
-  live canonical path uses parent-driven `subagent_create` steps. Stale CHAIN
-  runs are inspection-only; no `/chain-resume` command is exposed.
+- CHAIN's retired synchronous runner was deleted (2026-09-10); the live
+  canonical path uses parent-driven `subagent_create` steps. Stale CHAIN
+  snapshots are inspection-only; no `/chain-resume` command is exposed.
 - NORMAL, PLAN, and SPEC can now recover a finished or interrupted standalone
   subagent from its persisted journal dispatch id via `subagent_resume` or
   `/subresume`; the existing session is explicitly reopened with `-c` and the

@@ -16,7 +16,7 @@ import { summarizeOrchestrationRun } from "./lib/orchestration-query.ts";
 import { dirname, join } from "node:path";
 
 const Step = Type.Object({
-	tool: Type.String({ description: "Capability name, e.g. tasks or dispatch_agent" }),
+	tool: Type.String({ description: "Capability name, e.g. tasks or subagent_create" }),
 	arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	label: Type.Optional(Type.String({ description: "Short label for the returned audit" })),
 	retry: Type.Optional(Type.Integer({ minimum: 0, maximum: 3, description: "Retry transient executor errors up to this many times" })),
@@ -109,7 +109,7 @@ function compactEventResult(value: any): unknown {
 	if (!compact || typeof compact !== "object") return compact;
 	try {
 		if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= 8 * 1024) return compact;
-	} catch {}
+	} catch { }
 	const record = compact as Record<string, unknown>;
 	const details = record.details && typeof record.details === "object" ? record.details as Record<string, unknown> : undefined;
 	const safeDetails = details
@@ -163,7 +163,7 @@ function registerBuiltinCapability(name: "read" | "write" | "edit" | "bash") {
 				: registerCapability({ name, provider: "builtin", description: "Run a security-checked workspace command", inputSchema: BUILTIN_BASH_SCHEMA, risk: "execute", effect: { resources: ["workspace", "shell"], ordering: "ordered" }, execution: "in_process" });
 }
 
-export default function (pi: ExtensionAPI) {
+export default function(pi: ExtensionAPI) {
 	registerToolWithExecutor(pi, {
 		name: "compose_exec",
 		label: "Compose Exec",

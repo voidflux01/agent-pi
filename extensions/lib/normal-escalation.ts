@@ -4,7 +4,6 @@
 import { isReconTool } from "./tool-classification.ts";
 import { isReconBash } from "./tool-invocation.ts";
 
-export const NORMAL_RECON_TOOLS = ["read", "grep", "ffgrep", "find", "ls", "glob"] as const;
 export const NORMAL_RECON_LIMIT = 8;
 export const RECON_ESCALATION_LIMIT = NORMAL_RECON_LIMIT;
 

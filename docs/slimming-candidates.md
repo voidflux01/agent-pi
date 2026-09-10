@@ -13,8 +13,8 @@
 | execution-run shim | 零生产引用 | 已删（S2） |
 | workspace-memory / optional-adapters no-op 壳 | 纯 no-op + 无价值测试 | 已删（S3） |
 | dispatch-runtime `run` 别名 | @deprecated 兼容 shim | 已删（S3） |
-| CHAIN 模式（agent-chain runAgent/runChain + 父自建 spawn） | 文件自注 retired（L1065），dead 函数 | **修剪候选**（S4 登记：功能触碰时顺带删） |
-| agent-team / pipeline-team 死 spawn 路径 | __removed handler + 无活调用者 | **修剪候选**（同上，S4 登记） |
+| CHAIN 模式（agent-chain runAgent/runChain + 父自建 spawn） | 文件自注 retired，dead 函数 | 已删（2026-09-10：runner + snapshot 写入 + 失效导入） |
+| agent-team / pipeline-team 死 spawn 路径 | __removed handler + 无活调用者 | 已删（2026-09-10：注册体 + dispatchAgent + spawnAgent/dispatchPhaseAgents + 拒注册过滤） |
 | `[cmd]` 完成路径确定性执行 | legacy runIsolatedVerifier 零生产调用 | 已删（2026-09-10：解析、执行器、legacy API、提示词证据管道全清） |
 
 ## 2. 真机全程未命中（GUI/装饰/专项，推荐保留但停止继续堆料）

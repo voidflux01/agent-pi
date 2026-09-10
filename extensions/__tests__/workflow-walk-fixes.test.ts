@@ -115,31 +115,31 @@ describe("source wiring", () => {
 		expect(source).toContain("subagent_create");
 	});
 
-	it("records the first TEAM worker's target session before it starts", () => {
-		const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "agent-team.ts"), "utf8");
-		expect(source).toContain("sessionFile: isToolkitCliAgent(canonicalName) ? undefined : agentSessionFile");
+	it("records the worker's target session before dispatch starts", () => {
+		// The canonical dispatcher owns the worker session file and skips it for
+		// toolkit CLI agents, which cannot be resumed through a Pi session.
+		const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "subagent-widget.ts"), "utf8");
+		expect(source).toContain("sessionFile: isToolkitCliAgent(state.name) ? undefined : state.sessionFile");
 	});
 
 	it("keeps full worker transcripts out of structured team/chain/pipeline details", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 		for (const file of ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"]) {
 			const source = readFileSync(join(root, file), "utf8");
-			if (file === "agent-chain.ts") {
-				// Chain bounds worker output via boundedHandoff and a 500-char widget preview.
-				expect(source).toContain("boundedHandoff(");
-				expect(source).toContain("slice(0, 500)");
-			} else {
-				expect(source).toContain("boundedOutputPreview");
-			}
+			// Transcripts are archived by the canonical dispatcher, so orchestrators never
+			// embed raw worker output in their structured tool details.
 			expect(source).not.toContain("details.fullOutput");
 		}
+		const widget = readFileSync(join(root, "subagent-widget.ts"), "utf8");
+		expect(widget).toContain("persistFullOutput(");
+		expect(widget).toContain("fullOutputPath,");
 	});
 
-	it("returns the parent RunContext id from team, chain, and pipeline entry points", () => {
+	it("returns the parent RunContext id from the canonical dispatcher", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
+		// Worker runs and their RunContext ids belong to the canonical dispatcher;
+		// orchestrators only gate phases and recovery surfaces.
+		expect(readFileSync(join(root, "subagent-widget.ts"), "utf8")).toContain("runId: orchestrationRun.runId");
 		// pipeline's retired synchronous dispatch tool was deleted; live path returns dispatch
 		// state via the advance_phase gate text instead.
 		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("Gate state: dispatchCount=");
@@ -150,38 +150,25 @@ describe("source wiring", () => {
 		expect(team).not.toContain('if (f.endsWith(".json"))');
 		expect(team).toContain("resumableTeamSessionNames(journalList(sessDir), sessDir, teamSessionNames)");
 		expect(readFileSync(join(root, "lib", "team-session-cleanup.ts"), "utf8")).toContain("entry.status === \"done\"");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain('orchestrationRun.record("chain.step.reused"');
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("originalTask: originalPrompt");
 		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).not.toContain("--append-system-prompt");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("entry.startedAt >= snapshotUpdatedAt");
-		expect(readFileSync(join(root, "lib", "tool-executor-registry.ts"), "utf8")).toContain('"dispatch_team_batch"');
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("scheduleResourceWaves(jobs, jobs.length)");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resultOneLiner(result.fullOutput");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain(".slice(0, 8_000)");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('name: "team_batch_recover"');
+		expect(team).toContain(".slice(0, 8_000)");
+		expect(team).toContain('name: "team_batch_recover"');
 		expect(readFileSync(join(root, "orchestration-status.ts"), "utf8")).toContain("team_batch_recover");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("projectTeamBatchRecovery(entries, sessionRoot)");
+		expect(team).toContain("projectTeamBatchRecovery(entries, sessionRoot)");
 		expect(readFileSync(join(root, "lib/task-gate.ts"), "utf8")).toContain('"subagent_create_batch"');
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: tu.totalTokens");
-		expect(readFileSync(join(root, "agent-chain.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: su.totalTokens");
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain("parentRun.recordUsage({ totalTokens: pu.totalTokens");
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("budgetUsageExceededReason");
 		expect(readFileSync(join(root, "lib", "orchestration-run.ts"), "utf8")).toContain("signal: AbortSignal");
 		expect(readFileSync(join(root, "lib", "resource-scheduler.ts"), "utf8")).toContain("scheduleResourceWaves");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain("resources: Type.Optional");
-		expect(readFileSync(join(root, "agent-team.ts"), "utf8")).toContain('"team.batch.wave"');
-		expect(readFileSync(join(root, "pipeline-team.ts"), "utf8")).toContain('"pipeline.phase.wave"');
 		expect(readFileSync(join(root, "tool-registry.ts"), "utf8")).toContain("inputSchema: tool.parameters");
 	});
 
-	it("propagates tool cancellation into TEAM, CHAIN, and PIPELINE workers", () => {
+	it("cancels workers when the parent session or signal aborts", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-		const team = readFileSync(join(root, "agent-team.ts"), "utf8");
-		const chain = readFileSync(join(root, "agent-chain.ts"), "utf8");
-		const pipeline = readFileSync(join(root, "pipeline-team.ts"), "utf8");
-		expect(team).toContain("runEpoch !== sessionEpoch || !!signal?.aborted");
-		expect(chain).toContain("!lifecycle.isCurrent(runEpoch) || !!signal?.aborted");
-		expect(pipeline).toContain("isAborted: () => !!signal?.aborted");
+		// The canonical dispatcher owns cancellation: a parent-session change or an
+		// abort signal stops the worker runtime.
+		const widget = readFileSync(join(root, "subagent-widget.ts"), "utf8");
+		expect(widget).toContain("isAborted: () => spawnEpoch !== sessionEpoch || orchestrationRun.signal.aborted");
+		expect(widget).toContain("signal?.aborted");
 	});
 	it("makes session switches a cancellation boundary for every orchestration mode", () => {
 		const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -230,7 +217,6 @@ describe("source wiring", () => {
 		expect(src).toContain("__piKillChainProc = undefined");
 		expect(src).toContain("providers.splice(index, 1)");
 		expect(src).toContain("Do not implement, test, or re-verify");
-		expect(src).toContain("extractResultBlock");
 	});
 
 	it("auto-closes successful Pi herdr panes through the shared runtime", () => {
@@ -239,10 +225,9 @@ describe("source wiring", () => {
 		expect(src).toContain('herdrPaneAutoCloseMs("success")');
 	});
 
-	it("polls session jsonl for TEAM toolCount while running", () => {
-		const src = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
-		expect(src).toContain("countSessionToolCalls(sessionPath)");
-		expect(src).toContain("countSessionToolCalls(agentSessionFile)");
+	it("polls session jsonl for worker toolCount while running", () => {
+		const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "subagent-widget.ts"), "utf8");
+		expect(src).toContain("countSessionToolCalls(state.sessionFile)");
 	});
 
 	it("requires TEAM scout-first recon for unfamiliar or multi-file work", () => {

@@ -39,16 +39,6 @@ export const HOOK_DISPLAY_NAMES: Record<HookName, string> = {
 	session_compact: "Context Compacted",
 };
 
-export const HOOK_DESCRIPTIONS: Record<HookName, string> = {
-	agent_end: "Plays when the agent finishes and is ready for input",
-	agent_start: "Plays when the agent starts processing your message",
-	tool_execution_start: "Plays each time a tool begins executing",
-	tool_execution_end: "Plays each time a tool finishes executing",
-	turn_start: "Plays at the start of each LLM turn",
-	turn_end: "Plays at the end of each LLM turn",
-	session_start: "Plays when a new session starts",
-	session_compact: "Plays when context is compacted",
-};
 
 // ── Config Types ─────────────────────────────────────────────────────
 
@@ -117,24 +107,8 @@ export function saveConfig(config: SoundsConfig): void {
 
 // ── Assignment Helpers ───────────────────────────────────────────────
 
-export function getAssignment(config: SoundsConfig, hook: HookName): string | undefined {
-	return config.assignments[hook];
-}
 
-export function setAssignment(config: SoundsConfig, hook: HookName, soundName: string): SoundsConfig {
-	return {
-		...config,
-		assignments: { ...config.assignments, [hook]: soundName },
-	};
-}
 
-export function clearAssignment(config: SoundsConfig, hook: HookName): SoundsConfig {
-	const { [hook]: _, ...rest } = config.assignments;
-	return {
-		...config,
-		assignments: rest as Partial<Record<HookName, string>>,
-	};
-}
 
 export function getActiveAssignmentCount(config: SoundsConfig): number {
 	return Object.keys(config.assignments).length;

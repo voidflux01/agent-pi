@@ -30,7 +30,7 @@
 
 | 组件 | 限制 | 判级 |
 |---|---|---|
-| CHAIN 模式 | 代码自证 retired | **修剪候选**（S4 登记） |
+| CHAIN 模式 | 代码自证 retired；退役 runner 已删（2026-09-10） | 模式仍可选（父 agent 显式驱动 `subagent_create`） |
 | PIPELINE 全相位自助驱动 | 4-phase e2e 在固定窗口未完成；交互迷失（D16 指引已加，未再全通） | **可选/expert 档**；e2e 重跑留待更强模型或更长窗口 |
 | completion/plan/spec viewer GUI | 需真人浏览器（批准已人批；headless 无 URL 回传） | 可选保留 |
 | file/board/research/reports/cleanup viewer GUI | 需 GUI 会话 | 可选保留（登记） |

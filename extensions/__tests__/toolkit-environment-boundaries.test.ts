@@ -15,9 +15,13 @@ describe("toolkit worker environment boundaries", () => {
 		expect(source).not.toContain("output += chunk;");
 	});
 
-	it("caps team stderr buffers through the shared bounded appender", () => {
-		const source = readFileSync(new URL("../agent-team.ts", import.meta.url), "utf8");
-		expect(source).toContain("appendBoundedOutput");
-		expect(source).not.toContain("stderrBuf += chunk");
+	it("caps worker stderr through the shared bounded appender", () => {
+		// The shared appender lives with the toolkit CLI runner; orchestrators no longer
+		// capture subprocess stderr themselves.
+		const appender = readFileSync(new URL("../lib/toolkit-cli.ts", import.meta.url), "utf8");
+		expect(appender).toContain("export function appendBoundedOutput");
+		expect(appender).toContain("output = appendBoundedOutput(output, chunk)");
+		const team = readFileSync(new URL("../agent-team.ts", import.meta.url), "utf8");
+		expect(team).not.toContain("stderrBuf += chunk");
 	});
 });

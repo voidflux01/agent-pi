@@ -176,13 +176,6 @@ export function loadResearchSession(id: string): ResearchSession | null {
 	}
 }
 
-export function updateResearchSession(id: string, partial: Partial<ResearchSession>): ResearchSession | null {
-	const session = loadResearchSession(id);
-	if (!session) return null;
-	Object.assign(session, partial);
-	saveResearchSession(session);
-	return session;
-}
 
 export function listResearchSessions(): ResearchSessionSummary[] {
 	ensureDir();
@@ -273,38 +266,7 @@ function updateIndex(session: ResearchSession): void {
 
 // ── Search helper ───────────────────────────────────────────────────
 
-export function searchResearchSessions(query: string): ResearchSessionSummary[] {
-	const all = listResearchSessions();
-	if (!query.trim()) return all;
-	const terms = query.toLowerCase().split(/\s+/);
-	return all.filter(s => {
-		const text = [s.goal, s.metricName, s.status, ...s.tags].join(" ").toLowerCase();
-		return terms.every(t => text.includes(t));
-	});
-}
 
 // ── Status helpers ──────────────────────────────────────────────────
 
-export function getStatusColor(status: ResearchStatus): string {
-	switch (status) {
-		case "understanding": return "#a78bfa";  // purple
-		case "planning": return "#60a5fa";        // blue
-		case "researching": return "#2980b9";     // deep blue
-		case "implementing": return "#f0b429";    // yellow
-		case "complete": return "#48d889";         // green
-		case "paused": return "#8892a0";           // gray
-		default: return "#8892a0";
-	}
-}
 
-export function getStatusLabel(status: ResearchStatus): string {
-	switch (status) {
-		case "understanding": return "Understanding";
-		case "planning": return "Planning";
-		case "researching": return "Researching";
-		case "implementing": return "Implementing";
-		case "complete": return "Complete";
-		case "paused": return "Paused";
-		default: return status;
-	}
-}

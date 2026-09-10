@@ -99,6 +99,3 @@ export function buildWorkspaceManifest(cwd: string, contractFingerprint: string)
 }
 
 /** Deterministic label for receipts: manifest hash over the whole workspace state. */
-export function manifestLabel(manifest: WorkspaceManifest): string {
-	return `${manifest.hash.slice(0, 16)}·${manifest.files.length}f`;
-}

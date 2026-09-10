@@ -39,6 +39,3 @@ export function grantCompletionOverride(cwd: string, contract: OverrideContract,
 }
 
 /** Request the override pending user decision (resumable; listing surfaces it). */
-export function requestCompletionOverride(cwd: string, contract: OverrideContract): ApprovalDecision {
-	return checkApproval(cwd, overrideProposal(contract));
-}

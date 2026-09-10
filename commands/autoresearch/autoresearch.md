@@ -2,7 +2,7 @@
 name: autoresearch
 description: "Autonomous Goal-directed Iteration — Apply Karpathy's autoresearch principles to ANY task. Loops autonomously: modify, verify, keep/discard, repeat."
 argument-hint: "<goal description> [--iterations N]"
-allowed-tools: ["Bash", "Read", "Write", "Edit", "ask_user", "show_plan", "show_research", "subagent_create_batch", "dispatch_agent", "commander_task", "commander_mailbox", "show_report"]
+allowed-tools: ["Bash", "Read", "Write", "Edit", "ask_user", "show_plan", "show_research", "subagent_create_batch", "commander_task", "commander_mailbox", "show_report"]
 ---
 
 # Autoresearch — Autonomous Goal-directed Iteration

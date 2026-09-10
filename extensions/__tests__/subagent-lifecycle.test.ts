@@ -44,10 +44,10 @@ describe("stale session lifecycle protection", () => {
 
 	it("records session-change cancellations as canonical cancelled journal rows", () => {
 		const widget = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		const team = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
 		expect(widget).toContain('runStatus: "cancelled"');
 		expect(widget).toContain('note: "cancelled: parent session changed"');
-		expect(team).toContain('runStatus: code === 130 ? "cancelled" : undefined');
+		expect(widget).toContain('code === 130 ? "cancelled"');
+		const team = readFileSync(join(__dirname, "..", "agent-team.ts"), "utf8");
 		expect(team).toContain("function clearAgentTimer");
 		expect(team).toContain("clearAgentTimer(state)");
 		expect(team).toContain("removeAllAgentWidgets(widgetCtx);");

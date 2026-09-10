@@ -5,7 +5,7 @@
 
 ## 总览
 
-- **107 lib 模块**（execution-run 死 shim 已于 S2 删）：核心档 53 · 可选档 55 · 待裁 0
+- **115 lib 模块**（lib/ 根 109 + lib/tui 6；execution-run shim、plan-viewer TUI 渲染/编辑对已删）
 - **底座零件(F)** 21 个：见 §4
 - **依赖方向审计：无违规。** 四路 scout 各自 grep 全 lib，均未发现 lib→顶层入口、L1→pi/runtime 的向上/跨层 import。仅需留意：个别模块 import-time 副作用（如 `defaults.ts` 在 import 时读 cwd）。
 
@@ -69,9 +69,7 @@ persist-theme | L2 | optional | - | N | 持久主题名到 settings.json（同�
 pinned-tools | L2 | core | - | Y | 首轮/scout 保持编排工具可见（env 门控，pi 注入）
 pipeline-render | L1 | optional | - | N | pipeline 阶段/agent 纵向时间线 TUI 渲染
 pipeline-state | L2 | optional | F | Y | 原子持久 PIPELINE 阶段快照（重启恢复）
-plan-viewer-editor | L1 | core | - | N | 解析/编辑/序列化 markdown plan 文档
 plan-viewer-html | L2 | core | - | N | Plan Viewer GUI 独立 HTML（markdown+编辑+批准/拒绝）
-plan-viewer-render | L2 | core | - | N | Plan Viewer TUI 渲染（与 plan-viewer-html GUI 近平行）
 report-index | L2 | optional | - | Y | plan/spec/completion 报告的 SQLite 持久化可搜索引
 reports-viewer-html | L2 | optional | - | N | HTML /reports 浏览器：搜索、分类、表格
 request-body | L2 | optional | - | Y | 有界 HTTP body 读取，排空被拒 viewer 请求
@@ -127,7 +125,7 @@ workflow-monitor | L2 | optional | - | Y | 有界 log-tail 分诊 + fail-closed 
 workspace-manifest | L2 | core | F | Y | 哈希全 workspace(tracked/staged/untracked) 绑定契约
 ```
 
-## 2. 顶层入口（51，L0；workspace-memory/optional-adapters no-op 壳已删）
+## 2. 顶层入口（52，L0；workspace-memory/optional-adapters no-op 壳已删）
 
 入口 = 注册壳，逻辑在 lib（§2 规则）。核心入口直接挂 §5 核心负载；模式 monolith 与 viewer/UX 多为可选或收敛对象。
 
@@ -155,9 +153,9 @@ herdr-done | herdr 完成标记扩展 | -e 注入，首 agent_end 写完成 mark
 
 **模式 monolith（收敛对象）**
 ```
-agent-team | TEAM | 委托 dispatcher; 含 __removed_dispatch_* 死 handler | 经 lib 测
-pipeline-team | PIPELINE | 含死 spawnAgent/dispatchPhaseAgents | pipeline-state/team 测
-agent-chain | CHAIN | "retired"；runAgent/runChain 不可达 | chain-* 测
+agent-team | TEAM | 委托 canonical dispatcher（自建 spawn 已删） | 经 lib 测
+pipeline-team | PIPELINE | 相位门 + advance_phase（父自建 spawn 已删） | pipeline-state/team 测
+agent-chain | CHAIN | 模式壳 + widget（退役 runner 已删） | chain-* 测
 ```
 
 **安全/门禁扩展（core/optional 混合）**
@@ -201,14 +199,13 @@ design-charter §3 规定"发现第二实现=合并或删"。S2 review 结论（
 | 2 | evidence-store vs agent-task-journal | 两个 append-only 事件/轨迹存储 | 合并或明确分工 |
 | 4 | chain-state vs coordination-state/run-state | 词表重叠 | 收敛到 coordination/run-state |
 | 5 | subagent-scope vs subagent-type-gate | 两个 gate 同 dispatcher | 明确分工或合并 |
-| 6 | plan-viewer-render vs plan-viewer-html | TUI 渲染与 GUI 平行 | 按实际使用保留 |
 | 7 | persist-model vs persist-theme | 同 settings.json 分锁并行写 | 合并单写者 |
 | 8 | parse-chain-yaml vs parse-pipeline-yaml | 重复手写 YAML | 共享解析或用 yaml 依赖 |
 | 10 | secure-engine/installer + security-roster | 探索性项目加固（POSITIONING §8 S2 候选） | 无真实任务用→删 |
 
 ## 5. 无直接单测的 lib（回归风险带）
 
-以下 lib 无同名直接测试，靠集成 smoke：agent-pi-config, agent-result-contract, agent-task-journal, ask-user-details, board-viewer-html, cleanup-viewer-html, completion-report-html, defaults, dispatch-gate, eval-engine, eval-scenarios, evidence-store, file-viewer-html, fleet-mailbox, herdr-client, isolated-verifier, memory-cycle-helpers, model-inheritance, parse-chain-yaml, parse-pipeline-yaml, path-safety, persist-model, persist-theme, pipeline-render, plan-viewer-editor, plan-viewer-html, plan-viewer-render, reports-viewer-html, security-report-html, sensitive-data, session-replay-helpers, sounds-config, sounds-player, sounds-viewer-html, spec-viewer-html, subagent-render, task-gate, task-list-render, tasks-confirm, themeMap, tool-invocation, toolkit-cli, ui-helpers, verification-policy, verifier-runtime, verifier-subagent, viewer-session, viewer-standalone-export, workflow-direction, workflow-memory
+以下 lib 无同名直接测试，靠集成 smoke：agent-pi-config, agent-result-contract, agent-task-journal, ask-user-details, board-viewer-html, cleanup-viewer-html, completion-report-html, defaults, dispatch-gate, eval-engine, eval-scenarios, evidence-store, file-viewer-html, fleet-mailbox, herdr-client, isolated-verifier, memory-cycle-helpers, model-inheritance, parse-chain-yaml, parse-pipeline-yaml, path-safety, persist-model, persist-theme, pipeline-render, plan-viewer-html, reports-viewer-html, security-report-html, sensitive-data, session-replay-helpers, sounds-config, sounds-player, sounds-viewer-html, spec-viewer-html, subagent-render, task-gate, task-list-render, tasks-confirm, themeMap, tool-invocation, toolkit-cli, ui-helpers, verification-policy, verifier-runtime, verifier-subagent, viewer-session, viewer-standalone-export, workflow-direction, workflow-memory
 
 （注：部分如 path-safety/local-server-auth 边界经 security-boundaries.test 间接覆盖；高价值补测在 S5/验收阶段择要。）
 

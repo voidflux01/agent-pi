@@ -1,7 +1,7 @@
 // ABOUTME: Atomic durable snapshot for CHAIN progress so a restarted parent can resume safely.
 // ABOUTME: The journal remains authoritative for events; this file stores only bounded workflow state.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync} from "node:fs";
 import { join } from "node:path";
 
 export type ChainSnapshotStep = {
@@ -62,6 +62,3 @@ export function writeChainSnapshot(sessionDir: string, snapshot: Omit<ChainSnaps
 	return path;
 }
 
-export function clearChainSnapshot(sessionDir: string): void {
-	try { unlinkSync(chainSnapshotPath(sessionDir)); } catch {}
-}

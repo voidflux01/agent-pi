@@ -884,40 +884,6 @@ export function truncateToolResult(
  * Validate a security policy for common issues.
  * Returns a list of warnings (empty = valid).
  */
-export function validatePolicy(policy: SecurityPolicy): string[] {
-	const warnings: string[] = [];
-
-	if (!policy.settings.enabled) {
-		warnings.push("Security guard is DISABLED (settings.enabled = false)");
-	}
-	if (policy.blocked_commands.length === 0) {
-		warnings.push("No blocked command rules defined");
-	}
-	if (policy.prompt_injection_patterns.length === 0) {
-		warnings.push("No prompt injection patterns defined");
-	}
-	if (policy.protected_paths.length === 0) {
-		warnings.push("No protected path rules defined");
-	}
-
-	// Check for regex compilation errors
-	for (const rule of [...policy.blocked_commands, ...policy.exfiltration_patterns, ...policy.protected_paths, ...policy.prompt_injection_patterns]) {
-		try {
-			new RegExp(rule.pattern, "i");
-		} catch {
-			warnings.push(`Invalid regex in rule "${rule.description}": ${rule.pattern}`);
-		}
-	}
-
-	// Check for overbroad allowlist entries
-	for (const pattern of policy.allowlist.commands) {
-		if (pattern === ".*" || pattern === ".+") {
-			warnings.push(`Overbroad allowlist command pattern: "${pattern}" — matches everything`);
-		}
-	}
-
-	return warnings;
-}
 
 export function formatThreat(threat: ThreatResult, verbose: boolean): string {
 	const icon = threat.severity === "block" ? "🛑" : threat.severity === "warn" ? "⚠️" : "📝";

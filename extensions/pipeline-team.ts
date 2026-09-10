@@ -25,7 +25,7 @@ import type { AgentToolResult, ExtensionAPI, Theme, ToolRenderResultOptions } fr
 import { registerToolWithExecutor } from "./lib/tool-executor-registry.ts";
 import { Type } from "@sinclair/typebox";
 import { Text, type AutocompleteItem } from "@mariozechner/pi-tui";
-import { readLastAssistantText, sessionUsage, updateHerdrPaneStatus, registerHerdrCommands, herdrWorkerLabel } from "./lib/herdr-client.ts";
+import { registerHerdrCommands } from "./lib/herdr-client.ts";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs"; import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
@@ -40,36 +40,24 @@ import {
  setExecutionContract,
  getWorkflowRunLink,
 } from "./lib/coordination-state.ts";
-import { childEnvironment, ensurePiTool, projectWorkerTools } from "./lib/child-runtime.ts";
-import { subagentContextBudget } from "./lib/context-budget.ts";
 import { outputLine, outputBox, type BarColor, type OutputBoxTheme } from "./lib/output-box.ts";
 import { renderVerticalTimeline, renderCollapsedTimeline } from "./lib/pipeline-render.ts";
 import { toolCallText } from "./lib/tui/tool-render.ts";
 import { hideWidget } from "./lib/tui/widget.ts";
-import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
-import { boundedHandoff, boundedOutputPreview, buildResultFormatRepairPrompt, buildWorkerInitialPrompt, compactHandoff, composeAgentResult, extractResultBlock, formatResultRepairDiagnostics, MAX_RESULT_FORMAT_REPAIRS, persistFullOutput, resultFormatRepairReason, resultOneLiner, runBaseName } from "./lib/agent-result-contract.ts";
-import { journalAppend, journalUpdate, pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
-import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
+import { boundedHandoff } from "./lib/agent-result-contract.ts";
+import { pruneRunArtifacts, reconcileJournal, registerTaskStatusCommand } from "./lib/agent-task-journal.ts";
 import { loadAgentModelsConfig, parseAgentMdFile, type AgentModelsConfig } from "./lib/agent-defs.ts";
 import { displayName } from "./lib/ui-helpers.ts";
-import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseAgentDef, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
-import { currentDispatchAuthorization, explicitDispatchHandler, isExplicitDispatchActive, createSubagentRuntime, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
+import { parsePipelineYaml, phaseRequiresAgentDispatch, pipelineSelectLabel, type PhaseDef, type PipelineConfig } from "./lib/parse-pipeline-yaml.ts";
+import { explicitDispatchHandler, withSessionLifecycle } from "./lib/dispatch-runtime.ts";
 import { matchNamedOption } from "./lib/named-pick.ts";
-import { applyWorkerLaunchPolicy, implementationWorkerPrompt, isExecutionWorker, reviewWorkerPrompt, workerHitToolCap, workerTimeoutMs } from "./lib/worker-budget.ts";
-import { discoverResearchTools } from "./lib/research-protocol.ts";
 import { bindAcceptanceContract } from "./lib/execution-contract.ts";
 import { runAutonomousCompletion, builderRepairDispatcher } from "./lib/autonomous-completion.ts";
 import { createWorkerLifecycle } from "./lib/worker-lifecycle.ts";
-import { createOrchestrationRun, DEFAULT_ORCHESTRATION_TIMEOUT_MS, type OrchestrationRun } from "./lib/orchestration-run.ts";
-import { AGENT_PI_CONFIG } from "./lib/agent-pi-config.ts";
 import { reviewerDecision } from "./lib/reviewer-decision.ts";
-import { providerModelString } from "./lib/model-inheritance.ts";
 import { clearPipelineSnapshot, pipelineSnapshotMatchesPhaseNames, readPipelineSnapshot, writePipelineSnapshot } from "./lib/pipeline-state.ts";
-import { scheduleResourceWaves } from "./lib/resource-scheduler.ts";
 import { registerWorkflowDispatchHook, readDispatchReceipt } from "./lib/workflow-dispatch.ts";
-import { workflowDirection } from "./lib/workflow-direction.ts";
 import { markWorkflowRunComplete } from "./lib/workflow-run.ts";
-import { withSessionResume } from "./lib/subagent-recovery.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -142,17 +130,6 @@ function truncateContext(text: string): string {
  return text.slice(0, CONTEXT_MAX) + "\n\n... [context truncated at 30000 chars]";
 }
 
-function resolveTemplate(
- template: string,
- vars: { task: string; context: string; plan: string; input: string; review: string },
-): string {
- return template
-  .replace(/\$TASK/g, vars.task)
-  .replace(/\$CONTEXT/g, truncateContext(vars.context))
-  .replace(/\$PLAN/g, vars.plan)
-  .replace(/\$INPUT/g, vars.input)
-  .replace(/\$REVIEW/g, vars.review);
-}
 
 // ── Extension ────────────────────────────────────
 
@@ -558,386 +535,6 @@ export default function(pi: ExtensionAPI) {
     },
    };
   }, { placement: "belowEditor" });
- }
-
- // ── Subprocess Spawning ──────────────────────
-
- function spawnAgent(
-  agentDef: AgentDef,
-  task: string,
-  agentState: AgentState,
-  ctx: any,
-  parentRunId?: string,
-  signal?: AbortSignal,
-  parentRun?: OrchestrationRun,
- ): Promise<{ output: string; fullOutput: string; fullOutputPath: string; exitCode: number; elapsed: number }> {
-  if (!isExplicitDispatchActive()) {
-   return Promise.resolve({ output: "Dispatch refused: only an explicit tool or slash command may start a child", fullOutput: "", fullOutputPath: "", exitCode: 126, elapsed: 0 });
-  }
-  ctx?.ui?.notify?.(`${agentDef.name} started`, "info");
-  agentState.status = "running";
-  agentState.task = task;
-  agentState.elapsed = 0;
-  agentState.lastWork = "";
-  agentState.output = "";
-  updateWidget();
-
-  const startTime = Date.now();
-  agentState.timer = lifecycle.trackTimer(setInterval(() => {
-   agentState.elapsed = Date.now() - startTime;
-   updateWidget();
-  }, 1000));
-
-  // Use agent's defined model or fall back to default subagent model.
-  // NOTE: We intentionally do NOT inherit the parent model. Each agent
-  // should use its explicitly defined model or the lightweight default.
-  const model = resolveToolkitWorkerModel(agentDef.name, agentDef.model || providerModelString(ctx?.model) || DEFAULT_SUBAGENT_MODEL);
-
-  const agentKey = `pipeline-${agentDef.name.toLowerCase().replace(/\s+/g, "-")}-${agentState.index}`;
-  const agentSessionFile = join(sessionDir, `${agentKey}.json`);
-
-  const extDir = dirname(fileURLToPath(import.meta.url));
-  // Loaded only by the visible herdr transport: writes the pane's done
-  // marker on the child's first agent_end (an interactive worker stays alive).
-  const herdrDoneExtPath = join(extDir, "herdr-done.ts");
-  // Resume existing session when one exists (pipeline previously lacked -c).
-  const hasSession = existsSync(agentSessionFile);
-  // Durable journal record — survives parent restarts (see /agents-status).
-  const journalId = runBaseName(agentKey, agentState.index + 1);
-  journalAppend(sessionDir, {
-   version: 1,
-   id: journalId,
-   kind: "pipeline",
-   agent: agentDef.name,
-   mode: "PIPELINE",
-   task,
-   model,
-   cwd: ctx.cwd,
-   sessionFile: hasSession ? agentSessionFile : undefined,
-   resumed: !!hasSession,
-   status: "dispatched",
-   startedAt: Date.now(),
-   updatedAt: Date.now(),
-  });
-
-  const role = agentDef.name.toLowerCase();
-  const policy = isExecutionWorker(agentDef.name) ? "execution" : role === "scout" || role === "researcher" ? "recon" : "readonly";
-  let workerTools = projectWorkerTools(agentDef.tools, pi.getAllTools(), policy);
-  workerTools = ensurePiTool(workerTools, "ask_parent");
-  if (agentDef.name.toLowerCase() === "researcher") {
-   for (const name of discoverResearchTools(pi.getAllTools())) workerTools = ensurePiTool(workerTools, name);
-  }
-
-  // Resume preserves context, not reporting protocol. Re-append canonical
-  // instructions so every pipeline phase emits the same handoff shape.
-  const workerTask = buildWorkerInitialPrompt({
-   role: agentDef.name,
-   task,
-   rolePrompt: agentDef.systemPrompt,
-   additionalInstructions: [
-    isExecutionWorker(agentDef.name) ? implementationWorkerPrompt() : "",
-    agentDef.name.toLowerCase() === "reviewer" ? reviewWorkerPrompt() : "",
-   ].filter(Boolean).join("\n\n") || undefined,
-  });
-  const args = [
-   "--mode", "json",
-   "-p",
-   "--model", model,
-   "--tools", workerTools,
-   "--session", agentSessionFile,
-  ];
-
-  if (hasSession) {
-   args.push("-c");
-  }
-
-  args.push(workerTask);
-
-  const textChunks: string[] = [];
-  let liveText = "";
-
-  return new Promise((resolvePromise) => {
-   let finished = false;
-   let repairAttempts = 0;
-   let initialRepairReason = "";
-   const repairExitCodes: Array<number | null> = [];
-   // Shared completion path for both transports. Persist the FULL
-   // transcript on disk, then compose the compact but complete
-   // result index for the parent context / final report.
-   const finish = async (code: number | null, externalFull?: string) => {
-    if (finished) return;
-    const output = externalFull ?? textChunks.join("");
-    const repairReason = resultFormatRepairReason(output, agentDef.name, { exitCode: code, cancelled: !!signal?.aborted });
-    if (repairReason && !signal?.aborted && repairAttempts < MAX_RESULT_FORMAT_REPAIRS) {
-     if (!initialRepairReason) initialRepairReason = repairReason;
-     repairAttempts++;
-     const repairPrompt = buildResultFormatRepairPrompt({ role: agentDef.name, reason: repairReason, outputText: output, exitCode: code });
-     const repair = await createSubagentRuntime({
-      authorization: currentDispatchAuthorization(),
-      command: withSessionResume(["pi", "--mode", "json", "-p", "--session", agentSessionFile, "--model", model, "--tools", "", repairPrompt], agentSessionFile),
-      cwd: ctx.cwd,
-      env: childEnvironment({ PI_SUBAGENT: "1", PI_AGENT_NAME: agentDef.name.toLowerCase(), PI_SESSION_FILE: agentSessionFile, PI_AGENT_PI_RUN_ID: parentRunId }),
-      launchDir: sessionDir,
-      launchId: `${journalId}-format-repair-${repairAttempts}`,
-      parentRunId,
-      mode: "PIPELINE",
-      pollTimeoutMs: workerTimeoutMs(agentDef.name) ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS,
-      sessionFile: agentSessionFile,
-      herdrDoneExtPath,
-      herdrLabel: herdrWorkerLabel(agentDef.name, journalId),
-      herdrPaneKey: `${journalId}-format-repair-${repairAttempts}`,
-      isAborted: () => !!signal?.aborted,
-     });
-     repairExitCodes.push(repair.exitCode);
-     const repaired = repair.outputText || readLastAssistantText(agentSessionFile).text || undefined;
-     await finish(repair.exitCode, repaired);
-     return;
-    }
-    const finalRepairReason = repairReason;
-    const repairDiagnostic = repairAttempts > 0
-     ? formatResultRepairDiagnostics({ attempts: repairAttempts, initialReason: initialRepairReason, finalReason: finalRepairReason, exitCodes: repairExitCodes })
-     : "";
-    finished = true;
-    lifecycle.clearTimer(agentState.timer);
-    lifecycle.clearProcess(agentState.proc);
-    agentState.proc = null;
-    agentState.elapsed = Date.now() - startTime;
-    updateHerdrPaneStatus(ctx.cwd, journalId, code === 0 && !finalRepairReason ? "done" : "error");
-    agentState.output = output;
-    agentState.status = code === 0 && !finalRepairReason ? "done" : "error";
-    agentState.lastWork = resultOneLiner(output, extractResultBlock(output).result)
-     || output.split("\n").filter((l: string) => {
-      const t = l.trim();
-      return t && t !== "## END" && t !== "## RESULT";
-     }).pop()
-     || "";
-    updateWidget();
-
-    ctx.ui.notify(
-     `${displayName(agentState.role)} #${agentState.index + 1} ${agentState.status} in ${Math.round(agentState.elapsed / 1000)}s`,
-     agentState.status === "done" ? "success" : "error",
-    );
-
-    let fullOutputPath = "";
-    let composed = output;
-    try {
-     fullOutputPath = persistFullOutput(sessionDir, runBaseName(agentKey, agentState.index + 1), output);
-     const composedResult = composeAgentResult({
-      agent: agentDef.name,
-      status: agentState.status,
-      exitCode: code,
-      elapsedMs: agentState.elapsed,
-      model,
-      outputText: output,
-      fullOutputPath,
-      maxResultChars: subagentContextBudget(ctx?.getContextUsage?.()?.percent, 1).resultChars,
-     });
-     composed = compactHandoff({ agent: agentDef.name, status: agentState.status, elapsedMs: agentState.elapsed, model, composed: composedResult, fullOutputPath });
-    } catch {
-     composed = "[RESULT contract rejected: delivery gate could not persist or inspect the worker transcript]";
-     fullOutputPath = "";
-    }
-
-    const pu = agentSessionFile ? sessionUsage(agentSessionFile) : null;
-    if (parentRun && pu && pu.assistantMessages > 0) {
-     parentRun.recordUsage({ totalTokens: pu.totalTokens, costUsd: pu.costUsd });
-    }
-    journalUpdate(sessionDir, journalId, {
-     status: agentState.status,
-     exitCode: code,
-     elapsedMs: agentState.elapsed,
-     sessionFile: code === 0 ? agentSessionFile : undefined,
-     outputFile: fullOutputPath || undefined,
-     note: repairDiagnostic || undefined,
-     usage: pu && pu.assistantMessages > 0 ? {
-      input: pu.input, output: pu.output, cacheRead: pu.cacheRead, cacheWrite: pu.cacheWrite,
-      totalTokens: pu.totalTokens, budgetTokens: pu.input + pu.output + pu.cacheWrite, costUsd: Math.round(pu.costUsd * 1e6) / 1e6,
-     } : undefined,
-    });
-
-    resolvePromise({ output: composed, fullOutput: output, fullOutputPath, exitCode: code ?? 1, elapsed: agentState.elapsed });
-   };
-
-   // Transport mechanics are shared; the pipeline owns phase scheduling
-   // and only consumes text/status callbacks for its widget.
-   const launch = applyWorkerLaunchPolicy(["pi", ...args], agentDef.name);
-   const runtimePromise = createSubagentRuntime({
-    authorization: currentDispatchAuthorization(),
-    command: launch.command,
-    cwd: ctx.cwd,
-    env: childEnvironment({
-     PI_SUBAGENT: "1",
-     PI_AGENT_NAME: String(agentDef?.name || "").toLowerCase(),
-     PI_PANE_TITLE: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
-     PI_SESSION_FILE: agentSessionFile || undefined,
-     PI_AGENT_PI_RUN_ID: parentRunId,
-    }),
-    launchDir: sessionDir,
-    launchId: journalId,
-    parentRunId,
-    mode: "PIPELINE",
-    pollTimeoutMs: workerTimeoutMs(agentDef.name) ?? DEFAULT_ORCHESTRATION_TIMEOUT_MS,
-    sessionFile: agentSessionFile,
-    herdrDoneExtPath,
-    herdrLabel: herdrWorkerLabel(agentDef?.name || "pipeline", journalId),
-    herdrPaneKey: journalId,
-    onHerdrClosed: () => {
-     // The pipeline lifecycle is already owned by the parent run;
-     // unlike the standalone widget runtime there is no local epoch
-     // token to compare here.
-     updateWidget();
-    },
-    isAborted: () => !!signal?.aborted,
-    journal: { dir: sessionDir, id: journalId },
-    onProcess: (child) => { agentState.proc = lifecycle.trackProcess(child as any); },
-    onStdoutLine: (line) => {
-     try {
-      const event = JSON.parse(line);
-      if (event.type === "message_update") {
-       const delta = event.assistantMessageEvent;
-       if (delta?.type === "text_delta") {
-        const deltaText = delta.delta || "";
-        textChunks.push(deltaText);
-        liveText = (liveText + deltaText).slice(-8_192);
-        const last = liveText.split("\n").filter((l: string) => l.trim()).pop() || "";
-        agentState.lastWork = last;
-        updateWidget();
-       }
-      } else if (event.type === "tool_execution_start") {
-       agentState.toolCount = (agentState.toolCount || 0) + 1;
-       if (workerHitToolCap(agentDef.name, agentState.toolCount) && agentState.proc) {
-        try { agentState.proc.kill("SIGTERM"); } catch { }
-        agentState.lastWork = "stopped: tool-call cap";
-       }
-      }
-     } catch { }
-    },
-    onHerdrUpdate: () => {
-     try {
-      const { text } = readLastAssistantText(agentSessionFile);
-      const last = text.split("\n").filter((l: string) => l.trim()).pop() || "";
-      if (last) {
-       agentState.lastWork = last;
-       agentState.output = last;
-       updateWidget();
-      }
-     } catch { }
-    },
-   });
-   runtimePromise.then((result) => {
-    finish(result.exitCode, result.outputText);
-   }).catch(() => finish(1));
-
-  });
- }
-
- // ── Dispatch Agents for a Phase ──────────────
-
- async function dispatchPhaseAgents(
-  agentDefs: { role: string; task: string; resources?: string[] }[],
-  mode: "parallel" | "sequential",
-  ctx: any,
-  parentRunId?: string,
-  signal?: AbortSignal,
-  parentRun?: OrchestrationRun,
- ): Promise<{ outputs: string[]; fullOutputs: string[]; fullOutputPaths: string[]; success: boolean; blockedReason?: string }> {
-  if (!isExplicitDispatchActive()) {
-   return { outputs: [], fullOutputs: [], fullOutputPaths: [], success: false, blockedReason: "Dispatch refused: only an explicit tool or slash command may start a child" };
-  }
-  const phaseState = phaseStates[currentPhaseIndex];
-  const contextBudget = subagentContextBudget(ctx?.getContextUsage?.()?.percent, agentDefs.length);
-  if (contextBudget.maxAgents === 0) {
-   return {
-    outputs: [],
-    fullOutputs: [],
-    fullOutputPaths: [],
-    success: false,
-    blockedReason: `Context is at ${Math.round(ctx?.getContextUsage?.()?.percent ?? 90)}%; compact before dispatching more pipeline agents.`,
-   };
-  }
-  phaseState.agents = agentDefs.map((d, i) => ({
-   role: d.role,
-   index: i,
-   status: "idle" as const,
-   task: d.task,
-   elapsed: 0,
-   lastWork: "",
-   output: "",
-  }));
-  if (agentDefs.length > 0) {
-   phaseState.dispatchCount = (phaseState.dispatchCount || 0) + 1;
-  }
-  persistPipelineState();
-  updateWidget();
-
-  const outputs: string[] = [];
-  const fullOutputs: string[] = [];
-  const fullOutputPaths: string[] = [];
-  let allSuccess = true;
-
-  if (mode === "parallel") {
-   const configuredParallel = Math.max(1, parseInt(process.env.PI_PIPELINE_MAX_PARALLEL || String(AGENT_PI_CONFIG.orchestration!.pipelineMaxParallel), 10) || AGENT_PI_CONFIG.orchestration!.pipelineMaxParallel!);
-   const maxParallel = Math.min(configuredParallel, contextBudget.maxAgents);
-   const launch = (d: any, i: number) => {
-    const def = allAgents.get(d.role.toLowerCase());
-    if (!def) {
-     phaseState.agents[i].status = "error";
-     phaseState.agents[i].lastWork = `Agent "${d.role}" not found`;
-     updateWidget();
-     return Promise.resolve({ output: `Agent "${d.role}" not found`, fullOutput: "", fullOutputPath: "", exitCode: 1, elapsed: 0 });
-    }
-    return spawnAgent(def, d.task, phaseState.agents[i], ctx, parentRunId, signal, parentRun);
-   };
-   // Bounded fan-out: at most maxParallel agents run at once (env-tunable),
-   // so a 12-agent phase cannot spike to 12 simultaneous pi processes.
-   const results: Array<Awaited<ReturnType<typeof spawnAgent>>> = [];
-   for (const [waveIndex, wave] of scheduleResourceWaves(agentDefs, maxParallel).entries()) {
-    parentRun?.record("pipeline.phase.wave", { wave: waveIndex, jobs: wave.map((index) => ({ index, role: agentDefs[index].role, ...(agentDefs[index].resources ? { resources: agentDefs[index].resources } : {}) })) });
-    await Promise.all(wave.map(async (i) => { results[i] = await launch(agentDefs[i], i); }));
-   }
-   for (const r of results) {
-    outputs.push(r.output);
-    fullOutputs.push(r.fullOutput || "");
-    fullOutputPaths.push(r.fullOutputPath || "");
-    // A malformed worker RESULT is a bounded quality warning, not a
-    // transport/process failure. Preserve the raw output and let the
-    // phase handoff and final acceptance gate decide whether it is usable;
-    // otherwise one formatting mistake deadlocks the whole pipeline.
-    if (r.exitCode !== 0) allSuccess = false;
-   }
-  } else {
-   // Sequential — each agent's output becomes $INPUT for next
-   let input = "";
-   for (let i = 0; i < agentDefs.length; i++) {
-    const d = agentDefs[i];
-    const def = allAgents.get(d.role.toLowerCase());
-    if (!def) {
-     phaseState.agents[i].status = "error";
-     phaseState.agents[i].lastWork = `Agent "${d.role}" not found`;
-     updateWidget();
-     outputs.push(`Agent "${d.role}" not found`);
-     fullOutputs.push("");
-     fullOutputPaths.push("");
-     allSuccess = false;
-     break;
-    }
-
-    const task = d.task.replace(/\$INPUT/g, input);
-    const result = await spawnAgent(def, task, phaseState.agents[i], ctx, parentRunId, signal, parentRun);
-    outputs.push(result.output);
-    fullOutputs.push(result.fullOutput || "");
-    fullOutputPaths.push(result.fullOutputPath || "");
-    input = result.output;
-
-    if (result.exitCode !== 0) {
-     allSuccess = false;
-     break;
-    }
-   }
-  }
-
-  persistPipelineState();
-  return { outputs, fullOutputs, fullOutputPaths, success: allSuccess };
  }
 
  function bindPipelinePlan(planText: string): void {

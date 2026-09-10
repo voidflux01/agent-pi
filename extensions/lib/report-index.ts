@@ -1,7 +1,7 @@
 // ABOUTME: Shared persisted report index for plans, questions, specs, and completion reports.
 // ABOUTME: Stores searchable metadata in SQLite with JSON migration and retention pruning.
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 let DatabaseSync: any = null;
@@ -276,61 +276,9 @@ function loadEntriesFromDb(): PersistedReportEntry[] {
 	return rows.map(rowToEntry);
 }
 
-export function getReportIndexPath(): string {
-	return DB_PATH;
-}
-
 export function loadReportIndex(): PersistedReportIndex {
 	const entries = loadEntriesFromDb();
 	return { version: 1, updatedAt: nowIso(), entries };
-}
-
-export function saveReportIndex(index: PersistedReportIndex): void {
-	const database = getDb();
-	if (!database) {
-		const entries = (Array.isArray(index.entries) ? index.entries : []).map(
-			(e) => normalizeEntry(e as any),
-		);
-		writeLegacyJsonSnapshot(entries);
-		return;
-	}
-	const replace = database.prepare(`
-		INSERT OR REPLACE INTO reports (
-			id, category, title, summary, search_text, created_at, updated_at,
-			source_path, source_label, viewer_path, viewer_label, tags_json, metadata_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`);
-	const incoming = Array.isArray(index.entries) ? index.entries : [];
-	const ids = incoming.map((entry) => String(entry.id));
-	const tx = database.transaction((entries: PersistedReportEntry[]) => {
-		if (ids.length > 0) {
-			const placeholders = ids.map(() => "?").join(", ");
-			database.prepare(`DELETE FROM reports WHERE id NOT IN (${placeholders})`).run(...ids);
-		} else {
-			database.exec("DELETE FROM reports");
-		}
-		for (const rawEntry of entries) {
-			const entry = normalizeEntry(rawEntry as any);
-			replace.run(
-				entry.id,
-				entry.category,
-				entry.title,
-				entry.summary,
-				entry.searchText,
-				entry.createdAt,
-				entry.updatedAt,
-				entry.sourcePath || null,
-				entry.sourceLabel || null,
-				entry.viewerPath || null,
-				entry.viewerLabel || null,
-				serializeJson(entry.tags || []),
-				serializeJson(entry.metadata || {}),
-			);
-		}
-	});
-	tx(incoming as PersistedReportEntry[]);
-	pruneExpiredReports();
-	writeLegacyJsonSnapshot(loadEntriesFromDb());
 }
 
 export function buildReportSearchText(entry: {
@@ -444,18 +392,4 @@ export function upsertPersistedReport(input: {
 	return entry;
 }
 
-export function resetReportStorageForTests(): void {
-	if (db) {
-		try { db.close(); } catch {}
-		db = null;
-	}
-	initialized = false;
-	if (existsSync(DB_PATH)) {
-		try { unlinkSync(DB_PATH); } catch {}
-	}
-}
-
 /** Returns true if node:sqlite is available on this runtime. */
-export function isSqliteAvailable(): boolean {
-	return initSqlite();
-}

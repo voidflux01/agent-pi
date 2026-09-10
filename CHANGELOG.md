@@ -4,6 +4,36 @@ All notable changes to agent-pi will be documented in this file.
 
 ## Unreleased
 
+### Orphan and compatibility code removed
+
+- **The retired self-spawn paths are gone.** `agent-team.ts`
+  (`dispatchAgent`, the suppressed `__removed_dispatch_*` registrations and the
+  `REMOVED_AGENT_TOOLS` filter in `tool-executor-registry.ts`),
+  `agent-chain.ts` (`runAgent`/`runCanonicalAgent`/`runChain` and their
+  snapshot writer) and `pipeline-team.ts` (`spawnAgent`,
+  `dispatchPhaseAgents`, `resolveTemplate`) no longer exist. Worker transport
+  now lives only in the canonical dispatcher (`subagent-widget.ts`,
+  `toolkit-commands.ts`), so orchestrator sources must not contain
+  `createSubagentRuntime(` or spawn `pi` directly — the anti-drift tests assert
+  exactly that.
+- **Orphan modules deleted**: `lib/plan-viewer-render.ts` and
+  `lib/plan-viewer-editor.ts` (the pre-GUI TUI plan editor; nothing imported
+  either) plus the unreferenced vendored `lib/marked.min.js` (the host bundles
+  its own copy).
+- **Dead exports and helpers deleted**: 25+ functions with zero callers
+  (`pollDoneFile`, `ensureHerdrWorkspace`, `closeLingeringHerdrPanes`,
+  `closeHerdrTab`, `tickSleep`, `saveReportIndex`, `resetReportStorageForTests`,
+  `isSqliteAvailable`, `getReportIndexPath`, `validatePolicy`,
+  `requestCompletionOverride`, `completionDecision`, `modeBgAnsi`,
+  `buildIterationContext`, `manifestLabel`, `verifierAction`,
+  `runCalibrationFixture`, `waitForScreen`, `isPlanApproved`, `isSpecApproved`,
+  and the unreferenced sound/research-session/pipeline-render constants), plus
+  the imports and helpers they orphaned.
+- **Stale references fixed**: the toolkit `Task` mapping pointed at the removed
+  `dispatch_agent`; the autoresearch command/skill allow-lists named it too.
+  The source-text guard tests that pinned deleted implementations now assert
+  the canonical dispatcher invariants instead.
+
 ### Inline `[cmd]` command execution removed
 
 - **The acceptance contract no longer carries executable commands.** The

@@ -25,7 +25,7 @@ interface AgentState {
 const DEFAULT_SUBAGENT_MODEL = "anthropic/claude-haiku-4-5-20251001";
 
 /**
- * Mirrors model resolution logic from agent-team.ts dispatchAgent().
+ * Mirrors the model resolution logic used by TEAM agent dispatch.
  * Resolves the effective model for an agent, storing it on state.
  * NOTE: We intentionally do NOT inherit the parent model. Each agent
  * should use its explicitly defined model or the lightweight default.

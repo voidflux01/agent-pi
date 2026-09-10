@@ -114,9 +114,6 @@ export function markSpecApproved(folderPath?: string): void {
 	workflowApprovalAfter({ mode: "SPEC", action: "approved", path: folderPath ? resolve(folderPath) : undefined, ...state.specApprovalBinding });
 }
 
-export function isPlanApproved(): boolean { return approvalStateForMode("PLAN"); }
-export function isSpecApproved(): boolean { return approvalStateForMode("SPEC"); }
-
 /** True only when this exact plan file is still the approved snapshot. */
 export function isPlanApprovedFor(filePath: string): boolean {
 	return approvalStateForMode("PLAN") && coordinationState().planApprovalBinding?.filePath === resolve(filePath);

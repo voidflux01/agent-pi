@@ -36,15 +36,6 @@ function displayName(name: string): string {
 	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-const STATUS_ICONS: Record<AgentStatus | PhaseStatus, string> = {
-	idle: "○",
-	pending: "○",
-	running: "●",
-	active: "●",
-	done: "✓",
-	error: "✗",
-	skipped: "→",
-};
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 

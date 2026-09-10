@@ -36,7 +36,6 @@ export function modeColor(mode: Mode): string {
 }
 
 const BOLD_WHITE = "\x1b[1;97m";
-const BOLD_DARK = "\x1b[1;30m";
 
 const MODE_TEXT_ANSI: Record<Mode, string> = {
 	NORMAL: "",
@@ -54,19 +53,8 @@ export function modeTextAnsi(mode: Mode): string {
 
 // ANSI escape codes for mode block background colors
 const DODGER_BLUE_BG = "\x1b[48;2;30;144;255m"; // dodger blue rgb(30,144,255)
-const ANSI_BG: Record<Mode, string> = {
-	NORMAL: "",
-	PLAN: DODGER_BLUE_BG,
-	SPEC: DODGER_BLUE_BG,
-	PIPELINE: DODGER_BLUE_BG,
-	TEAM: DODGER_BLUE_BG,
-	CHAIN: DODGER_BLUE_BG,
-};
 
 /** ANSI background color for the mode bar. Dodger blue for all active modes. */
-export function modeBgAnsi(mode: Mode): string {
-	return ANSI_BG[mode];
-}
 
 /** Status label for a mode. NORMAL returns empty string, others return "[MODE]". */
 export function modeLabel(mode: Mode): string {

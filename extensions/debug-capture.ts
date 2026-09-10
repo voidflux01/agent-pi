@@ -53,7 +53,6 @@ const DEFAULT_WIDTH = 1400;
 const DEFAULT_HEIGHT = 900;
 const DEFAULT_FONT_SIZE = 13;
 const DEFAULT_THEME = "Dracula";
-const VHS_WAIT_TIMEOUT = "30s";
 
 // ── Types ────────────────────────────────────────
 
@@ -114,10 +113,6 @@ function screenshotCmd(captureDir: string, name: string): string {
 	return `Screenshot ${captureDir}/${name}.png`;
 }
 
-function waitForScreen(pattern: string, timeout?: string): string {
-	const t = timeout ?? VHS_WAIT_TIMEOUT;
-	return `Wait+Screen@${t} /${pattern}/`;
-}
 
 // ── Scenario Generators ──────────────────────────
 

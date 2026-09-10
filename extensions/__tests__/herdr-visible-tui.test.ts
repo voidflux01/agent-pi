@@ -54,16 +54,16 @@ describe("herdr transport availability", () => {
 		}
 	});
 });
-	it("async availability check is disabled without Herdr env", async () => {
-		const previous = process.env.HERDR_ENV;
-		try {
-			delete process.env.HERDR_ENV;
-			expect(await herdrEnabledAsync()).toBe(false);
-		} finally {
-			if (previous === undefined) delete process.env.HERDR_ENV;
-			else process.env.HERDR_ENV = previous;
-		}
-	});
+it("async availability check is disabled without Herdr env", async () => {
+	const previous = process.env.HERDR_ENV;
+	try {
+		delete process.env.HERDR_ENV;
+		expect(await herdrEnabledAsync()).toBe(false);
+	} finally {
+		if (previous === undefined) delete process.env.HERDR_ENV;
+		else process.env.HERDR_ENV = previous;
+	}
+});
 
 describe("visiblePiTuiArgs", () => {
 	it("drops the headless flags that make a pane unreadable", () => {
@@ -162,11 +162,11 @@ describe("launch marker paths", () => {
 			expect(readFileSync(refs.scriptPath, "utf8")).toContain(`printf 'started\n' > '${launchStartedPath(dir, "sa7")}'`);
 			writeFileSync(refs.startedPath, "started\n", "utf8");
 			expect(await waitForLaunchStart(refs.startedPath, 100)).toBe(true);
-		expect(() => launchDonePath(dir, "../escape")).toThrow("Invalid Herdr launch id");
-		writeLaunchScript({ dir, id: "safe", cwd: dir, command: ["true"], env: { "BAD;KEY": "x", SAFE_KEY: "quoted'value" } });
-		const safeScript = readFileSync(join(dir, "herdr-launch-safe.sh"), "utf8");
-		expect(safeScript).not.toContain("BAD;KEY");
-		expect(safeScript).toContain("export SAFE_KEY='quoted'\\''value'");
+			expect(() => launchDonePath(dir, "../escape")).toThrow("Invalid Herdr launch id");
+			writeLaunchScript({ dir, id: "safe", cwd: dir, command: ["true"], env: { "BAD;KEY": "x", SAFE_KEY: "quoted'value" } });
+			const safeScript = readFileSync(join(dir, "herdr-launch-safe.sh"), "utf8");
+			expect(safeScript).not.toContain("BAD;KEY");
+			expect(safeScript).toContain("export SAFE_KEY='quoted'\\''value'");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -275,99 +275,109 @@ describe("herdr sibling splits", () => {
 });
 
 describe("dispatch sites stay watchable (anti-drift)", () => {
-	const files = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts", "subagent-widget.ts", "toolkit-commands.ts"];
+	// Worker transport lives in exactly one place: the canonical dispatcher.
+	const dispatchers = ["subagent-widget.ts", "toolkit-commands.ts"];
+	const orchestrators = ["agent-team.ts", "agent-chain.ts", "pipeline-team.ts"];
 
-	for (const f of files) {
+	for (const f of dispatchers) {
 		it(`${f} delegates standard Pi transport to the shared runtime`, () => {
 			const src = readFileSync(join(__dirname, "..", f), "utf8");
 			expect(src).toContain('from "./lib/dispatch-runtime.ts"');
-		expect(src).toContain("createSubagentRuntime({");
-			// Transport details must not drift back into individual orchestrators.
+			expect(src).toContain("createSubagentRuntime({");
+			expect(src).not.toMatch(/spawn\(\s*["']pi["']/);
+		});
+	}
+
+	for (const f of orchestrators) {
+		it(`${f} routes dispatch through the canonical dispatcher`, () => {
+			const src = readFileSync(join(__dirname, "..", f), "utf8");
+			// Orchestrators must not own transport or spawn Pi directly.
+			expect(src).not.toContain("createSubagentRuntime(");
 			expect(src).not.toMatch(/spawn\(\s*["']pi["']/);
 		});
 	}
 });
 
-	it("keeps widget worker mailbox identities unique by SA id", () => {
-		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(src).toContain("const mailboxAgent = `sa${state.id}`");
-		expect(src).toContain("PI_AGENT_NAME: mailboxAgent");
-		expect(src).toContain("buildMailboxPreamble(mailboxAgent");
-	});
+it("keeps widget worker mailbox identities unique by SA id", () => {
+	const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+	expect(src).toContain("const mailboxAgent = `sa${state.id}`");
+	expect(src).toContain("PI_AGENT_NAME: mailboxAgent");
+	expect(src).toContain("buildMailboxPreamble(mailboxAgent");
+});
 
-	it("uses the active Pi context directory for visible subagent work", () => {
-		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(src).toContain("const spawnCwd = contextCwd(ctx);");
-		expect(src).toContain("cwd: spawnCwd");
-	});
+it("uses the active Pi context directory for visible subagent work", () => {
+	const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+	expect(src).toContain("const spawnCwd = contextCwd(ctx);");
+	expect(src).toContain("cwd: spawnCwd");
+});
 
-	it("does not force --thinking off on child Pi dispatches", () => {
-		for (const rel of [
-			"subagent-widget.ts",
-			"agent-team.ts",
-			"agent-chain.ts",
-			"pipeline-team.ts",
-			"toolkit-commands.ts",
-			"lib/toolkit-cli.ts",
-		]) {
-			const src = readFileSync(join(__dirname, "..", rel), "utf8");
-			expect(src).not.toContain('"--thinking", "off"');
-		}
-	});
+it("does not force --thinking off on child Pi dispatches", () => {
+	for (const rel of [
+		"subagent-widget.ts",
+		"agent-team.ts",
+		"agent-chain.ts",
+		"pipeline-team.ts",
+		"toolkit-commands.ts",
+		"lib/toolkit-cli.ts",
+	]) {
+		const src = readFileSync(join(__dirname, "..", rel), "utf8");
+		expect(src).not.toContain('"--thinking", "off"');
+	}
+});
 
-	it("marks Herdr workers as quiet without muting the parent", () => {
-		for (const rel of ["lib/dispatch-runtime.ts", "lib/toolkit-cli.ts"]) {
-			const src = readFileSync(join(__dirname, "..", rel), "utf8");
-			expect(src).toContain('PI_WORKER_QUIET: "1"');
-		}
-		const banner = readFileSync(join(__dirname, "..", "agent-banner.ts"), "utf8");
-		expect(banner).toContain('process.env.PI_WORKER_QUIET === "1"');
-	});
+it("marks Herdr workers as quiet without muting the parent", () => {
+	for (const rel of ["lib/dispatch-runtime.ts", "lib/toolkit-cli.ts"]) {
+		const src = readFileSync(join(__dirname, "..", rel), "utf8");
+		expect(src).toContain('PI_WORKER_QUIET: "1"');
+	}
+	const banner = readFileSync(join(__dirname, "..", "agent-banner.ts"), "utf8");
+	expect(banner).toContain('process.env.PI_WORKER_QUIET === "1"');
+});
 
-	it("builds the Herdr command from the full argv without doubling the binary", () => {
-		const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
-		expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
-		expect(src).not.toMatch(/command:\s*\[spec\.command\[0\]/);
-	});
+it("builds the Herdr command from the full argv without doubling the binary", () => {
+	const src = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
+	expect(src).toContain("visiblePiTuiCommand(spec.command, spec.herdrDoneExtPath)");
+	expect(src).not.toMatch(/command:\s*\[spec\.command\[0\]/);
+});
 
-	it("labels herdr panes with the subagent role", () => {
-		const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(src).toContain("herdrWorkerLabel(");
-		expect(src).toContain("PI_PANE_TITLE: paneTitle");
-		expect(herdrWorkerLabel("scout", "sa1")).toBe("scout-sa1");
-	});
+it("labels herdr panes with the subagent role", () => {
+	const src = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+	expect(src).toContain("herdrWorkerLabel(");
+	expect(src).toContain("PI_PANE_TITLE: paneTitle");
+	expect(herdrWorkerLabel("scout", "sa1")).toBe("scout-sa1");
+});
 
-	it("stamps pane, agent chip, overlay title, and owned-tab name", () => {
-		const tabCmds = herdrIdentityArgv(
-			{ paneId: "w1:p9", tabId: "w1:t9", closeTarget: "tab" },
-			{ label: "omp-agent-sa1", agent: "omp-agent", state: "working" },
-		);
-		expect(tabCmds).toEqual([
-			["pane", "rename", "w1:p9", "omp-agent-sa1"],
-			["pane", "report-agent", "--source", "agent-pi", "--agent", "omp-agent", "--state", "working", "w1:p9"],
-			["pane", "report-metadata", "--source", "agent-pi", "--title", "omp-agent-sa1", "--display-agent", "omp-agent", "w1:p9"],
-			["tab", "rename", "w1:t9", "omp-agent-sa1"],
-		]);
-		const splitCmds = herdrIdentityArgv(
-			{ paneId: "w1:p2", tabId: "w1:t1", closeTarget: "pane" },
-			{ label: "scout-sa1", agent: "scout-sa1", state: "working" },
-		);
-		expect(splitCmds.some((c) => c[0] === "tab" && c[1] === "rename")).toBe(false);
-	});
+it("stamps pane, agent chip, overlay title, and owned-tab name", () => {
+	const tabCmds = herdrIdentityArgv(
+		{ paneId: "w1:p9", tabId: "w1:t9", closeTarget: "tab" },
+		{ label: "omp-agent-sa1", agent: "omp-agent", state: "working" },
+	);
+	expect(tabCmds).toEqual([
+		["pane", "rename", "w1:p9", "omp-agent-sa1"],
+		["pane", "report-agent", "--source", "agent-pi", "--agent", "omp-agent", "--state", "working", "w1:p9"],
+		["pane", "report-metadata", "--source", "agent-pi", "--title", "omp-agent-sa1", "--display-agent", "omp-agent", "w1:p9"],
+		["tab", "rename", "w1:t9", "omp-agent-sa1"],
+	]);
+	const splitCmds = herdrIdentityArgv(
+		{ paneId: "w1:p2", tabId: "w1:t1", closeTarget: "pane" },
+		{ label: "scout-sa1", agent: "scout-sa1", state: "working" },
+	);
+	expect(splitCmds.some((c) => c[0] === "tab" && c[1] === "rename")).toBe(false);
+});
 
-	it("opens workers via createHerdrTaskTab which prefers a sibling split", () => {
-		const client = readFileSync(join(__dirname, "..", "lib", "herdr-client.ts"), "utf8");
-		expect(client).toContain('pane", "split"');
-		expect(client).toContain("preferCallerPaneSplit");
-		expect(client).toContain('PI_HERDR_SPLIT');
-		const runtime = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
-		expect(runtime).toContain("createHerdrTaskTabAsync");
-		expect(runtime).toContain("closeHerdrTabAsync");
-		const toolkit = readFileSync(join(__dirname, "..", "lib", "toolkit-cli.ts"), "utf8");
-		expect(toolkit).toContain("createHerdrTaskTabAsync");
-		expect(toolkit).not.toContain("preferSplit: false");
-		expect(toolkit).toContain("stampHerdrPaneIdentityAsync");
-		expect(toolkit).toContain("toolkitHerdrAutoCloseMs");
-		const sa = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
-		expect(sa).toContain("runToolkitDispatch");
-	});
+it("opens workers via createHerdrTaskTab which prefers a sibling split", () => {
+	const client = readFileSync(join(__dirname, "..", "lib", "herdr-client.ts"), "utf8");
+	expect(client).toContain('pane", "split"');
+	expect(client).toContain("preferCallerPaneSplit");
+	expect(client).toContain('PI_HERDR_SPLIT');
+	const runtime = readFileSync(join(__dirname, "..", "lib", "dispatch-runtime.ts"), "utf8");
+	expect(runtime).toContain("createHerdrTaskTabAsync");
+	expect(runtime).toContain("closeHerdrTabAsync");
+	const toolkit = readFileSync(join(__dirname, "..", "lib", "toolkit-cli.ts"), "utf8");
+	expect(toolkit).toContain("createHerdrTaskTabAsync");
+	expect(toolkit).not.toContain("preferSplit: false");
+	expect(toolkit).toContain("stampHerdrPaneIdentityAsync");
+	expect(toolkit).toContain("toolkitHerdrAutoCloseMs");
+	const sa = readFileSync(join(__dirname, "..", "subagent-widget.ts"), "utf8");
+	expect(sa).toContain("runToolkitDispatch");
+});

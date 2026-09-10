@@ -396,30 +396,6 @@ function writeWorkspaceLedger(cwd: string, ledger: Record<string, string>): void
  * ids count as ours. Best-effort stamping + recording: failures fall
  * back to plain create-and-return.
  */
-export function ensureHerdrWorkspace(label: string, cwd: string): string | null {
-	const ledger = readWorkspaceLedger(cwd);
-	const remembered = ledger[label];
-	if (remembered) {
-		const list = herdrCli(["workspace", "list"]);
-		if (list.code === 0) {
-			try {
-				const ws = (JSON.parse(list.stdout).result?.workspaces || []) as Array<{ workspace_id: string }>;
-				if (ws.some((w) => w.workspace_id === remembered)) return remembered;
-			} catch { }
-		}
-	}
-	const created = herdrCli(["workspace", "create", "--label", label, "--cwd", cwd]);
-	if (created.code !== 0) return null;
-	try {
-		const id = JSON.parse(created.stdout).result?.workspace?.workspace_id ?? null;
-		if (id) {
-			writeWorkspaceLedger(cwd, { ...ledger, [label]: id });
-		}
-		return id;
-	} catch {
-		return null;
-	}
-}
 
 /** Herdr pane label that includes the role, e.g. `scout-sa1`. */
 export function herdrWorkerLabel(role: string, id: string): string {
@@ -560,13 +536,6 @@ function lingerKey(tab: HerdrTabRef): string {
 }
 
 /** Close finished worker panes now so the next dispatch does not stack them. */
-export function closeLingeringHerdrPanes(): void {
-	for (const [key, entry] of lingeringPanes) {
-		clearTimeout(entry.timer);
-		lingeringPanes.delete(key);
-		void closeHerdrTabAsync(entry.tab).finally(() => entry.onClosed?.());
-	}
-}
 
 
 /** `ms <= 0` closes immediately; otherwise close after the glance delay. */
@@ -729,11 +698,6 @@ export function sendCommandToPane(paneId: string, command: string[]): boolean {
 /** Close a worker we created (best-effort; also used for cancel).
  *  Split workers close only their pane; tab workers close their tab.
  *  Never closes the caller's own pane or tab. */
-export function closeHerdrTab(tab: HerdrTabRef): void {
-	const args = herdrCloseArgs(tab);
-	if (args.length === 0) return;
-	herdrCli(args, { timeoutMs: 15_000 });
-}
 
 /** Non-blocking version of sendCommandToPane; submits atomically. */
 export async function sendCommandToPaneAsync(paneId: string, command: string[]): Promise<boolean> {
@@ -884,30 +848,9 @@ export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 }
 
 /** Blocking 1s tick without spawning a process. */
-function tickSleep(): void {
-	try {
-		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-	} catch {
-		// fallback for environments without SharedArrayBuffer
-	}
-}
 
 /** Poll the marker file until it exists. Returns the exit code, or null on
  *  timeout / abort. `aborted()` is consulted on each tick for cancellation. */
-export function pollDoneFile(donePath: string, timeoutMs: number, aborted?: () => boolean): number | null {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		if (aborted?.()) return null;
-		try {
-			if (existsSync(donePath)) {
-				const code = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
-				if (Number.isFinite(code)) return code;
-			}
-		} catch { }
-		tickSleep();
-	}
-	return null;
-}
 
 /**
  * Async marker-file poll (non-blocking, keeps the pi TUI event loop alive).

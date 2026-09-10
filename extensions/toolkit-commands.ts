@@ -56,7 +56,7 @@ const TOOL_MAP: Record<string, string> = {
 	ls: "ls",
 	"file-system": "read,write,edit",
 	"AskUserQuestion": "ask_user",
-	Task: "dispatch_agent",
+	Task: "subagent_create",
 	Skill: "skill",
 	SlashCommand: "skill",
 	Python: "bash",

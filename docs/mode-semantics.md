@@ -28,7 +28,7 @@
 
 ## 2. PLAN（计划→批准→实现→报告）
 
-- **入口/面**：`extensions/plan-viewer.ts` + `lib/plan-viewer-html.ts` / `plan-viewer-editor.ts` / `plan-viewer-render.ts`。
+- **入口/面**：`extensions/plan-viewer.ts` + `lib/plan-viewer-html.ts`（GUI 版；旧 TUI 渲染/编辑对已于 2026-09-10 删除，无引用）。
 - **强制**（代码，非提示词）：
   - **批准门** `lib/approval-gate.ts`：写工具/bash/委派在计划批准前被拦（`decideApprovalGate`）；批准由**计划文件内容指纹绑定**，字节漂移即撤批（approval-gate.ts:118-127, 159-198）。执行点 mode-cycler tool_call + tool-caller 嵌套门。
   - **task 门** `lib/task-gate.ts`：PLAN 属 TASK_REQUIRED_MODES，委派/bash 需 active task。**批准前豁免**：plan 未批准时 task-gate 不强求 active task（task 创建被批准门锁死，强求会成死锁，见 `taskGateRequiresActiveTask`）；该相位由批准门独自把守，审批通过解锁实现后再重建任务清单并绑定 task-gate。
@@ -47,22 +47,22 @@
 - **入口**：`extensions/agent-team.ts`（1719 行 monolith）。
 - **形态**：父 agent 是**纯调度者**（提示词明言 "you have NO codebase tools"），经 subagent-widget 委派给 specialist；grid widget + 状态/恢复工具。
 - **强制**：TEAM coordinator 不能直接使用 read/write/edit/bash 等代码工具；必须通过 `subagent_create` / `subagent_create_batch` 委派。另有 mode hook + dispatch 权门 + RESULT/reviewer 门 + task 门。
-- **已知死代码**（S2/S4 候选）：`__removed_dispatch_*` handlers（L891/999）与 `dispatchAgent`(L490)/`dispatch_team_batch`——tool-executor-registry 拒注册，唯一入口已收敛到 `subagent_create_batch`。**父进程仍保留自建 spawn 路径**，与 canonical dispatcher 职责重叠，待本 S4 第二项收敛。
+- **已删（2026-09-10）**：`__removed_dispatch_*` handlers 与 `dispatchAgent` 自建 spawn 路径全部移除（含 tool-executor-registry 的拒注册过滤）；唯一入口是 canonical dispatcher 的 `subagent_create` / `subagent_create_batch`。
 
 ## 5. CHAIN（顺序链）
 
 - **入口**：`extensions/agent-chain.ts`（1150 行）。
-- **形态**：**已退役**——文件自注 "Chain execution is retired"（L1065）；`runAgent`(L303)/`runChain`(L554) 为不可达死代码。`subagent_create` 为唯一入口，顺序由父 agent 显式驱动。
+- **形态**：模式可选，但**自动 runner 已删（2026-09-10）**——`runAgent`/`runCanonicalAgent`/`runChain` 与其 snapshot 写入路径全部移除。`subagent_create` 为唯一入口，顺序由父 agent 显式驱动。
 - **强制**：CHAIN mode hook——必须 dispatch 配置好的下一步；前一步 RESULT 由父 agent 手动拼入下一步 `$INPUT`。
 - **恢复**：旧 runner 的 snapshot resume 已退役；stale CHAIN 只提供 inspection，不再宣传不存在的 `/chain-resume`。
-- **遗留**：死 `runAgent`/`runChain` 及父自建 spawn（L467 createSubagentRuntime），待本 S4 第二项移除。
+- **遗留**：无（退役 runner 与父自建 spawn 已于 2026-09-10 删除；保留的 `loadChains`/`activateChain`/widget/快照检查属活路径）。
 
 ## 6. PIPELINE（分阶段工作流）
 
 - **入口**：`extensions/pipeline-team.ts`（1564 行）。
 - **形态**：UNDERSTAND→PLAN→BUILD→REVIEW 等具名相位；`advance_phase` 工具（L937）带真实 `phaseDispatchReady` 门（L954）。phase hook（L190 before/after）驱动相位状态。
 - **强制**：相位推进需满足前置（dispatch receipt 消费，见 PI_FABRIC_ADOPTION:340-343）；worker 经 canonical dispatcher（`pipeline_dispatch` 不暴露为公共工具）。
-- **已知死代码**：`spawnAgent`(L490)/`dispatchPhaseAgents`(L723, scheduleResourceWaves fan-out) 无活调用者——waves 并行已在 subagent-widget batch 层实现，PIPELINE 内重复。
+- **已删（2026-09-10）**：`spawnAgent`/`dispatchPhaseAgents`（无活调用者，waves 并行已由 subagent-widget batch 层实现）及模板辅助 `resolveTemplate` 已移除。
 
 ## 7. 完成与验证（跨模式）
 
@@ -72,6 +72,6 @@
 ## 8. 模式语义 → 演进含意
 
 1. TEAM/CHAIN/PIPELINE 已不是独立引擎；**它们的维护负担应集中在：hook 顺序门正确性 + 提示词质量 + 死代码清理**，而非并行调度（那是 dispatcher 的事）。
-2. **父进程残留的自建 spawn**（agent-team dispatchAgent、agent-chain runAgent/runChain、pipeline spawnAgent/dispatchPhaseAgents）是 S4 的清理目标——全部收敛/删除，只留 canonical dispatcher 一条 spawn 路径。
+2. **父进程自建 spawn 清理已完成（2026-09-10）**：agent-team `dispatchAgent`、agent-chain `runAgent`/`runChain`、pipeline-team `spawnAgent`/`dispatchPhaseAgents` 全部删除，只留 canonical dispatcher 一条 spawn 路径（transport 现在只存在于 subagent-widget / toolkit-commands）。
    - **拆除决策（2026-09-08，风险门控）**：这些死函数嵌在 46–82KB monolith 中段，与活 helper 交错，且源文本守卫测试（workflow-walk-fixes 等）钉着 agent-team 内部符号。盲删整段会误删共享 helper。**惰性死代码清理收益低、风险高 → 延到下次功能性触碰该文件时顺带删**（tsc 会兜底捕获悬空引用；届时同步删钉死已删实现的守卫断言）。不单独为美容开膛 load-bearing monolith。
 3. 源文本守卫测试（workflow-walk-fixes 等）钉着上述内部符号，清理时必须同步（删钉死已删实现的断言，保留真正 wire/transport 不变量断言，如 herdr-visible-tui）。
