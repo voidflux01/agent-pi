@@ -32,6 +32,38 @@ describe("workspace manifest", () => {
 		expect(after.dirty.some(line => line.includes("base.txt"))).toBe(true);
 	});
 
+	it("detects further edits to an already-dirty tracked file (content-level identity)", () => {
+		writeFileSync(join(repo, "base.txt"), "first edit\n");
+		const first = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		writeFileSync(join(repo, "base.txt"), "second edit\n");
+		const second = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		// The porcelain row text is identical across both edits — only the
+		// worktree content digest moved.
+		expect(first.dirty).toEqual(second.dirty);
+		expect(first.hash).not.toBe(second.hash);
+		expect(manifestDelta(first, second)).toContain("modified base.txt");
+	});
+
+	it("detects further edits to an untracked file (content-level identity)", () => {
+		writeFileSync(join(repo, "note.md"), "v1\n");
+		const first = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		writeFileSync(join(repo, "note.md"), "v2\n");
+		const second = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(first.untracked).toEqual(second.untracked);
+		expect(first.hash).not.toBe(second.hash);
+		expect(manifestDelta(first, second)).toContain("modified note.md");
+	});
+
+	it("omits worktree digests for deleted files — the row signals it", () => {
+		writeFileSync(join(repo, "base.txt"), "x\n"); // dirty → in the digest set
+		const first = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(first.worktree.map(e => e.path)).toContain("base.txt");
+		rmSync(join(repo, "base.txt"));
+		const second = buildWorkspaceManifest(repo, FINGERPRINT_A);
+		expect(second.worktree.map(e => e.path)).not.toContain("base.txt");
+		expect(first.hash).not.toBe(second.hash);
+	});
+
 	it("includes untracked files — a new untracked file changes the hash", () => {
 		const before = buildWorkspaceManifest(repo, FINGERPRINT_A);
 		writeFileSync(join(repo, "new-untracked.ts"), "x\n");
@@ -141,5 +173,30 @@ describe("receipt binding end-to-end", () => {
 		writeFileSync(join(repo, "sneaky-untracked.ts"), "x\n");
 		const afterManifest = buildWorkspaceManifest(repo, bound.fingerprint);
 		expect(canComplete(receipt, bound, afterManifest.hash)).toBe(false);
+	});
+
+	it("re-editing a dirty file invalidates a receipt bound to that dirty state", async () => {
+		const { bindAcceptanceContract } = await import("../lib/execution-contract.ts");
+		const { createVerifierReceipt, canComplete } = await import("../lib/verifier-runtime.ts");
+		const { buildWorkspaceManifest } = await import("../lib/workspace-manifest.ts");
+
+		const bound = bindAcceptanceContract("# Plan: p\n\n## Objective\nShip the change.\n", "plan");
+		if ("error" in bound) throw new Error("expected contract");
+
+		// The receipt is bound to a state that is ALREADY dirty.
+		writeFileSync(join(repo, "base.txt"), "dirty v1\n");
+		const dirtyManifest = buildWorkspaceManifest(repo, bound.fingerprint);
+		const receipt = createVerifierReceipt({
+			contract: bound,
+			workspaceManifestHash: dirtyManifest.hash,
+			verification: { status: "PASS", results: [] },
+			attempt: 1,
+			verifier: { runId: "verifier-1", status: "PASS", summary: "objective satisfied" },
+		});
+		expect(canComplete(receipt, bound, dirtyManifest.hash)).toBe(true);
+
+		// Same porcelain row, different bytes → previously a blind spot, now stale.
+		writeFileSync(join(repo, "base.txt"), "dirty v2\n");
+		expect(canComplete(receipt, bound, buildWorkspaceManifest(repo, bound.fingerprint).hash)).toBe(false);
 	});
 });

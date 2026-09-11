@@ -105,8 +105,14 @@ export function resetWorkflowRunLink(runId?: string): void {
 
 export function setVerifierReceipt(receipt: VerifierReceipt | undefined, scope: string): void {
 	const current = session(scope);
-	if (receipt) current.receipt = receipt;
-	else delete current.receipt;
+	if (receipt) {
+		current.receipt = receipt;
+		// A PASS closes the failure budget: the contract was met, so a later edit
+		// that invalidates the receipt must start a fresh attempt lifecycle.
+		// Without this, a PASS earned on the final allowed attempt locked every
+		// subsequent re-verification behind the exhausted ceiling forever.
+		if (receipt.status === "PASS") current.attempt = 0;
+	} else delete current.receipt;
 }
 
 export function setEvalGate(gate: { ok: boolean; reason: string } | undefined, scope: string): void {

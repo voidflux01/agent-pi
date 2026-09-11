@@ -2,7 +2,8 @@
 // ABOUTME: Verifies mode, active workflows, approvals, and mode-change listeners.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { coordinationState, setActiveChain, setActivePipeline, setCoordinationMode, onCoordinationModeChange, verificationScope, bumpVerifierAttempt, getVerifierAttempt, setEvalGate, getEvalGate } from "../lib/coordination-state.ts";
+import { coordinationState, setActiveChain, setActivePipeline, setCoordinationMode, onCoordinationModeChange, verificationScope, bumpVerifierAttempt, getVerifierAttempt, setEvalGate, getEvalGate, setVerifierReceipt } from "../lib/coordination-state.ts";
+import type { VerifierReceipt } from "../lib/verifier-runtime.ts";
 
 function resetState(): void {
 	setCoordinationMode("NORMAL");
@@ -44,5 +45,20 @@ describe("coordination state bus", () => {
 		expect(getVerifierAttempt(second)).toBe(1);
 		expect(getEvalGate(first)?.reason).toBe("first");
 		expect(getEvalGate(second)).toBeUndefined();
+	});
+
+	it("a PASS receipt resets the attempt budget so a later edit can re-verify", () => {
+		const scope = verificationScope("/tmp/one", "a");
+		bumpVerifierAttempt(scope);
+		bumpVerifierAttempt(scope);
+		bumpVerifierAttempt(scope); // failure ceiling spent
+		expect(getVerifierAttempt(scope)).toBe(3);
+		setVerifierReceipt({ status: "PASS", contractFingerprint: "a", workspaceManifestHash: "h", results: [], attempt: 3, version: 3, createdAt: new Date().toISOString() } as VerifierReceipt, scope);
+		expect(getVerifierAttempt(scope)).toBe(0);
+		// A FAIL receipt leaves the budget alone — only PASS closes it.
+		setVerifierReceipt({ status: "FAIL", contractFingerprint: "a", workspaceManifestHash: "h", results: [], attempt: 1, version: 3, createdAt: new Date().toISOString() } as VerifierReceipt, scope);
+		expect(getVerifierAttempt(scope)).toBe(0);
+		bumpVerifierAttempt(scope);
+		expect(getVerifierAttempt(scope)).toBe(1);
 	});
 });
