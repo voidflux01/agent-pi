@@ -20,7 +20,7 @@ import { canComplete } from "./lib/verifier-runtime.ts";
 import { runAcceptanceVerifier } from "./lib/isolated-verifier.ts";
 import { bindAcceptanceContract } from "./lib/execution-contract.ts";
 import { buildWorkspaceManifest } from "./lib/workspace-manifest.ts";
-import { DEFAULT_VERIFIER_ATTEMPTS } from "./lib/verification-policy.ts";
+import { verifierAttemptLimit, recordVerifierExhaustion } from "./lib/verification-policy.ts";
 import { createOrchestrationRun } from "./lib/orchestration-run.ts";
 import { coordinationState } from "./lib/coordination-state.ts";
 import { setEvalGate } from "./lib/coordination-state.ts";
@@ -185,9 +185,11 @@ export default function(pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: "Verification blocked: previous findings remain and the workspace is unchanged since that audit, so re-running would only repeat it. Two ways forward: (1) repair the findings in the workspace, then retry; (2) if a finding is not repairable by code — an unverifiable or ambiguous acceptance criterion — go back to the user, correct the acceptance contract, and re-run verification against the corrected contract (a changed contract starts a fresh attempt budget). Do not output done:true." }], details: { status: "BLOCKED", completionAllowed: false, reason: "workspace unchanged since previous non-PASS verification", receipt: previousReceipt } };
 			}
 			const previousAttempt = getVerifierAttempt(scope);
-			if (previousAttempt >= DEFAULT_VERIFIER_ATTEMPTS) {
+			const attemptLimit = verifierAttemptLimit();
+			if (previousAttempt >= attemptLimit) {
+				recordVerifierExhaustion();
 				syncVerifierWorkflowRun(cwd, "BLOCKED");
-				return { content: [{ type: "text", text: `Verification blocked: maximum ${DEFAULT_VERIFIER_ATTEMPTS} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt: previousAttempt } };
+				return { content: [{ type: "text", text: `Verification blocked: maximum ${attemptLimit} attempts reached. Do not output done:true; report done:false with the exact blocker.` }], details: { status: "BLOCKED", completionAllowed: false, attempt: previousAttempt } };
 			}
 			const attempt = bumpVerifierAttempt(scope);
 			// Re-verification rounds against the same contract get a narrowed delta

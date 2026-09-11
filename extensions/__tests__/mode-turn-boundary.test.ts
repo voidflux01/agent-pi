@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import modeCycler from "../mode-cycler.ts";
 import { coordinationState, setCoordinationMode } from "../lib/coordination-state.ts";
 import { markPlanApproved, markSpecApproved, resetApprovals } from "../lib/approval-gate.ts";
-import { NORMAL_RECON_LIMIT } from "../lib/normal-escalation.ts";
+import { NORMAL_RECON_LIMIT, NORMAL_RECON_BLOCK_LIMIT } from "../lib/normal-escalation.ts";
 
 function registerModeTool() {
 	let tool: any;
@@ -106,7 +106,7 @@ describe("set_mode turn boundary", () => {
 		};
 		modeCycler(pi);
 
-		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
+		for (let i = 0; i < NORMAL_RECON_BLOCK_LIMIT - 1; i++) {
 			const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "bash", input: { command: "rg -n TODO ." } }, {})));
 			expect(result.every((r) => !r || r.block !== true)).toBe(true);
 		}
@@ -134,7 +134,7 @@ describe("set_mode turn boundary", () => {
 
 		for (const mode of ["PLAN", "SPEC"]) {
 			await modeTools[0].execute("mode-recon", { mode }, undefined, undefined, { abort: vi.fn() });
-			for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) {
+			for (let i = 0; i < NORMAL_RECON_BLOCK_LIMIT - 1; i++) {
 				const result = await Promise.all(toolCallHandlers.map((h) => h({ toolName: "read", input: { path: "src/a.ts" } }, {})));
 				expect(result.every((r) => !r || r.block !== true)).toBe(true);
 			}
@@ -253,5 +253,111 @@ describe("set_mode turn boundary", () => {
 
 		const later = await Promise.all(toolResultHandlers.map((h) => h({ toolName: "grep", input: { query: "term-final" }, content, isError: false }, {})));
 		expect(later.every((r) => !JSON.stringify(r?.content ?? "").includes("advisory"))).toBe(true);
+	});
+
+	it("lowers the advisory threshold for the next burst after a scout pick", async () => {
+		const { handlers } = registerModeTool();
+		const advisoryOnResult = async (): Promise<boolean> => {
+			const r = await handlers.tool_result({ toolName: "read", content: [{ type: "text", text: "m" }], isError: false }, {});
+			return JSON.stringify(r?.content ?? "").includes("advisory");
+		};
+
+		// Burst 1: advisory fires at 4 reads, model picks a scout → soften 4 → 3.
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) await handlers.tool_call({ toolName: "read", input: { path: `a${i}` } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "a3" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
+		await handlers.tool_call({ toolName: "subagent_create", input: { name: "scout", task: "map" } }, {});
+		// The parent acts on the scout's report → resolved; the soften stays.
+		await handlers.tool_call({ toolName: "write", input: { path: "src/x.ts", content: "x" } }, {});
+
+		// Burst 2: the advisory now arrives one read earlier (soft = 3).
+		await handlers.tool_call({ toolName: "read", input: { path: "b0" } }, {});
+		expect(await advisoryOnResult()).toBe(false);
+		await handlers.tool_call({ toolName: "read", input: { path: "b1" } }, {});
+		expect(await advisoryOnResult()).toBe(false);
+		await handlers.tool_call({ toolName: "read", input: { path: "b2" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
+	});
+
+	it("raises the advisory threshold after the model acts without a scout", async () => {
+		const { handlers } = registerModeTool();
+		const advisoryOnResult = async (): Promise<boolean> => {
+			const r = await handlers.tool_result({ toolName: "read", content: [{ type: "text", text: "m" }], isError: false }, {});
+			return JSON.stringify(r?.content ?? "").includes("advisory");
+		};
+
+		// Burst 1: advisory at 4, model proceeds directly → harden 4 → 5.
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) await handlers.tool_call({ toolName: "read", input: { path: `a${i}` } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "a3" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
+		await handlers.tool_call({ toolName: "write", input: { path: "src/a.ts", content: "x" } }, {});
+
+		// Burst 2: advisory waits until the 5th read (soft = 5).
+		let firedAt = -1;
+		for (let i = 0; i < 5; i++) {
+			await handlers.tool_call({ toolName: "read", input: { path: `b${i}` } }, {});
+			if (await advisoryOnResult()) firedAt = i;
+		}
+		expect(firedAt).toBe(4);
+	});
+
+	it("stall tightens both thresholds after a hard block", async () => {
+		const { handlers } = registerModeTool();
+		const advisoryOnResult = async (): Promise<boolean> => {
+			const r = await handlers.tool_result({ toolName: "read", content: [{ type: "text", text: "m" }], isError: false }, {});
+			return JSON.stringify(r?.content ?? "").includes("advisory");
+		};
+
+		// Burst 1: advisory fires at 4, then 8 consecutive reads block → stall: soft 4 → 3, block 8 → 7.
+		let blockedCall: any = null;
+		for (let i = 0; i < NORMAL_RECON_BLOCK_LIMIT; i++) {
+			blockedCall = await handlers.tool_call({ toolName: "read", input: { path: `a${i}` } }, {});
+			if (i === NORMAL_RECON_LIMIT - 1) {
+				expect(await advisoryOnResult()).toBe(true); // drain the advisory queued at the soft threshold
+			}
+		}
+		expect(blockedCall?.block).toBe(true);
+		await handlers.tool_call({ toolName: "write", input: { path: "src/a.ts", content: "x" } }, {});
+
+		// Burst 2: advisory fires at 3 (soft = 3), block fires at 7 (block = 7).
+		let firedAt = -1;
+		let reblockAt = -1;
+		for (let i = 0; i < 7; i++) {
+			const r: any = await handlers.tool_call({ toolName: "read", input: { path: `b${i}` } }, {});
+			if (r?.block === true) reblockAt = i;
+			if ((await advisoryOnResult()) && firedAt === -1) firedAt = i;
+		}
+		expect(firedAt).toBe(2);
+		expect(reblockAt).toBe(6);
+	});
+
+	it("reverts the softened threshold when a scout is followed by re-exploration", async () => {
+		const { handlers } = registerModeTool();
+		const advisoryOnResult = async (): Promise<boolean> => {
+			const r = await handlers.tool_result({ toolName: "read", content: [{ type: "text", text: "m" }], isError: false }, {});
+			return JSON.stringify(r?.content ?? "").includes("advisory");
+		};
+
+		// Burst 1: advisory at 4, scout pick → soften 4 → 3.
+		for (let i = 0; i < NORMAL_RECON_LIMIT - 1; i++) await handlers.tool_call({ toolName: "read", input: { path: `a${i}` } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "a3" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
+		await handlers.tool_call({ toolName: "subagent_create", input: { name: "scout", task: "map" } }, {});
+
+		// Burst 2: the parent ignores the scout and re-explores to the lowered
+		// threshold (3) → the advisory fires again and the soften is undone (3 → 4).
+		await handlers.tool_call({ toolName: "read", input: { path: "b0" } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "b1" } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "b2" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
+
+		// A fresh request resets the burst; the threshold is back at 4.
+		await handlers.input({ type: "input", source: "interactive", text: "next request" }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "c0" } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "c1" } }, {});
+		await handlers.tool_call({ toolName: "read", input: { path: "c2" } }, {});
+		expect(await advisoryOnResult()).toBe(false);
+		await handlers.tool_call({ toolName: "read", input: { path: "c3" } }, {});
+		expect(await advisoryOnResult()).toBe(true);
 	});
 });

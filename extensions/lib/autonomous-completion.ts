@@ -3,7 +3,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AcceptanceContract } from "./execution-contract.ts";
 import { checkRequiredEvalBinding } from "./eval-sets.ts";
 import { runAcceptanceVerifier } from "./isolated-verifier.ts";
-import { DEFAULT_VERIFIER_ATTEMPTS } from "./verification-policy.ts";
+import { verifierAttemptLimit, recordVerifierExhaustion } from "./verification-policy.ts";
 import { decideIteration, loadIteration, recordIteration, type IterationDecision, type IterationFailure, type IterationObservation } from "./iteration-controller.ts";
 import { buildWorkspaceManifest, type WorkspaceManifest } from "./workspace-manifest.ts";
 import { canComplete, type VerifierReceipt } from "./verifier-runtime.ts";
@@ -202,7 +202,7 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 		const existing = stored?.contractFingerprint === contract.fingerprint ? stored : undefined;
 		if (canComplete(existing, contract, manifest.hash, evalGate) && existing) {
 			const observation = observeReceipt(existing, input, manifest);
-			const iteration = decideIteration({ observation, previous: loadIteration(cwd, contract.fingerprint), maxIterations: DEFAULT_VERIFIER_ATTEMPTS, repairAvailable: false, risk: input.risk });
+			const iteration = decideIteration({ observation, previous: loadIteration(cwd, contract.fingerprint), maxIterations: verifierAttemptLimit(), repairAvailable: false, risk: input.risk });
 			syncWorkflowRun(input, existing, iteration, runId);
 			if (!persistObservation(observation, cwd)) return withRunId({ allowed: false, status: "BLOCKED", reason: "iteration history unavailable", attempts: 0, receipt: existing, iteration });
 			return withRunId(iteration.action === "COMPLETE" ? { allowed: true, status: "PASS", receipt: existing, attempts: 0, iteration } : { allowed: false, status: "BLOCKED", reason: iteration.reason, receipt: existing, attempts: 0, iteration });
@@ -216,8 +216,9 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			return withRunId({ allowed: true, status: "PASS", reason: OVERRIDE_ALLOWED_REASON, attempts: getVerifierAttempt(scope), receipt: stored, iteration: { action: "COMPLETE", reason: OVERRIDE_ALLOWED_REASON, attempts: getVerifierAttempt(scope), requiresApproval: false } });
 		}
 		let attempts = getVerifierAttempt(scope);
+		const attemptLimit = verifierAttemptLimit();
 		let previousReport = existing?.verifier?.report;
-		while (attempts < DEFAULT_VERIFIER_ATTEMPTS) {
+		while (attempts < attemptLimit) {
 			if (input.signal?.aborted) {
 				blockWorkflowRun(input, runId, "Verification cancelled; resume workflow to retry");
 				return withRunId({ allowed: false, status: "BLOCKED", reason: "verification cancelled", attempts });
@@ -233,7 +234,7 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			try { upsertPersistedReport({ category: "eval", title: `Verifier attempt ${attempts}: ${result.receipt.status}`, summary: result.receipt.verifier?.summary || result.receipt.status, metadata: { mode: input.mode, contract: contract.fingerprint, scope, ...(runId ? { runId } : {}) } }); } catch { }
 			const observation = observeReceipt(result.receipt, input, manifest);
 			const previous = loadIteration(cwd, contract.fingerprint);
-			const iteration = decideIteration({ observation, previous, maxIterations: DEFAULT_VERIFIER_ATTEMPTS, repairAvailable: !!input.dispatchRepair, risk: input.risk });
+			const iteration = decideIteration({ observation, previous, maxIterations: attemptLimit, repairAvailable: !!input.dispatchRepair, risk: input.risk });
 			syncWorkflowRun(input, result.receipt, iteration, runId);
 			if (!persistObservation(observation, cwd)) {
 				blockWorkflowRun(input, runId, "Iteration history unavailable; resume workflow to retry");
@@ -247,6 +248,7 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			}
 			return withRunId({ allowed: false, status: iteration.action === "ESCALATE" ? "ESCALATE" : "BLOCKED", receipt: result.receipt, reason: iteration.reason, attempts, iteration });
 		}
-		return withRunId({ allowed: false, status: "BLOCKED", reason: "maximum attempts reached", attempts });
-	});
+			recordVerifierExhaustion();
+			return withRunId({ allowed: false, status: "BLOCKED", reason: "maximum attempts reached", attempts });
+		});
 }

@@ -32,7 +32,7 @@ import {
 	buildRestorationContent,
 	buildCycleMemoryInjection,
 } from "./lib/memory-cycle-helpers.ts";
-import { getProactiveCompactionPhase } from "./lib/context-gate.ts";
+import { getProactiveCompactionPhase, createContextTuner, applyContextFeedback, type ContextTuner } from "./lib/context-gate.ts";
 
 // ── Tool Parameters ──────────────────────────────────────────────────
 
@@ -149,13 +149,25 @@ export default function (pi: ExtensionAPI) {
 	// Flags prevent repeated injection within the same compaction cycle.
 	let prepInjected = false;      // true after 70% prep message sent
 	let compactInjected = false;   // true after 80% hard-stop message sent
+	// Session-scoped adaptive watermarks: post-compaction usage decides whether
+	// the next session should wrap up earlier or later.
+	let contextTuner: ContextTuner = createContextTuner();
+
+	// A new session starts with a fresh context budget; do not inherit another
+	// session's compaction tuning (base overhead differs per project/session).
+	pi.on("session_start", () => {
+		contextTuner = createContextTuner();
+	});
+	pi.on("session_before_switch", () => {
+		contextTuner = createContextTuner();
+	});
 
 	// ── Hook: before_agent_start — proactive compaction ──────────
 	// Fires before every agent turn. Checks context usage and injects
 	// messages to guide the LLM toward compaction before overflow.
 	pi.on("before_agent_start", async (_event, ctx) => {
 		const usage = ctx.getContextUsage();
-		const { phase, percent } = getProactiveCompactionPhase(usage?.percent ?? undefined);
+		const { phase, percent } = getProactiveCompactionPhase(usage?.percent ?? undefined, contextTuner);
 
 		if (phase === "compact" && !compactInjected) {
 			compactInjected = true;
@@ -287,6 +299,10 @@ export default function (pi: ExtensionAPI) {
 
 		const postUsage = ctx.getContextUsage();
 		const postPercent = postUsage?.percent ? Math.round(postUsage.percent) : 0;
+
+		// Adaptive feedback: one observation per compaction cycle. High residual
+		// usage → next cycle wraps up earlier; very low → it could have waited.
+		if (postUsage?.percent != null) applyContextFeedback(contextTuner, postPercent);
 
 		// When cycle_memory is driving compaction, skip the display card here —
 		// the cycle_memory onComplete handler shows a single clean card instead.

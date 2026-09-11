@@ -7,6 +7,10 @@ import {
 	getProactiveCompactionPhase,
 	PREP_THRESHOLD,
 	COMPACT_THRESHOLD,
+	createContextTuner,
+	applyContextFeedback,
+	tightenContextTuner,
+	loosenContextTuner,
 } from "../lib/context-gate.ts";
 
 describe("shouldWarnForCompaction", () => {
@@ -94,5 +98,70 @@ describe("threshold constants", () => {
 
 	it("COMPACT_THRESHOLD should be 80", () => {
 		expect(COMPACT_THRESHOLD).toBe(80);
+	});
+});
+
+describe("ContextTuner adaptive feedback", () => {
+	it("starts at the static defaults", () => {
+		expect(createContextTuner()).toEqual({ prep: PREP_THRESHOLD, compact: COMPACT_THRESHOLD });
+	});
+
+	it("tightens when a compaction leaves the session hot", () => {
+		const tuner = createContextTuner();
+		applyContextFeedback(tuner, 65);
+		expect(tuner).toEqual({ prep: 65, compact: 75 });
+		// Neutral band (31-60) is a no-op.
+		applyContextFeedback(tuner, 40);
+		expect(tuner).toEqual({ prep: 65, compact: 75 });
+	});
+
+	it("loosens when a compaction frees huge headroom", () => {
+		const tuner = createContextTuner();
+		applyContextFeedback(tuner, 25);
+		expect(tuner).toEqual({ prep: 75, compact: 85 });
+		// Band boundary: >60 tightens, 31-60 neutral, ≤30 loosens.
+		const t2 = createContextTuner();
+		applyContextFeedback(t2, 60);
+		expect(t2).toEqual({ prep: 70, compact: 80 });
+		applyContextFeedback(t2, 30);
+		expect(t2).toEqual({ prep: 75, compact: 85 });
+	});
+
+	it("clamps at safe floors and ceilings", () => {
+		const tight = createContextTuner();
+		for (let i = 0; i < 10; i++) tightenContextTuner(tight);
+		expect(tight.prep).toBe(50);
+		expect(tight.compact).toBe(60);
+
+		const loose = createContextTuner();
+		for (let i = 0; i < 10; i++) loosenContextTuner(loose);
+		expect(loose.prep).toBe(85);
+		expect(loose.compact).toBe(95);
+	});
+
+	it("keeps compact at least GAP above prep", () => {
+		const tight = { prep: 65, compact: 66 };
+		tightenContextTuner(tight);
+		expect(tight.prep).toBe(60);
+		expect(tight.compact).toBe(65);
+		expect(tight.compact - tight.prep).toBeGreaterThanOrEqual(5);
+
+		const loose = { prep: 80, compact: 80 };
+		loosenContextTuner(loose);
+		expect(loose.prep).toBe(85);
+		expect(loose.compact).toBe(90);
+		expect(loose.compact - loose.prep).toBeGreaterThanOrEqual(5);
+	});
+
+	it("phase checks honor a tuner while keeping defaults untouched", () => {
+		const tuner = { prep: 65, compact: 75 };
+		expect(getProactiveCompactionPhase(76, tuner).phase).toBe("compact");
+		expect(getProactiveCompactionPhase(70, tuner).phase).toBe("prep");
+		expect(getProactiveCompactionPhase(60, tuner).phase).toBe("ok");
+		expect(shouldWarnForCompaction(70, tuner).level).toBe("warn");
+		expect(shouldWarnForCompaction(60, tuner).level).toBe("ok");
+		// Static behavior unchanged when no tuner is supplied.
+		expect(getProactiveCompactionPhase(72).phase).toBe("prep");
+		expect(shouldWarnForCompaction(72).level).toBe("warn");
 	});
 });

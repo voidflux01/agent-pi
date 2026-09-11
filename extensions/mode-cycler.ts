@@ -15,7 +15,8 @@ import { coordinationState, setCoordinationMode, type ModeChangeUi } from "./lib
 import { approvalStateForMode, decideApprovalGate, resetApprovalForMode, resetApprovals } from "./lib/approval-gate.ts";
 import { writeFileSync } from "fs";
 import { showBanner, isBannerVisible } from "./agent-banner.ts";
-import { createNormalEscalationState, reconEscalationAdvisory, reconEscalationReason, recordNormalToolCall, resetNormalEscalation } from "./lib/normal-escalation.ts";
+import { createNormalEscalationState, createNormalTuner, hardenTuner, isNormalReconCall, isScoutDispatch, reconEscalationAdvisory, reconEscalationReason, recordNormalToolCall, resetNormalEscalation, softenTuner, stallTuner } from "./lib/normal-escalation.ts";
+import { resetVerifierTuner } from "./lib/verification-policy.ts";
 import { recordBlockedToolCall } from "./orchestration-tool-audit.ts";
 import { asUiTheme } from "./lib/tui/theme.ts";
 import { toolCallText } from "./lib/tui/tool-render.ts";
@@ -45,6 +46,11 @@ export default function(pi: ExtensionAPI) {
 	setCoordinationMode("NORMAL");
 	installPinnedToolSurface(pi as unknown as Parameters<typeof installPinnedToolSurface>[0]);
 	const normalEscalationState = createNormalEscalationState();
+	let normalTuner = createNormalTuner();
+	/** An advisory was issued; the model's next action decides how the tuner moves. */
+	let advisoryFeedbackPending = false;
+	/** A scout followed the advisory; if the parent re-explores to the threshold again, its RESULT didn't resolve the question and the soften is reverted. */
+	let scoutResolutionPending = false;
 
 
 	function updateWidgets(mode: Mode, ctx: ExtensionContext) {
@@ -114,6 +120,10 @@ export default function(pi: ExtensionAPI) {
 			resetApprovalForMode(mode);
 			resetNormalEscalation(normalEscalationState);
 			pendingEscalationAdvisory = null;
+			normalTuner = createNormalTuner();
+			advisoryFeedbackPending = false;
+			scoutResolutionPending = false;
+			resetVerifierTuner();
 		}
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
 			setMode(next, nextCtx || ctx);
@@ -234,6 +244,22 @@ export default function(pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (process.env.PI_SUBAGENT === "1") return { block: false };
 		const mode = coordinationState().mode;
+		// Adaptive feedback: the last advisory resolved into either a scout pick
+		// (nudge earlier next time) or an action without one (nudge was noise).
+		if (advisoryFeedbackPending) {
+			if (isScoutDispatch(event.toolName, event.input)) {
+				softenTuner(normalTuner);
+				advisoryFeedbackPending = false;
+				scoutResolutionPending = true;
+			} else if (!isNormalReconCall(event.toolName, event.input)) {
+				hardenTuner(normalTuner);
+				advisoryFeedbackPending = false;
+			}
+		}
+		if (scoutResolutionPending && !isScoutDispatch(event.toolName, event.input) && !isNormalReconCall(event.toolName, event.input)) {
+			// The parent acted without re-exploring: the scout resolved the question, keep the soften.
+			scoutResolutionPending = false;
+		}
 		let advisory: string | null = null;
 		if (mode !== "NORMAL" && mode !== "PLAN" && mode !== "SPEC") {
 			resetNormalEscalation(normalEscalationState);
@@ -243,15 +269,27 @@ export default function(pi: ExtensionAPI) {
 			// Do not carry pre-approval pressure into the unlocked phase.
 			resetNormalEscalation(normalEscalationState);
 		} else {
-			const escalation = recordNormalToolCall(normalEscalationState, event.toolName, event.input);
+			const escalation = recordNormalToolCall(normalEscalationState, normalTuner, event.toolName, event.input);
 			if (escalation.block) {
+				stallTuner(normalTuner);
+				advisoryFeedbackPending = false;
+				scoutResolutionPending = false;
 				const reason = reconEscalationReason(mode, escalation.count);
 				recordBlockedToolCall({ toolCallId: event.toolCallId, toolName: event.toolName, category: "normal_escalation", reason, context: ctx });
 				return { block: true, reason };
 			}
 			// Soft nudge, not a gate: hold it locally so it is queued only for a call
 			// that actually runs and produces its own result.
-			if (escalation.advisory) advisory = reconEscalationAdvisory(mode, escalation.count);
+			if (escalation.advisory) {
+				if (scoutResolutionPending) {
+					// A scout followed the last advisory, yet the parent is re-exploring
+					// to the threshold again: the softened threshold didn't pay off — undo it.
+					hardenTuner(normalTuner);
+					scoutResolutionPending = false;
+				}
+				advisory = reconEscalationAdvisory(mode, escalation.count);
+				advisoryFeedbackPending = true;
+			}
 		}
 		const decision = decideApprovalGate({
 			mode,
@@ -286,6 +324,8 @@ export default function(pi: ExtensionAPI) {
 		if (event.source === "interactive" || event.source === "rpc" || event.source === "extension") {
 			resetNormalEscalation(normalEscalationState);
 			pendingEscalationAdvisory = null;
+			advisoryFeedbackPending = false;
+			scoutResolutionPending = false;
 			currentObjective = "text" in event && typeof event.text === "string" ? event.text.slice(0, 4000) : "";
 		}
 	});
@@ -309,6 +349,10 @@ export default function(pi: ExtensionAPI) {
 		midRunSystemPrompt = null;
 		currentObjective = "";
 		pendingEscalationAdvisory = null;
+		advisoryFeedbackPending = false;
+		scoutResolutionPending = false;
+		normalTuner = createNormalTuner();
+		resetVerifierTuner();
 		resetApprovals();
 		resetNormalEscalation(normalEscalationState);
 		(globalThis as any).__piSetMode = (next: Mode, nextCtx?: ExtensionContext) => {
@@ -330,6 +374,10 @@ export default function(pi: ExtensionAPI) {
 		// provider-prompt rewrite from the session that was left behind.
 		resetNormalEscalation(normalEscalationState);
 		pendingEscalationAdvisory = null;
+		advisoryFeedbackPending = false;
+		scoutResolutionPending = false;
+		normalTuner = createNormalTuner();
+		resetVerifierTuner();
 		midRunSystemPrompt = null;
 		resetApprovals();
 		// Match session_start: a new session starts in NORMAL. This also gives

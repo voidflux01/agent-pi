@@ -4,25 +4,64 @@
 import { isReconTool } from "./tool-classification.ts";
 import { isReconBash } from "./tool-invocation.ts";
 
-export const NORMAL_RECON_LIMIT = 8;
+/** Soft nudge threshold: aligns with the prompt's "3-5 focused inspection calls" rule. */
+export const NORMAL_RECON_LIMIT = 4;
+/** Hard stop ceiling: restores the pre-2026-09 consecutive-count block. */
+export const NORMAL_RECON_BLOCK_LIMIT = 8;
+
+/** Session-scoped adaptive thresholds, reset on mode/session change, never on a request burst. */
+export interface NormalTuner {
+	/** Advisory threshold: lowered when the model picks a scout, raised when the nudge was noise. */
+	soft: number;
+	/** Hard stall threshold: lowered only when the block actually fires. */
+	block: number;
+}
+
+export const TUNER_SOFT_MIN = 2;
+export const TUNER_BLOCK_MIN = 4;
+export const TUNER_BLOCK_MAX = 8;
+
+export function createNormalTuner(): NormalTuner {
+	return { soft: NORMAL_RECON_LIMIT, block: NORMAL_RECON_BLOCK_LIMIT };
+}
+
+/** The model chose a scout after an advisory → nudge earlier next burst. */
+export function softenTuner(t: NormalTuner): void {
+	t.soft = Math.max(TUNER_SOFT_MIN, t.soft - 1);
+}
+
+/** The model acted without a scout after an advisory → the nudge was noise, fire later. Never above the block threshold. */
+export function hardenTuner(t: NormalTuner): void {
+	t.soft = Math.min(t.block, t.soft + 1);
+}
+
+/** A stale read loop hit the hard block → both thresholds tighten so the next burst gives up earlier. */
+export function stallTuner(t: NormalTuner): void {
+	t.block = Math.max(TUNER_BLOCK_MIN, t.block - 1);
+	t.soft = Math.max(TUNER_SOFT_MIN, Math.min(t.soft, t.block) - 1);
+}
+
+/** True when a tool call dispatches a scout (the actionable follow-up to an advisory). */
+export function isScoutDispatch(toolName: string, args?: unknown): boolean {
+	if (toolName === "subagent_create") return (args as any)?.name === "scout";
+	if (toolName === "subagent_create_batch") {
+		const agents = (args as any)?.agents;
+		return Array.isArray(agents) && agents.some((a: any) => a?.name === "scout");
+	}
+	return false;
+}
 
 export interface NormalEscalationState {
 	consecutiveReconCalls: number;
-	totalReconCalls: number;
-	lastReconFingerprint: string | null;
-	sameTargetReconCalls: number;
 	advisoryIssued: boolean;
 }
 
 export function createNormalEscalationState(): NormalEscalationState {
-	return { consecutiveReconCalls: 0, totalReconCalls: 0, lastReconFingerprint: null, sameTargetReconCalls: 0, advisoryIssued: false };
+	return { consecutiveReconCalls: 0, advisoryIssued: false };
 }
 
 export function resetNormalEscalation(state: NormalEscalationState): void {
 	state.consecutiveReconCalls = 0;
-	state.totalReconCalls = 0;
-	state.lastReconFingerprint = null;
-	state.sameTargetReconCalls = 0;
 	state.advisoryIssued = false;
 }
 
@@ -37,54 +76,31 @@ export function isNormalReconCall(toolName: string, args?: unknown): boolean {
 	return isReconBash(args);
 }
 
-function stableValue(value: unknown): string {
-	if (value == null) return "";
-	if (typeof value === "string") return value.replace(/\s+/g, " ").trim();
-	if (typeof value === "number" || typeof value === "boolean") return String(value);
-	if (Array.isArray(value)) return value.map(stableValue).join(",");
-	if (typeof value === "object") {
-		return Object.entries(value as Record<string, unknown>)
-			.filter(([key]) => /^(?:path|file|file_path|query|pattern|glob|command|cmd|script|cwd|directory|root|line|offset|limit)$/i.test(key))
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([key, item]) => `${key}=${stableValue(item)}`)
-			.join(";");
-	}
-	return String(value);
-}
-
-/** Stable, bounded identity for the repository target being inspected. */
-export function reconFingerprint(toolName: string, args?: unknown): string {
-	return `${toolName.toLowerCase()}:${stableValue(args).slice(0, 240)}`;
-}
-
 /**
- * Record one reconnaissance call. New targets remain available after the soft
- * threshold; only a repeated target is blocked as a stale exploration loop.
+ * Record one reconnaissance call. Crossing the soft limit issues the advisory
+ * once; crossing the hard ceiling blocks a stalled read-only run regardless of
+ * whether the target changed.
  */
 export function recordNormalToolCall(
 	state: NormalEscalationState,
+	tuner: NormalTuner,
 	toolName: string,
 	args?: unknown,
-): { block: boolean; count: number; advisory: boolean; fingerprint: string } {
+): { block: boolean; count: number; advisory: boolean } {
 	if (!isNormalReconCall(toolName, args)) {
 		resetNormalEscalation(state);
-		return { block: false, count: 0, advisory: false, fingerprint: "" };
+		return { block: false, count: 0, advisory: false };
 	}
 
-	const fingerprint = reconFingerprint(toolName, args);
 	state.consecutiveReconCalls++;
-	state.totalReconCalls++;
-	if (state.lastReconFingerprint === fingerprint) state.sameTargetReconCalls++;
-	else state.sameTargetReconCalls = 1;
-	state.lastReconFingerprint = fingerprint;
-	const advisory = state.totalReconCalls >= NORMAL_RECON_LIMIT && !state.advisoryIssued;
+	const advisory = state.consecutiveReconCalls >= tuner.soft && !state.advisoryIssued;
 	state.advisoryIssued ||= advisory;
-	const block = state.totalReconCalls >= NORMAL_RECON_LIMIT && state.sameTargetReconCalls >= 2;
-	return { block, count: state.consecutiveReconCalls, advisory, fingerprint };
+	const block = state.consecutiveReconCalls >= tuner.block;
+	return { block, count: state.consecutiveReconCalls, advisory };
 }
 
 export function normalEscalationReason(count: number): string {
-	return `The same reconnaissance target has been repeated after the soft threshold (${count} calls). Dispatch one bounded read-only SCOUT with subagent_create (name: "scout"), or stop and report the verified terminal result. SCOUT output is evidence, not completion proof; continue in NORMAL if it resolves the uncertainty.`;
+	return `${count} consecutive read-only inspection calls without a terminal result. Dispatch one bounded read-only SCOUT with subagent_create (name: "scout"), or stop and report the verified terminal result. SCOUT output is evidence, not completion proof; continue in NORMAL if it resolves the uncertainty.`;
 }
 
 /**
@@ -93,11 +109,11 @@ export function normalEscalationReason(count: number): string {
  */
 export function reconEscalationAdvisory(mode: string, count: number): string {
 	const normalized = String(mode || "NORMAL").toUpperCase();
-	return `${normalized} advisory (${count} read-only inspection calls): if the context is still unfamiliar — a multi-file area, an unclear call chain, or missing patterns — dispatch one bounded read-only SCOUT with subagent_create (name: "scout"). SCOUT output is evidence, not completion proof. Continue directly if you already have what you need.`;
+	return `${normalized} advisory (${count} read-only inspection calls): do not open another read-only call. Either the context is resolved — report the verified terminal result and proceed — or it is not — dispatch one bounded read-only SCOUT with subagent_create (name: "scout") for an independent look. SCOUT output is evidence, not completion proof.`;
 }
 
 export function reconEscalationReason(mode: string, count: number): string {
 	const normalized = String(mode || "NORMAL").toUpperCase();
 	if (normalized === "NORMAL") return normalEscalationReason(count);
-	return `${normalized} escalation: the same reconnaissance target has been repeated after the soft threshold (${count} calls). Dispatch one fresh bounded read-only SCOUT with subagent_create (name: "scout"), or stop and report the verified terminal result. Do not treat SCOUT output as completion proof.`;
+	return `${normalized} escalation: ${count} consecutive read-only inspection calls without a terminal result. Dispatch one fresh bounded read-only SCOUT with subagent_create (name: "scout"), or stop and report the verified terminal result. Do not treat SCOUT output as completion proof.`;
 }
