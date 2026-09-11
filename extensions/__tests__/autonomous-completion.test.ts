@@ -6,6 +6,7 @@ import { bindAcceptanceContract } from "../lib/execution-contract.ts";
 import { buildWorkspaceManifest } from "../lib/workspace-manifest.ts";
 import { resetExecutionVerification } from "../lib/coordination-state.ts";
 import { builderRepairDispatcher, runAutonomousCompletion } from "../lib/autonomous-completion.ts";
+import type { VerifierReceipt } from "../lib/verifier-runtime.ts";
 import { grantCompletionOverride } from "../lib/completion-override.ts";
 import { DEFAULT_VERIFIER_ATTEMPTS } from "../lib/verification-policy.ts";
 
@@ -132,5 +133,56 @@ describe("autonomous completion loop", () => {
 		expect(result.allowed).toBe(true);
 		expect(result.reason).toContain("override");
 		expect(runVerifier).not.toHaveBeenCalled();
+	});
+});
+
+describe("repairBrief", () => {
+	const briefReceipt = (over: Partial<VerifierReceipt>) => ({
+		version: 3 as const,
+		status: "FAIL" as const,
+		contractFingerprint: "fp",
+		workspaceManifestHash: "hash",
+		results: [{ raw: "test", status: "fail" as const, note: "n" }],
+		attempt: 2,
+		verifier: {
+			runId: "child-run-uuid",
+			status: "FAIL" as const,
+			summary: "two tests fail",
+			report: {
+				status: "FAIL" as const,
+				summary: "two tests fail",
+				requirements: [{ requirement: "REQ", status: "FAIL", evidence: "test out" }],
+				contract: { status: "PASS", findings: [] },
+				review: {
+					status: "FAIL",
+					findings: [{ id: "REV-1", severity: "HIGH", category: "correctness", title: "null deref", location: "src/a.ts:5", evidence: "crashes on empty", recommendation: "guard the input" }],
+				},
+				behavior: { status: "FAIL", findings: ["test/a.test.ts: expected 2, got 1"], tests: { discovered: 2, executed: 2, failed: 1, skipped: 0 } },
+				quality: { status: "WARN", findings: [] },
+				security: { status: "PASS", findings: [] },
+				hard_blockers: [],
+				warnings: [],
+				coverage: ["src/a.ts"],
+				residual_uncertainty: ["integration suite unrunnable"],
+			},
+		},
+		createdAt: new Date().toISOString(),
+		...over,
+	});
+
+	it("points at the parent-run evidence file, not the child run id", async () => {
+		const { repairBrief } = await import("../lib/autonomous-completion.ts");
+		const brief = repairBrief(briefReceipt({}), "parent-run-uuid");
+		expect(brief).toContain(".context/evidence/parent-run-uuid/evidence.jsonl");
+		expect(brief).not.toContain(".context/evidence/child-run-uuid");
+	});
+
+	it("falls back to the verifier-<attempt> evidence dir and carries repair detail", async () => {
+		const { repairBrief } = await import("../lib/autonomous-completion.ts");
+		const brief = repairBrief(briefReceipt({}), undefined);
+		expect(brief).toContain(".context/evidence/verifier-2/evidence.jsonl");
+		expect(brief).toContain("expected 2, got 1");
+		expect(brief).toContain("guard the input");
+		expect(brief).not.toMatch(/undefined/);
 	});
 });

@@ -132,6 +132,38 @@ function persistObservation(observation: IterationObservation, cwd: string): boo
 	try { recordIteration(cwd, observation); return true; } catch { return false; }
 }
 
+/** Compact, token-bounded repair brief from the verifier receipt: findings and
+ *  failing requirements as one-liners plus an evidence pointer — never the full
+ *  parsed JSON, which costs 5-10KB+ of tokens every REPAIR round. The pointer
+ *  must mirror the evidence dir that isolated-verifier writes to
+ *  (.context/evidence/<parentRunId or verifier-<attempt>>/evidence.jsonl). */
+export function repairBrief(receipt: VerifierReceipt, parentRunId?: string): string {
+	const report = receipt.verifier?.report;
+	if (!report) return receipt.verifier?.summary || receipt.results.filter((r) => r.status !== "pass").map((r) => `${r.raw}: ${r.note || r.status}`).join("; ") || "verifier reported failure";
+	const clean = (items: string[]) => items.filter((item) => item && !/^none$/i.test(item.trim()));
+	const lines = [report.summary];
+	if (report.hard_blockers.length) lines.push("Hard blockers:", ...report.hard_blockers);
+	const failed = report.requirements.filter((item) => item.status !== "PASS").map((item) => `- [${item.status}] ${item.requirement}${item.evidence ? ` (evidence: ${item.evidence})` : ""}`);
+	if (failed.length) lines.push("Failing requirements:", ...failed);
+	const findings = report.review.findings
+		.filter((finding) => finding.severity === "CRITICAL" || finding.severity === "HIGH" || finding.severity === "MEDIUM")
+		.map((finding) => `- [${finding.severity}] ${finding.title} @ ${finding.location}${finding.evidence ? `: ${finding.evidence}` : ""}${finding.recommendation ? ` → ${finding.recommendation}` : ""}`);
+	if (findings.length) lines.push("Review findings:", ...findings.slice(0, 10));
+	for (const [label, items] of [
+		["Contract findings", report.contract.findings],
+		["Behavior findings", report.behavior.findings],
+		["Quality findings", report.quality.findings],
+		["Security findings", report.security.findings],
+	] as Array<[string, string[]]>) {
+		const values = clean(items).slice(0, 10);
+		if (values.length) lines.push(`${label}:`, ...values.map((item) => `- ${item}`));
+	}
+	const residual = report.residual_uncertainty ?? [];
+	if (residual.length) lines.push("Prior residual uncertainty (the next verifier round will re-check these):", ...residual.map((item) => `- ${item}`));
+	lines.push(`Full verifier report and evidence: .context/evidence/${parentRunId || `verifier-${receipt.attempt}`}/evidence.jsonl`);
+	return lines.join("\n");
+}
+
 const verificationLocks = new Map<string, Promise<void>>();
 
 async function withVerificationLock<T>(scope: string, run: () => Promise<T>): Promise<T> {
@@ -209,9 +241,8 @@ export async function runAutonomousCompletion(input: AutonomousCompletionOptions
 			}
 			if (iteration.action === "COMPLETE") return withRunId({ allowed: true, status: "PASS", receipt: result.receipt, attempts, iteration });
 			if (iteration.action === "REPAIR") {
-				const report = result.receipt.verifier?.report;
-				const feedback = report ? JSON.stringify(report, null, 2) : result.receipt.verifier?.summary || result.receipt.results.filter((r) => r.status !== "pass").map((r) => `${r.raw}: ${r.note || r.status}`).join("; ") || "verifier reported failure";
-				if (!await input.dispatchRepair!(`${contract.objective}\n\nComplete verifier report:\n${feedback}\n\nRepair every actionable finding in this report in one pass, prioritizing all CRITICAL/HIGH findings and then MEDIUM findings. Do not fix only first item. Preserve accepted contract, run local checks, and return RESULT listing each finding addressed. Do not request verify_execution again unless workspace changed.`, input.signal)) return withRunId({ allowed: false, status: "FAIL", receipt: result.receipt, reason: "repair worker failed", attempts, iteration });
+				const feedback = repairBrief(result.receipt, input.parentRunId);
+				if (!await input.dispatchRepair!(`${contract.objective}\n\nVerifier report (compact brief; the full report is at the evidence path below):\n${feedback}\n\nRepair every actionable finding in this brief in one pass, prioritizing all CRITICAL/HIGH findings and then MEDIUM findings. Read .context/evidence/evidence.jsonl at the path below for the full report when the brief lacks detail. Do not fix only first item. Preserve accepted contract, run local checks, and return RESULT listing each finding addressed. Do not request verify_execution again unless workspace changed.`, input.signal)) return withRunId({ allowed: false, status: "FAIL", receipt: result.receipt, reason: "repair worker failed", attempts, iteration });
 				continue;
 			}
 			return withRunId({ allowed: false, status: iteration.action === "ESCALATE" ? "ESCALATE" : "BLOCKED", receipt: result.receipt, reason: iteration.reason, attempts, iteration });

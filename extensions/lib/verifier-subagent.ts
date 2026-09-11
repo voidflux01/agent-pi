@@ -23,6 +23,10 @@ export interface VerifierSubagentReport {
 	security: { status: string; findings: string[] };
 	hard_blockers: string[];
 	warnings: string[];
+	/** Files/dirs actually examined and verification commands run this round; drives next-round narrowing. Optional for backward compat with stored reports. */
+	coverage?: string[];
+	/** Areas this round could NOT fully verify (unrunnable checks, unexamined modules, missing evidence); the next round must re-examine them with targeted evidence. */
+	residual_uncertainty?: string[];
 }
 
 export interface VerifierSubagentResult {
@@ -76,6 +80,7 @@ Perform all of these checks:
 4. Code review: inspect the changed code and call paths for correctness, edge cases, error handling, transactions, idempotency, concurrency, compatibility, and integration gaps.
 5. Quality and security review: inspect duplication, dead code, debug artifacts, maintainability, project conventions, secrets, unsafe input handling, permission problems, unrelated changes, generated artifacts, and risky workarounds. Specifically check hardcoded credentials and .env exposure, shell/command injection, path traversal, insecure file permissions, dependency advisories visible in lockfiles, and secrets in logs or generated artifacts.
 6. Scope discipline: review changed files against Scope. Do not scan .git, .pi, node_modules, session files, or unrelated areas. Runtime evidence is consolidated under .context/evidence; inspect relevant evidence.jsonl records when present, but treat them as supplemental runtime evidence.
+7. Record audit honesty: fill ## Coverage with the files/directories you actually examined and the verification commands you ran, and ## Residual Uncertainty with every area you could not fully verify (unrunnable checks, unexamined modules, missing evidence) and why. These two sections are the only record of what this round did and did not cover — the next round's bounded re-audit depends on them. Do not write "none" in Residual Uncertainty unless you genuinely verified everything material.
 
 Severity guidance: CRITICAL = exposed secrets, destructive or irreversible operations, or exploitable security vulnerabilities; HIGH = demonstrated correctness, regression, or security defects only; MEDIUM = edge cases, error-handling gaps, missing tests for new behavior, maintainability hazards; LOW = minor concerns. Missing or non-replayable runtime evidence is never HIGH by itself. Assign the highest defensible severity.
 
@@ -147,6 +152,12 @@ findings:
 
 ## Warnings
 - none or warning
+
+## Coverage
+- file or directory you actually examined, or verification command you ran
+
+## Residual Uncertainty
+- none, or area you could NOT fully verify (unrunnable command, unexamined module, missing evidence) with the reason
 ## END`;
 }
 
@@ -158,7 +169,7 @@ export function buildVerifierPrompt(contract: AcceptanceContract, contractText =
  *  same contract. Prior round conclusions are supplied as structured deltas so
  *  the fresh session audits only what changed — no full re-audit, no replayed
  *  conversation history. */
-function reVerificationPrompt(previous: VerifierSubagentReport): string {
+function reVerificationPrompt(previous: VerifierSubagentReport, attempt = 2): string {
 	const failedRequirements = previous.requirements
 		.filter((item) => item.status !== "PASS")
 		.map((item) => `- [${item.status}] ${item.requirement} (prior evidence: ${item.evidence || "none"})`)
@@ -168,7 +179,9 @@ function reVerificationPrompt(previous: VerifierSubagentReport): string {
 		.map((finding) => `- [${finding.severity}] ${finding.title} @ ${finding.location}${finding.evidence ? `: ${finding.evidence}` : ""}`)
 		.join("\n") || "- none";
 	const blockers = previous.hard_blockers.filter((item) => item && !/^none$/i.test(item)).join("; ") || "none";
-	return `Re-verification round: a previous audit of this same contract concluded ${previous.status} and remediation changes have since been applied. Prior-round outcome: ${previous.summary}
+	const coverage = (previous.coverage ?? []).map((item) => `- ${item}`).join("\n") || "- (prior round did not record coverage)";
+	const residual = (previous.residual_uncertainty ?? []).map((item) => `- ${item}`).join("\n") || "- none";
+	return `Verification round ${attempt} (re-verification): a previous audit of this same contract concluded ${previous.status} and remediation changes have since been applied. Prior-round outcome: ${previous.summary}
 
 Prior failing requirements:
 ${failedRequirements}
@@ -178,11 +191,19 @@ ${materialFindings}
 
 Prior hard blockers: ${blockers}
 
+Prior round already examined (do not re-scan these unless remediation touched them):
+${coverage}
+
+Prior residual uncertainty (areas the prior round could NOT fully verify — you MUST re-examine each with fresh evidence):
+${residual}
+
 Your audit is NARROWED accordingly:
-1. Re-verify each prior failing requirement against the current workspace with fresh evidence.
+1. Confirm each prior failing requirement and material finding is now RESOLVED with fresh evidence; mark REGRESSED if remediation made it worse, UNRESOLVED if it still fails. Report closures in the Requirements/REV sections.
 2. Review the remediation changes (git diff) for regressions and incomplete fixes.
-3. Do not re-litigate areas that already passed unless the remediation touched them; a light consistency check is enough there.
-4. Still return the complete required ## RESULT block in the full format: one ### REQ block per acceptance criterion (re-verified or carried with current evidence) and ### REV blocks only for new or remaining findings.`;
+3. Re-examine every residual-uncertainty item above with targeted evidence — this round exists to close the prior round's blind spots; areas it already cleared are out of scope.
+4. Report new findings only when they are regressions from remediation or newly discovered material issues inside the re-examined residual areas. Do not pad the report with re-statements of cleared items.
+5. If any residual-uncertainty item remains unverifiable and could hide a material defect, report BLOCKED — never convert unresolved residual uncertainty into PASS.
+6. Still return the complete required ## RESULT block in the full format: one ### REQ block per acceptance criterion (re-verified or carried with current evidence), ### REV blocks only for new, regressed, or remaining findings, and fill ## Coverage and ## Residual Uncertainty again so a further round (if any) can narrow even more.`;
 }
 
 const VERIFICATION_STATUSES = new Set(["PASS", "FAIL", "BLOCKED"]);
@@ -406,6 +427,8 @@ export function parseVerifierReportDetailed(output: string): VerifierReportParse
 			security: { status: securityStatus, findings: listAfterField(sections.Security!, "findings") },
 			hard_blockers: hardBlockers,
 			warnings,
+			coverage: sectionList(section(body, "Coverage")),
+			residual_uncertainty: sectionList(section(body, "Residual Uncertainty")),
 		},
 	};
 }
@@ -445,6 +468,7 @@ export async function runVerifierSubagent(input: {
 	model?: string;
 	contractText?: string;
 	previousReport?: VerifierSubagentReport;
+	attempt?: number;
 	pollTimeoutMs?: number;
 	signal?: AbortSignal;
 }): Promise<VerifierSubagentResult> {
@@ -482,7 +506,7 @@ export async function runVerifierSubagent(input: {
 	const initialPrompt = [
 		VERIFIER_SYSTEM_PROMPT,
 		...(input.previousReport && input.previousReport.status !== "PASS"
-			? [reVerificationPrompt(input.previousReport)]
+			? [reVerificationPrompt(input.previousReport, input.attempt)]
 			: []),
 		verifierPrompt(input.contract, input.contractText),
 		"Audit the workspace now and return the required shared Markdown ## RESULT block.",
@@ -514,7 +538,7 @@ export async function runVerifierSubagent(input: {
 			"Do not perform more audit work or use tools.",
 			"Return exactly one complete English Markdown block with ## RESULT and ## END; no prose outside it.",
 			"Required top-level fields: role: verifier, done: true, status: PASS|FAIL|BLOCKED, summary, findings, files, verification, key_errors, remaining.",
-			"Required sections: ## Requirements, ## Contract, ## Review, ## Behavior, ## Quality, ## Security, ## Hard Blockers, ## Warnings.",
+			"Required sections: ## Requirements, ## Contract, ## Review, ## Behavior, ## Quality, ## Security, ## Hard Blockers, ## Warnings, ## Coverage, ## Residual Uncertainty.",
 			"Requirements must contain one ### REQ-nnn per acceptance criterion. Every REQ must include non-empty status (PASS|FAIL|BLOCKED), requirement, evidence, and files.",
 			"Every REV must include severity, category, title, location, evidence, and recommendation. Behavior must include integer tests_discovered, tests_executed, tests_failed, tests_skipped.",
 			"If evidence is incomplete, use done: true and status: BLOCKED; never upgrade uncertainty to PASS.",

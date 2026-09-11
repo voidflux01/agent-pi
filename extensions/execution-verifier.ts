@@ -208,7 +208,7 @@ export default function(pi: ExtensionAPI) {
 			const verification = await runAcceptanceVerifier({
 				cwd,
 				contract,
-				contractText: suppliedContract || undefined,
+				contractText: attempt === 1 ? (suppliedContract || undefined) : undefined,
 				attempt,
 				parentRunId: orchestrationRun.runId,
 				mode: coordinationState().mode,

@@ -46,10 +46,36 @@ const contract = () => {
 	return bound;
 };
 
+const residualReport = (residual: string[]): VerifierSubagentReport => ({
+	...passReport(),
+	status: "PASS",
+	coverage: ["src/a.ts"],
+	residual_uncertainty: residual,
+});
+
 describe("verifier workspace guard", () => {
 	it("passes when the verifier left the workspace alone", async () => {
 		runVerifierSubagent.mockResolvedValue({ report: passReport(), runId: "verifier-1", outputText: "" });
 		const { receipt } = await runAcceptanceVerifier({ cwd: repo, contract: contract(), attempt: 1 });
+		expect(receipt?.status).toBe("PASS");
+	});
+
+	it("residual uncertainty is fine on a first-round PASS", async () => {
+		runVerifierSubagent.mockResolvedValue({ report: residualReport(["could not run the integration suite"]), runId: "verifier-1", outputText: "" });
+		const { receipt } = await runAcceptanceVerifier({ cwd: repo, contract: contract(), attempt: 1 });
+		expect(receipt?.status).toBe("PASS");
+	});
+
+	it("blocks a re-verification PASS that still carries residual uncertainty", async () => {
+		runVerifierSubagent.mockResolvedValue({ report: residualReport(["could not run the integration suite"]), runId: "verifier-2", outputText: "" });
+		const { receipt } = await runAcceptanceVerifier({ cwd: repo, contract: contract(), attempt: 2, previousReport: residualReport(["could not run the integration suite"]) });
+		expect(receipt?.status).toBe("BLOCKED");
+		expect(receipt?.verifier?.report?.hard_blockers.join(" ")).toContain("residual uncertainty");
+	});
+
+	it("keeps a re-verification PASS once residual uncertainty is cleared", async () => {
+		runVerifierSubagent.mockResolvedValue({ report: residualReport([]), runId: "verifier-2", outputText: "" });
+		const { receipt } = await runAcceptanceVerifier({ cwd: repo, contract: contract(), attempt: 2, previousReport: residualReport(["could not run the integration suite"]) });
 		expect(receipt?.status).toBe("PASS");
 	});
 

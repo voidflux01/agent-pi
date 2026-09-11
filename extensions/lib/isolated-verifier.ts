@@ -62,6 +62,7 @@ export async function runAcceptanceVerifier(input: {
 		mode: input.mode,
 		model: input.model,
 		contractText: input.contractText,
+		attempt: input.attempt,
 		previousReport: input.previousReport,
 		signal: input.signal,
 	});
@@ -77,6 +78,17 @@ export async function runAcceptanceVerifier(input: {
 	const blockingReviewFindings = report.review.findings.filter((finding) => finding.severity === "CRITICAL" || finding.severity === "HIGH");
 	if (blockingReviewFindings.length > 0) {
 		report.hard_blockers.push(...blockingReviewFindings.map((finding) => `${finding.id || "review"}: ${finding.title || finding.evidence || "high-severity review finding"}`));
+	}
+	// The re-verification round exists to close the prior round's residual blind
+	// spots (verifier-subagent §5: unverifiable material uncertainty must be
+	// BLOCKED, never laundered into PASS by a narrowed audit). A PASS that still
+	// carries residual uncertainty after an explicit re-check is self-
+	// contradictory — fail closed to BLOCKED. First rounds stay immune: a fresh
+	// audit can legitimately PASS with WARN-level residual gaps.
+	if (input.previousReport && report.status === "PASS" && (report.residual_uncertainty?.length ?? 0) > 0) {
+		report.status = "BLOCKED";
+		report.summary = `${report.summary} — residual uncertainty remained unclosed after re-verification`;
+		report.hard_blockers.push(`Prior residual uncertainty was not cleared: ${report.residual_uncertainty!.join("; ")}`);
 	}
 	// The verifier may run test/lint commands, and any toolchain may write
 	// build output. The manifest is a git-state fingerprint: only rows that
