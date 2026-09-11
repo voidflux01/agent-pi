@@ -22,17 +22,17 @@ These rules are mandatory. No verbal instruction, implicit context, or shorthand
 
 ### One remote — and it is PUBLIC
 - **`origin`** → `voidflux01/agent-pi` — PUBLIC repo. This is the only remote as of 2026-08-27 (the old private `ruizrica/pi-dev` working repo no longer exists).
-- Everything pushed lands on the public internet. Clean content only: no private dirs, no secrets, no `.github/workflows/`.
+- Everything pushed lands on the public internet. Clean content only: no private dirs, no secrets.
 - Before ANY push: verify visibility yourself with `gh api repos/OWNER/REPO --jq '.visibility'`, state that it is public, and get explicit user approval anyway.
 - If visibility cannot be determined, or the user approved a different (private) target than verified reality, REFUSE the push and tell the user.
 - NEVER push private content (`skills/private/`, `extensions/private/`, `commands/private/`). Ever. Public target or not.
 - When pushing, ALWAYS specify the remote by name. NEVER use bare `git push`.
 - A pre-push hook enforces private-content blocking at the git level as a safety net — do not rely on it, check yourself first.
 
-### No GitHub Actions on public repo
-- NEVER add `.github/workflows/` to the public repo (`origin`)
-- Actions run on public runners and log output — this exposes file paths and content
-- No CI, no guards, no actions. The pre-push hook is the guard, and it runs locally.
+### CI on the public repo
+- `.github/workflows/verify.yml` is tracked and runs on `origin` (push to main and improve/** branches, PRs, manual dispatch) — this is intended and current.
+- CI workflows must stay read-only and minimal: `permissions: contents: read`, no secrets or private paths printed to logs.
+- The pre-push hook is the guard against private content; it runs locally.
 
 ### Git commit policy
 - Only commit files directly related to the current task
@@ -44,13 +44,12 @@ These rules are mandatory. No verbal instruction, implicit context, or shorthand
 
 ## Sensitive Content
 
-This repository contains private/proprietary content:
+Only the `*/private/` subdirectories are private and must **NEVER** be pushed to any remote:
 - `skills/private/` — private skill definitions
-- `prompts/` — custom prompt templates  
-- `agents/` — agent configurations
-- `extensions/` — proprietary extension code
+- `extensions/private/` — proprietary extension code
+- `commands/private/` — private commands
 
-**NEVER** push any of this to a public repository. If in doubt, check repo visibility first.
+The main content of `agents/`, `extensions/`, and `prompts/` is already tracked on the public `origin` and is public. Keep proprietary material out of the repository entirely, or under a `*/private/` path.
 
 ---
 
