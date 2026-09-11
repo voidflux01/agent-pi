@@ -465,6 +465,35 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════
+# Step 11: Wire git hooks (private-content push guard)
+# ═══════════════════════════════════════════════════════════════════
+step "Wiring git hooks"
+
+if [ -f "$SCRIPT_DIR/.githooks/pre-push" ]; then
+    # Default private-content patterns (gitignored, local only). The guard
+    # fails closed, so a missing pattern file would block every public push.
+    PATTERNS_FILE="$SCRIPT_DIR/.private-patterns"
+    if [ ! -f "$PATTERNS_FILE" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            info "[dry-run] Would create ${DIM}$PATTERNS_FILE${NC} with default private paths"
+        else
+            printf 'skills/private/\nextensions/private/\ncommands/private/\n' > "$PATTERNS_FILE"
+            success "Created default .private-patterns ${DIM}(local only, gitignored)${NC}"
+        fi
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        info "[dry-run] Would run: ${DIM}git config core.hooksPath .githooks${NC} (in $SCRIPT_DIR)"
+    elif git -C "$SCRIPT_DIR" config core.hooksPath .githooks; then
+        success "pre-push guard wired ${DIM}(core.hooksPath = .githooks)${NC}"
+    else
+        fail "Unable to set core.hooksPath in $SCRIPT_DIR"
+        ERRORS=$((ERRORS + 1))
+    fi
+else
+    warn ".githooks/pre-push not found — pre-push guard not wired"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
 # Summary
 # ═══════════════════════════════════════════════════════════════════
 echo ""

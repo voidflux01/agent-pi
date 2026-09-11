@@ -17,8 +17,9 @@ fi
 PATTERNS_FILE="$(git rev-parse --show-toplevel)/.private-patterns"
 
 if [[ ! -f "$PATTERNS_FILE" ]]; then
-    echo "⚠️  Warning: .private-patterns file not found — skipping private content check"
-    exit 0
+    echo "🛑 BLOCKED — .private-patterns file not found, failing closed to protect the public repo." >&2
+    echo "    Run the repo installer (./install.sh) or create $PATTERNS_FILE with the private paths to guard." >&2
+    exit 1
 fi
 
 # ── Read patterns (skip comments and blank lines) ───────────────────
