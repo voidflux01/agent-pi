@@ -720,7 +720,7 @@ export async function runToolkitDispatch(opts: {
 						});
 						await stampHerdrPaneIdentityAsync(tab, { label: herdrLabel, agent: herdrAgent, state: "working" });
 						stopPaneWatch = watchHerdrPane(tab, notifyHerdrClosed);
-						const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
+						const sent = await sendCommandToPaneAsync(tab.paneId, ["/bin/sh", refs.scriptPath]);
 						const started = sent && await waitForLaunchStart(
 							refs.startedPath,
 							5_000,

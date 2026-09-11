@@ -344,7 +344,7 @@ async function runHerdr(spec: DispatchRuntimeSpec): Promise<DispatchRuntimeResul
 
 		spec.onProcess?.(paneProcess);
 		updateJournal(spec, { status: "running" });
-		const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", refs.scriptPath]);
+		const sent = await sendCommandToPaneAsync(tab.paneId, ["/bin/sh", refs.scriptPath]);
 		if (!sent) {
 			if (aborted || isAborted(spec)) return abortedResult();
 			return null;

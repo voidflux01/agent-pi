@@ -19,6 +19,7 @@
 // ABOUTME:  - pane run submits the launch command atomically; zsh's compinit
 // ABOUTME:    security prompt is disabled on created shells, and a marker-file
 // ABOUTME:    handshake verifies that the launch script actually started.
+// ABOUTME:  - the launch script is POSIX sh (pane shells may be bash, dash, or busybox ash)
 // ABOUTME:  - closing a split must `pane close` the child only — never the
 // ABOUTME:    parent's tab. Tab-created workers still close their own tab.
 // ABOUTME:  - herdr auto-updates; protocol/version are checked per call.
@@ -313,7 +314,7 @@ export async function reconnectHerdrPaneAsync(record: HerdrPaneRecord): Promise<
 	// A crashed parent may have left the old startup marker behind. Clear it
 	// before sending so the handshake proves this replacement actually ran.
 	rmSync(record.startedPath, { force: true });
-	const sent = await sendCommandToPaneAsync(tab.paneId, ["bash", record.scriptPath]);
+	const sent = await sendCommandToPaneAsync(tab.paneId, ["/bin/sh", record.scriptPath]);
 	if (!sent || !(await waitForLaunchStart(record.startedPath, 5_000))) {
 		await closeHerdrTabAsync(tab);
 		return { ok: false, reason: "replacement pane did not acknowledge launch" };
@@ -826,8 +827,9 @@ export function launchStartedPath(dir: string, id: string): string {
 	return join(dir, `herdr-launch-${id}.started`);
 }
 
-/** Write a bash script that runs the command and writes the exit code to a
- *  marker file. Returns paths. The script itself handles cwd and env. */
+/** Write a POSIX sh script that runs the command and writes the exit code to a
+ *  marker file. Returns paths. The script itself handles cwd and env. POSIX-only
+ *  so the pane shell (bash, dash, or busybox ash) can run it. */
 export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 	mkdirSync(opts.dir, { recursive: true });
 	const scriptPath = join(opts.dir, `herdr-launch-${opts.id}.sh`);
@@ -842,7 +844,7 @@ export function writeLaunchScript(opts: LaunchScriptOpts): LaunchScriptRefs {
 		.map(([k, v]) => `export ${k}=${shellQuote(v as string)}`)
 		.join("\n");
 	const quoted = opts.command.map(shellQuote).join(" ");
-	const script = `#!/bin/bash\n${envAssign}\ncd ${shellQuote(opts.cwd)} || exit 9\nprintf 'started\n' > ${shellQuote(startedPath)}\n${quoted}\nrc=$?\necho "$rc" > ${shellQuote(donePath)}\nexit $rc\n`;
+	const script = `#!/bin/sh\n${envAssign}\ncd ${shellQuote(opts.cwd)} || exit 9\nprintf 'started\n' > ${shellQuote(startedPath)}\n${quoted}\nrc=$?\necho "$rc" > ${shellQuote(donePath)}\nexit $rc\n`;
 	writeFileSync(scriptPath, script, "utf8");
 	return { scriptPath, donePath, startedPath };
 }
